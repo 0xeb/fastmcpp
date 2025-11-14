@@ -1,0 +1,196 @@
+#include <iostream>
+#include <thread>
+#include <atomic>
+#include <chrono>
+#include <httplib.h>
+#include "fastmcpp/server/sse_server.hpp"
+#include "fastmcpp/util/json.hpp"
+
+using fastmcpp::Json;
+using fastmcpp::server::SseServerWrapper;
+
+int main() {
+  // Create a simple echo handler
+  auto handler = [](const Json& request) -> Json {
+    Json response;
+    response["jsonrpc"] = "2.0";
+
+    if (request.contains("id")) {
+      response["id"] = request["id"];
+    }
+
+    if (request.contains("method")) {
+      std::string method = request["method"];
+      if (method == "echo") {
+        response["result"] = request.value("params", Json::object());
+      } else {
+        response["error"] = Json{
+          {"code", -32601},
+          {"message", "Method not found"}
+        };
+      }
+    }
+
+    return response;
+  };
+
+  // Start SSE server
+  int port = 18106; // Unique port
+  SseServerWrapper server(handler, "127.0.0.1", port, "/sse", "/messages");
+
+  if (!server.start()) {
+    std::cerr << "Failed to start SSE server\n";
+    return 1;
+  }
+
+  // Wait for server to be ready - give it more time
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+  std::cout << "Server started on port " << port << "\n";
+
+  // Test if server is listening: use streaming GET and immediately cancel
+  // to avoid waiting on an infinite SSE stream.
+  httplib::Client test_client("127.0.0.1", port);
+  test_client.set_connection_timeout(std::chrono::seconds(5));
+  test_client.set_read_timeout(std::chrono::seconds(5));
+  auto test_res = test_client.Get("/sse", [&](const char*, size_t) {
+    // Cancel after first chunk to verify readiness without blocking
+    return false;
+  });
+  if (!test_res) {
+    std::cerr << "Test connection failed: " << test_res.error() << "\n";
+    std::cerr << "Server may not be ready yet\n";
+  }
+
+  if (!server.running()) {
+    std::cerr << "Server not running after start\n";
+    return 1;
+  }
+
+  // Create HTTP clients: one dedicated to SSE stream, one for POST requests
+  httplib::Client sse_client("127.0.0.1", port);
+  sse_client.set_read_timeout(std::chrono::seconds(20));
+  sse_client.set_connection_timeout(std::chrono::seconds(10));
+
+  std::atomic<bool> sse_connected{false};
+  std::atomic<int> events_received{0};
+  Json received_event;
+  std::mutex event_mutex;
+
+  // Start SSE connection in background thread (retry a few times for robustness)
+  std::thread sse_thread([&]() {
+    auto sse_receiver = [&](const char* data, size_t len) {
+      sse_connected = true;
+      std::string chunk(data, len);
+
+      // Parse SSE format: "data: <json>\n\n"
+      if (chunk.find("data: ") == 0) {
+        size_t start = 6; // After "data: "
+        size_t end = chunk.find("\n\n");
+        if (end != std::string::npos) {
+          std::string json_str = chunk.substr(start, end - start);
+          try {
+            Json event = Json::parse(json_str);
+            {
+              std::lock_guard<std::mutex> lock(event_mutex);
+              received_event = event;
+              events_received++;
+            }
+          } catch (...) {
+            std::cerr << "Failed to parse SSE event: " << json_str << "\n";
+          }
+        }
+      }
+
+      return true; // Continue receiving
+    };
+
+    // Retry loop to establish SSE connection in flaky environments
+    for (int attempt = 0; attempt < 20 && !sse_connected; ++attempt) {
+      auto res = sse_client.Get("/sse", sse_receiver);
+      if (!res) {
+        std::cerr << "SSE GET request failed: " << res.error() << " (attempt " << (attempt+1) << ")\n";
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        continue;
+      }
+      if (res->status != 200) {
+        std::cerr << "SSE GET returned status: " << res->status << " (attempt " << (attempt+1) << ")\n";
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+      }
+    }
+  });
+
+  // Wait for SSE connection to establish (allow up to 5 seconds)
+  for (int i = 0; i < 500 && !sse_connected; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  if (!sse_connected) {
+    std::cerr << "SSE connection failed to establish\n";
+    server.stop();
+    if (sse_thread.joinable()) sse_thread.detach();
+    return 1;
+  }
+
+  // Send a message via POST
+  Json request;
+  request["jsonrpc"] = "2.0";
+  request["id"] = 1;
+  request["method"] = "echo";
+  request["params"] = Json{{"message", "Hello SSE"}};
+
+  httplib::Client post_client("127.0.0.1", port);
+  post_client.set_connection_timeout(std::chrono::seconds(10));
+  post_client.set_read_timeout(std::chrono::seconds(10));
+  auto post_res = post_client.Post("/messages", request.dump(), "application/json");
+
+  if (!post_res || post_res->status != 200) {
+    std::cerr << "POST request failed\n";
+    server.stop();
+    if (sse_thread.joinable()) sse_thread.detach();
+    return 1;
+  }
+
+  // Wait for SSE event
+  for (int i = 0; i < 200 && events_received == 0; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+
+  // Stop server to close SSE connection
+  server.stop();
+
+  if (sse_thread.joinable()) {
+    sse_thread.join();
+  }
+
+  // Verify we received the event
+  if (events_received == 0) {
+    std::cerr << "No events received via SSE\n";
+    return 1;
+  }
+
+  // Verify event content
+  {
+    std::lock_guard<std::mutex> lock(event_mutex);
+
+    if (!received_event.contains("result")) {
+      std::cerr << "Event missing 'result' field\n";
+      return 1;
+    }
+
+    auto result = received_event["result"];
+    if (!result.contains("message")) {
+      std::cerr << "Result missing 'message' field\n";
+      return 1;
+    }
+
+    std::string msg = result["message"];
+    if (msg != "Hello SSE") {
+      std::cerr << "Unexpected message: " << msg << "\n";
+      return 1;
+    }
+  }
+
+  std::cout << "SSE server test passed\n";
+  return 0;
+}
