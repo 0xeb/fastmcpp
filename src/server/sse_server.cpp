@@ -25,16 +25,24 @@ SseServerWrapper::~SseServerWrapper() {
 
 void SseServerWrapper::handle_sse_connection(httplib::DataSink& sink, std::shared_ptr<ConnectionState> conn) {
 
+  // Generate session ID for this connection
+  auto session_id = std::to_string(
+      std::chrono::system_clock::now().time_since_epoch().count()
+  );
+
   // Send initial comment to establish connection
   std::string welcome = ": SSE connection established\n\n";
   if (!sink.write(welcome.data(), welcome.size())) { conn->alive = false; return; }
 
-  // Send a small 'ready' data event so client stream callbacks fire immediately
-  const std::string ready_evt = std::string("data: ") + fastmcpp::Json({{"event","ready"}}).dump() + "\n\n";
-  if (!sink.write(ready_evt.data(), ready_evt.size())) { conn->alive = false; return; }
+  // Send MCP endpoint event with session ID (per MCP SSE protocol)
+  std::string endpoint_path = message_path_ + "?session_id=" + session_id;
+  std::string endpoint_evt = "event: endpoint\ndata: " + endpoint_path + "\n\n";
+  if (!sink.write(endpoint_evt.data(), endpoint_evt.size())) { conn->alive = false; return; }
 
   // Keep connection alive and send events
   auto last_heartbeat = std::chrono::steady_clock::now();
+  int heartbeat_counter = 0;
+
   while (running_) {
     std::unique_lock<std::mutex> lock(conn->m);
     // Wait for events on this connection or shutdown
@@ -62,12 +70,12 @@ void SseServerWrapper::handle_sse_connection(httplib::DataSink& sink, std::share
       last_heartbeat = std::chrono::steady_clock::now();
     }
 
-    // If idle, emit a heartbeat comment to keep intermediaries from buffering
+    // If idle, emit MCP heartbeat event (per MCP SSE protocol, every 15-30s recommended)
     auto now = std::chrono::steady_clock::now();
-    if (now - last_heartbeat > std::chrono::seconds(1)) {
+    if (now - last_heartbeat > std::chrono::seconds(15)) {
       lock.unlock();
-      const char* hb = ": keepalive\n\n";
-      if (!sink.write(hb, std::char_traits<char>::length(hb))) { conn->alive = false; return; }
+      std::string hb = "event: heartbeat\ndata: " + std::to_string(++heartbeat_counter) + "\n\n";
+      if (!sink.write(hb.data(), hb.size())) { conn->alive = false; return; }
       last_heartbeat = now;
       lock.lock();
     }

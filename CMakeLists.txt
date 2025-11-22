@@ -194,6 +194,15 @@ if(FASTMCPP_BUILD_TESTS)
     set_tests_properties(fastmcpp_sse_server PROPERTIES DISABLED TRUE)
   endif()
 
+  # MCP SSE format compliance test (regression test for GitHub Issue #1)
+  add_executable(fastmcpp_sse_mcp_format tests/server_sse_mcp_format.cpp)
+  target_link_libraries(fastmcpp_sse_mcp_format PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_sse_mcp_format COMMAND fastmcpp_sse_mcp_format)
+  # This test takes ~17 seconds; disabled by default
+  if(NOT FASTMCPP_ENABLE_STREAMING_TESTS)
+    set_tests_properties(fastmcpp_sse_mcp_format PROPERTIES DISABLED TRUE)
+  endif()
+
   # Advanced test suites (Task 3.4)
   add_executable(fastmcpp_tools_advanced tests/more/tools_advanced.cpp)
   target_link_libraries(fastmcpp_tools_advanced PRIVATE fastmcpp_core)
@@ -234,16 +243,16 @@ if(FASTMCPP_BUILD_TESTS)
     add_executable(fastmcpp_streaming_sse tests/streaming_sse.cpp)
     target_link_libraries(fastmcpp_streaming_sse PRIVATE fastmcpp_core)
     add_test(NAME fastmcpp_streaming_sse COMMAND fastmcpp_streaming_sse)
-    # Avoid port conflicts with other HTTP tests when running in parallel; disable if environment is unstable
-    set_tests_properties(fastmcpp_streaming_sse PROPERTIES RUN_SERIAL TRUE DISABLED TRUE)
+    # Avoid port conflicts with other HTTP tests when running in parallel; currently unstable on some hosts
+    set_tests_properties(fastmcpp_streaming_sse PROPERTIES RUN_SERIAL TRUE)
   endif()
 
   if(FASTMCPP_ENABLE_WS_STREAMING_TESTS)
     add_executable(fastmcpp_ws_streaming tests/ws_streaming.cpp)
     target_link_libraries(fastmcpp_ws_streaming PRIVATE fastmcpp_core)
     add_test(NAME fastmcpp_ws_streaming COMMAND fastmcpp_ws_streaming)
-    set_tests_properties(fastmcpp_ws_streaming PROPERTIES DISABLED TRUE)
-
+    # Test auto-skips if FASTMCPP_WS_URL is not set
+  
     if(FASTMCPP_ENABLE_LOCAL_WS_TEST)
       add_executable(fastmcpp_ws_streaming_local tests/ws_streaming_local.cpp)
       target_link_libraries(fastmcpp_ws_streaming_local PRIVATE fastmcpp_core)
@@ -305,11 +314,16 @@ if(FASTMCPP_BUILD_EXAMPLES)
   add_executable(fastmcpp_example_sse_robustness examples/sse_robustness.cpp)
   target_link_libraries(fastmcpp_example_sse_robustness PRIVATE fastmcpp_core)
 
+  # SSE Inspector Test - Long-running server for MCP Inspector testing
+  add_executable(fastmcpp_example_sse_inspector_test examples/sse_inspector_test.cpp)
+  target_link_libraries(fastmcpp_example_sse_inspector_test PRIVATE fastmcpp_core)
+
   # Streaming demo (SSE via GET). This demonstrates the client streaming API.
   add_executable(fastmcpp_example_streaming_demo examples/streaming_demo.cpp)
   target_link_libraries(fastmcpp_example_streaming_demo PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_example_streaming_demo COMMAND fastmcpp_example_streaming_demo)
-  set_tests_properties(fastmcpp_example_streaming_demo PROPERTIES DISABLED TRUE)
+  # Example is self-contained but can be flaky in constrained envs
+  set_tests_properties(fastmcpp_example_streaming_demo PROPERTIES RUN_SERIAL TRUE)
 
   # POST streaming demo (requires libcurl + option enabled)
   if(FASTMCPP_ENABLE_POST_STREAMING)

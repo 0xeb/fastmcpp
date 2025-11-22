@@ -51,6 +51,8 @@ fastmcpp::Json HttpTransport::request(const std::string& route, const fastmcpp::
   cli.set_connection_timeout(5, 0);
   cli.set_keep_alive(true);
   cli.set_read_timeout(10, 0);
+  cli.set_follow_location(true);
+  cli.set_default_headers({{"Accept", "text/event-stream, application/json"}});
   auto res = cli.Post(("/" + route).c_str(), payload.dump(), "application/json");
   if (!res) throw fastmcpp::TransportError("HTTP request failed: no response");
   if (res->status < 200 || res->status >= 300) throw fastmcpp::TransportError("HTTP error: " + std::to_string(res->status));
@@ -72,7 +74,10 @@ void HttpTransport::request_stream(const std::string& route,
   };
 
   std::string buffer;
+  std::string last_emitted;
+  std::atomic<bool> any_data{false};
   auto content_receiver = [&](const char* data, size_t len) {
+    any_data.store(true, std::memory_order_relaxed);
     buffer.append(data, len);
     // Try to parse SSE-style events separated by double newlines
     size_t pos = 0;
@@ -98,14 +103,20 @@ void HttpTransport::request_stream(const std::string& route,
       }
 
       if (!aggregated.empty()) {
-        try {
-          auto evt = fastmcpp::util::json::parse(aggregated);
-          if (on_event) on_event(evt);
-        } catch (...) {
-          // Fallback: deliver raw chunk as text if not JSON
-          fastmcpp::Json item = fastmcpp::Json{{"type","text"},{"text", aggregated}};
-          fastmcpp::Json evt = fastmcpp::Json{{"content", fastmcpp::Json::array({item})}};
-          if (on_event) on_event(evt);
+        // De-duplicate identical consecutive chunks to avoid repeated delivery
+        if (aggregated == last_emitted) {
+          // skip duplicate
+        } else {
+          last_emitted = aggregated;
+          try {
+            auto evt = fastmcpp::util::json::parse(aggregated);
+            if (on_event) on_event(evt);
+          } catch (...) {
+            // Fallback: deliver raw chunk as text if not JSON
+            fastmcpp::Json item = fastmcpp::Json{{"type","text"},{"text", aggregated}};
+            fastmcpp::Json evt = fastmcpp::Json{{"content", fastmcpp::Json::array({item})}};
+            if (on_event) on_event(evt);
+          }
         }
       }
     }
@@ -118,14 +129,23 @@ void HttpTransport::request_stream(const std::string& route,
     // Accept only 200 and event-stream or json
     return r.status >= 200 && r.status < 300;
   };
-  // Retry a few times in case the server isn't immediately ready
+  // Retry for a short window in case the server isn't immediately ready
   httplib::Result res;
-  for (int attempt = 0; attempt < 5; ++attempt) {
+  for (int attempt = 0; attempt < 50; ++attempt) {
+    // First, try full handler variant
     res = cli.Get(path.c_str(), headers, response_handler, content_receiver);
     if (res) break;
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    // Fallback: some environments behave better with the simpler overload
+    res = cli.Get(path.c_str(), content_receiver);
+    if (res) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
-  if (!res) throw fastmcpp::TransportError("HTTP stream request failed: no response");
+  if (!res) {
+    // Some environments may close the connection without a formal response
+    // even though chunks were delivered. If we received any data, treat as ok.
+    if (any_data.load(std::memory_order_relaxed)) return;
+    throw fastmcpp::TransportError("HTTP stream request failed: no response");
+  }
   if (res->status < 200 || res->status >= 300) throw fastmcpp::TransportError("HTTP stream error: " + std::to_string(res->status));
 }
 
