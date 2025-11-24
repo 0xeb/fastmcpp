@@ -308,12 +308,12 @@ void test_list_tools() {
 
     auto tools = c.list_tools();
 
-    assert(tools.size() == 3);
+    assert(tools.size() == 4);
     assert(tools[0].name == "add");
     assert(tools[0].description.value_or("") == "Add two numbers");
     assert(tools[1].name == "greet");
 
-    std::cout << "  [PASS] list_tools() returns 3 tools\n";
+    std::cout << "  [PASS] list_tools() returns 4 tools\n";
 }
 
 void test_list_tools_mcp() {
@@ -324,7 +324,7 @@ void test_list_tools_mcp() {
 
     auto result = c.list_tools_mcp();
 
-    assert(result.tools.size() == 3);
+    assert(result.tools.size() == 4);
     assert(!result.nextCursor.has_value());  // No pagination in this test
 
     std::cout << "  [PASS] list_tools_mcp() returns ListToolsResult\n";
@@ -401,7 +401,7 @@ void test_list_resources() {
 
     auto resources = c.list_resources();
 
-    assert(resources.size() == 2);
+    assert(resources.size() == 3);
     assert(resources[0].uri == "file:///readme.txt");
     assert(resources[0].name == "readme.txt");
     assert(resources[0].mimeType.value_or("") == "text/plain");
