@@ -17,6 +17,12 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         build_type: [Debug, Release]
+        include:
+          # ARM64 Linux builds
+          - os: ubuntu-24.04-arm
+            build_type: Debug
+          - os: ubuntu-24.04-arm
+            build_type: Release
 
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.os }} (${{ matrix.build_type }})
@@ -29,9 +35,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/_deps
-          key: deps-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
+          key: deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('CMakeLists.txt') }}
           restore-keys: |
-            deps-${{ runner.os }}-
+            deps-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Configure (Unix)
         if: runner.os != 'Windows'
