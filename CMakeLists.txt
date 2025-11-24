@@ -220,6 +220,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_client_transports PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_client_transports COMMAND fastmcpp_client_transports)
 
+  add_executable(fastmcpp_client_api tests/client_api.cpp)
+  target_link_libraries(fastmcpp_client_api PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_api COMMAND fastmcpp_client_api)
+
   add_executable(fastmcpp_server_middleware tests/server_middleware.cpp)
   target_link_libraries(fastmcpp_server_middleware PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_middleware COMMAND fastmcpp_server_middleware)
@@ -268,6 +272,9 @@ if(FASTMCPP_BUILD_EXAMPLES)
 
   add_executable(fastmcpp_example_client examples/client_quick_start.cpp)
   target_link_libraries(fastmcpp_example_client PRIVATE fastmcpp_core)
+
+  add_executable(fastmcpp_example_client_api examples/client_api.cpp)
+  target_link_libraries(fastmcpp_example_client_api PRIVATE fastmcpp_core)
 
   # Removed outdated server_toolmanager_handler example target (file no longer exists)
 
