@@ -1,12 +1,21 @@
-# fastmcpp
+<div align="center">
 
-High‑performance C++ implementation of the Model Context Protocol (MCP), with support for tools, resources, prompts, and multiple transport layers (STDIO, HTTP/SSE, WebSocket).
+<img src="logo.jpg" width="550" alt="fastmcpp logo">
 
-fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp) library, providing native performance for MCP servers and clients with a small, focused dependency set.
+**High-performance C++ implementation of the Model Context Protocol (MCP)**
 
-**Status:** Beta – core MCP features track the Python `fastmcp` reference, but the C++ test suite is intentionally much smaller than the Python one.
+[![CI](https://github.com/0xeb/fastmcpp/actions/workflows/ci.yml/badge.svg)](https://github.com/0xeb/fastmcpp/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/0xeb/fastmcpp.svg)](https://github.com/0xeb/fastmcpp/blob/main/LICENSE)
 
-**Current version:** 2.13.0. Python `fastmcp` remains the canonical source of truth for behavior and API; this C++ port is expected to follow it.
+</div>
+
+---
+
+fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp) library, providing native performance for MCP servers and clients with support for tools, resources, prompts, and multiple transport layers (STDIO, HTTP/SSE, WebSocket).
+
+**Status:** Beta – core MCP features track the Python `fastmcp` reference.
+
+**Current version:** 2.13.0
 
 ## Features
 
