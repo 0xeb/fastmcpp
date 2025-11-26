@@ -594,10 +594,12 @@ class Client {
       if (wrap_result && structured.contains("result")) {
         result.data = coerce_to_schema(it->second["properties"]["result"], structured["result"]);
       } else if (structured.contains("result")) {
-        result.data = coerce_to_schema(it->second.contains("properties") && it->second["properties"].contains("result")
-                                           ? it->second["properties"]["result"]
-                                           : fastmcpp::Json::object(),
-                                       structured["result"]);
+        if (it != tool_output_schemas_.end() &&
+            it->second.contains("properties") && it->second["properties"].contains("result")) {
+          result.data = coerce_to_schema(it->second["properties"]["result"], structured["result"]);
+        } else {
+          result.data = structured["result"];
+        }
       } else {
         if (it != tool_output_schemas_.end()) {
           result.data = coerce_to_schema(it->second, structured);
