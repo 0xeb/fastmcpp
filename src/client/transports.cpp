@@ -360,7 +360,7 @@ fastmcpp::Json StdioTransport::request(const std::string& route, const fastmcpp:
                   true);
 
   // Write single-line JSON-RPC request
-  nlohmann::json request = {
+  fastmcpp::Json request = {
       {"jsonrpc", "2.0"},
       {"id", 1},
       {"method", route},

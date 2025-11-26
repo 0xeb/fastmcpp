@@ -31,6 +31,7 @@ add_library(fastmcpp_core
     src/client/client.cpp
     src/client/transports.cpp
     src/util/json_schema.cpp
+    src/util/json_schema_type.cpp
     src/settings.cpp
 )
 target_include_directories(fastmcpp_core PUBLIC
@@ -128,15 +129,15 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcp_json_types PRIVATE fastmcpp_core)
   add_test(NAME fastmcp_json_types COMMAND fastmcp_json_types)
 
-  add_executable(fastmcpp_resources tests/resources.cpp)
+  add_executable(fastmcpp_resources tests/resources/basic.cpp)
   target_link_libraries(fastmcpp_resources PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_resources COMMAND fastmcpp_resources)
 
-  add_executable(fastmcpp_prompts tests/prompts.cpp)
+  add_executable(fastmcpp_prompts tests/prompts/basic.cpp)
   target_link_libraries(fastmcpp_prompts PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_prompts COMMAND fastmcpp_prompts)
 
-  add_executable(fastmcpp_tools tests/tools.cpp)
+  add_executable(fastmcpp_tools tests/tools/basic.cpp)
   target_link_libraries(fastmcpp_tools PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_tools COMMAND fastmcpp_tools)
 
@@ -146,15 +147,27 @@ if(FASTMCPP_BUILD_TESTS)
 
   add_test(NAME fastmcpp_cli_sum COMMAND fastmcpp client sum 2 3)
 
-  add_executable(fastmcpp_http_integration tests/http_integration.cpp)
+  add_executable(fastmcpp_http_integration tests/server/http_integration.cpp)
   target_link_libraries(fastmcpp_http_integration PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_http_integration COMMAND fastmcpp_http_integration)
-  
-  add_executable(fastmcpp_json_schema tests/json_schema.cpp)
+
+  add_executable(fastmcpp_json_schema tests/schema/json_schema.cpp)
   target_link_libraries(fastmcpp_json_schema PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_json_schema COMMAND fastmcpp_json_schema)
 
-  add_executable(fastmcpp_schema_build tests/schema_build.cpp)
+  add_executable(fastmcpp_type_basic tests/schema/type_basic.cpp)
+  target_link_libraries(fastmcpp_type_basic PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_type_basic COMMAND fastmcpp_type_basic)
+
+  add_executable(fastmcpp_type_constraints tests/schema/type_constraints.cpp)
+  target_link_libraries(fastmcpp_type_constraints PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_type_constraints COMMAND fastmcpp_type_constraints)
+
+  add_executable(fastmcpp_type_composite tests/schema/type_composite.cpp)
+  target_link_libraries(fastmcpp_type_composite PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_type_composite COMMAND fastmcpp_type_composite)
+
+  add_executable(fastmcpp_schema_build tests/schema/build.cpp)
   target_link_libraries(fastmcpp_schema_build PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_schema_build COMMAND fastmcpp_schema_build)
 
@@ -162,19 +175,19 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_content PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_content COMMAND fastmcpp_content)
 
-  add_executable(fastmcpp_mcp_server tests/mcp_server.cpp)
+  add_executable(fastmcpp_mcp_server tests/mcp/server.cpp)
   target_link_libraries(fastmcpp_mcp_server PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_mcp_server COMMAND fastmcpp_mcp_server)
 
-  add_executable(fastmcpp_mcp_handler tests/mcp_handler.cpp)
+  add_executable(fastmcpp_mcp_handler tests/mcp/handler.cpp)
   target_link_libraries(fastmcpp_mcp_handler PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_mcp_handler COMMAND fastmcpp_mcp_handler)
 
-  add_executable(fastmcpp_mcp_server_handler tests/mcp_server_handler.cpp)
+  add_executable(fastmcpp_mcp_server_handler tests/mcp/server_handler.cpp)
   target_link_libraries(fastmcpp_mcp_server_handler PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_mcp_server_handler COMMAND fastmcpp_mcp_server_handler)
 
-  add_executable(fastmcpp_mcp_server_toolmanager tests/mcp_server_toolmanager.cpp)
+  add_executable(fastmcpp_mcp_server_toolmanager tests/mcp/server_toolmanager.cpp)
   target_link_libraries(fastmcpp_mcp_server_toolmanager PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_mcp_server_toolmanager COMMAND fastmcpp_mcp_server_toolmanager)
 
@@ -182,55 +195,63 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_settings PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_settings COMMAND fastmcpp_settings)
 
-  add_executable(fastmcpp_stdio_server tests/stdio_server.cpp)
+  add_executable(fastmcpp_stdio_server tests/transports/stdio_server.cpp)
   target_link_libraries(fastmcpp_stdio_server PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_stdio_server COMMAND fastmcpp_stdio_server)
 
-  add_executable(fastmcpp_sse_server tests/server_sse.cpp)
+  add_executable(fastmcpp_sse_server tests/server/sse.cpp)
   target_link_libraries(fastmcpp_sse_server PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_sse_server COMMAND fastmcpp_sse_server)
-  # Gate SSE server test behind streaming option; disabled by default
-  if(NOT FASTMCPP_ENABLE_STREAMING_TESTS)
-    set_tests_properties(fastmcpp_sse_server PROPERTIES DISABLED TRUE)
-  endif()
 
   # MCP SSE format compliance test (regression test for GitHub Issue #1)
-  add_executable(fastmcpp_sse_mcp_format tests/server_sse_mcp_format.cpp)
+  add_executable(fastmcpp_sse_mcp_format tests/server/sse_mcp_format.cpp)
   target_link_libraries(fastmcpp_sse_mcp_format PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_sse_mcp_format COMMAND fastmcpp_sse_mcp_format)
-  # This test takes ~17 seconds; disabled by default
-  if(NOT FASTMCPP_ENABLE_STREAMING_TESTS)
-    set_tests_properties(fastmcpp_sse_mcp_format PROPERTIES DISABLED TRUE)
-  endif()
 
   # Advanced test suites (Task 3.4)
-  add_executable(fastmcpp_tools_advanced tests/more/tools_advanced.cpp)
-  target_link_libraries(fastmcpp_tools_advanced PRIVATE fastmcpp_core)
-  add_test(NAME fastmcpp_tools_advanced COMMAND fastmcpp_tools_advanced)
+  add_executable(fastmcpp_tools_validation tests/tools/validation.cpp)
+  target_link_libraries(fastmcpp_tools_validation PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_tools_validation COMMAND fastmcpp_tools_validation)
 
-  add_executable(fastmcpp_resources_advanced tests/more/resources_advanced.cpp)
+  add_executable(fastmcpp_tools_edge_cases tests/tools/edge_cases.cpp)
+  target_link_libraries(fastmcpp_tools_edge_cases PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_tools_edge_cases COMMAND fastmcpp_tools_edge_cases)
+
+  add_executable(fastmcpp_resources_advanced tests/resources/advanced.cpp)
   target_link_libraries(fastmcpp_resources_advanced PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_resources_advanced COMMAND fastmcpp_resources_advanced)
 
-  add_executable(fastmcpp_server_lifecycle tests/server_lifecycle.cpp)
-  target_link_libraries(fastmcpp_server_lifecycle PRIVATE fastmcpp_core)
-  add_test(NAME fastmcpp_server_lifecycle COMMAND fastmcpp_server_lifecycle)
+  add_executable(fastmcpp_server_basic tests/server/basic.cpp)
+  target_link_libraries(fastmcpp_server_basic PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_basic COMMAND fastmcpp_server_basic)
 
-  add_executable(fastmcpp_client_transports tests/client_transports.cpp)
+  add_executable(fastmcpp_server_patterns tests/server/patterns.cpp)
+  target_link_libraries(fastmcpp_server_patterns PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_patterns COMMAND fastmcpp_server_patterns)
+
+  add_executable(fastmcpp_client_transports tests/client/transports.cpp)
   target_link_libraries(fastmcpp_client_transports PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_client_transports COMMAND fastmcpp_client_transports)
 
-  add_executable(fastmcpp_client_api tests/client_api.cpp)
-  target_link_libraries(fastmcpp_client_api PRIVATE fastmcpp_core)
-  add_test(NAME fastmcpp_client_api COMMAND fastmcpp_client_api)
+  add_executable(fastmcpp_client_api_basic tests/client/api_basic.cpp)
+  target_link_libraries(fastmcpp_client_api_basic PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_api_basic COMMAND fastmcpp_client_api_basic)
 
-  add_executable(fastmcpp_server_middleware tests/server_middleware.cpp)
+  add_executable(fastmcpp_client_api_advanced tests/client/api_advanced.cpp)
+  target_link_libraries(fastmcpp_client_api_advanced PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_api_advanced COMMAND fastmcpp_client_api_advanced)
+
+  add_executable(fastmcpp_server_middleware tests/server/middleware.cpp)
   target_link_libraries(fastmcpp_server_middleware PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_middleware COMMAND fastmcpp_server_middleware)
 
-  add_executable(fastmcpp_stdio_client tests/stdio_client.cpp)
+  add_executable(fastmcpp_stdio_client tests/transports/stdio_client.cpp)
   target_link_libraries(fastmcpp_stdio_client PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_stdio_client COMMAND fastmcpp_stdio_client)
+
+  add_executable(fastmcpp_stdio_failure tests/transports/stdio_failure.cpp)
+  target_link_libraries(fastmcpp_stdio_failure PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_stdio_failure COMMAND fastmcpp_stdio_failure)
   set_tests_properties(fastmcpp_stdio_client PROPERTIES
     LABELS "conformance"
     WORKING_DIRECTORY "$<TARGET_FILE_DIR:fastmcpp_stdio_client>"
@@ -244,7 +265,7 @@ if(FASTMCPP_BUILD_TESTS)
 
   option(FASTMCPP_ENABLE_STREAMING_TESTS "Enable streaming SSE tests (experimental)" OFF)
   if(FASTMCPP_ENABLE_STREAMING_TESTS)
-    add_executable(fastmcpp_streaming_sse tests/streaming_sse.cpp)
+    add_executable(fastmcpp_streaming_sse tests/server/streaming_sse.cpp)
     target_link_libraries(fastmcpp_streaming_sse PRIVATE fastmcpp_core)
     add_test(NAME fastmcpp_streaming_sse COMMAND fastmcpp_streaming_sse)
     # Avoid port conflicts with other HTTP tests when running in parallel; currently unstable on some hosts
@@ -252,13 +273,13 @@ if(FASTMCPP_BUILD_TESTS)
   endif()
 
   if(FASTMCPP_ENABLE_WS_STREAMING_TESTS)
-    add_executable(fastmcpp_ws_streaming tests/ws_streaming.cpp)
+    add_executable(fastmcpp_ws_streaming tests/transports/ws_streaming.cpp)
     target_link_libraries(fastmcpp_ws_streaming PRIVATE fastmcpp_core)
     add_test(NAME fastmcpp_ws_streaming COMMAND fastmcpp_ws_streaming)
     # Test auto-skips if FASTMCPP_WS_URL is not set
-  
+
     if(FASTMCPP_ENABLE_LOCAL_WS_TEST)
-      add_executable(fastmcpp_ws_streaming_local tests/ws_streaming_local.cpp)
+      add_executable(fastmcpp_ws_streaming_local tests/transports/ws_streaming_local.cpp)
       target_link_libraries(fastmcpp_ws_streaming_local PRIVATE fastmcpp_core)
       add_test(NAME fastmcpp_ws_streaming_local COMMAND fastmcpp_ws_streaming_local)
       set_tests_properties(fastmcpp_ws_streaming_local PROPERTIES RUN_SERIAL TRUE)

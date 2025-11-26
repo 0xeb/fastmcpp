@@ -1,4 +1,4 @@
-// Example demonstrating StdioTransport log_file parameter (v2.13.0+)
+﻿// Example demonstrating StdioTransport log_file parameter (v2.13.0+)
 //
 // This example shows how to redirect subprocess stderr to a log file
 // when using StdioTransport for client connections.
@@ -38,10 +38,10 @@ int main() {
         // Make a request
         Json response = transport.request("test", Json{});
         std::cout << "   Response: " << response.dump() << "\n";
-        std::cout << "   ✅ Subprocess stderr written to: " << log_path << "\n\n";
+        std::cout << "   [OK] Subprocess stderr written to: " << log_path << "\n\n";
     }
     catch (const TransportError& e) {
-        std::cerr << "   ❌ Transport error: " << e.what() << "\n\n";
+        std::cerr << "   [FAIL] Transport error: " << e.what() << "\n\n";
     }
 
     // ============================================================================
@@ -54,7 +54,7 @@ int main() {
     try {
         std::ofstream log_stream("stdio_transport_stream.log", std::ios::app);
         if (!log_stream.is_open()) {
-            std::cerr << "   ❌ Failed to open log stream\n\n";
+            std::cerr << "   [FAIL] Failed to open log stream\n\n";
             return 1;
         }
 
@@ -68,12 +68,12 @@ int main() {
         // Make a request
         Json response = transport.request("test", Json{});
         std::cout << "   Response: " << response.dump() << "\n";
-        std::cout << "   ✅ Subprocess stderr written to stream\n\n";
+        std::cout << "   [OK] Subprocess stderr written to stream\n\n";
 
         log_stream.close();
     }
     catch (const TransportError& e) {
-        std::cerr << "   ❌ Transport error: " << e.what() << "\n\n";
+        std::cerr << "   [FAIL] Transport error: " << e.what() << "\n\n";
     }
 
     // ============================================================================
@@ -92,10 +92,10 @@ int main() {
 
         Json response = transport.request("test", Json{});
         std::cout << "   Response: " << response.dump() << "\n";
-        std::cout << "   ℹ  Stderr captured internally (no file written)\n\n";
+        std::cout << "   [INFO]  Stderr captured internally (no file written)\n\n";
     }
     catch (const TransportError& e) {
-        std::cerr << "   ❌ Transport error: " << e.what() << "\n\n";
+        std::cerr << "   [FAIL] Transport error: " << e.what() << "\n\n";
     }
 
     // ============================================================================

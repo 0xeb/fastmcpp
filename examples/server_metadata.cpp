@@ -1,4 +1,4 @@
-// Example demonstrating Server Metadata Fields (v2.13.0+)
+﻿// Example demonstrating Server Metadata Fields (v2.13.0+)
 //
 // This example shows how to configure server metadata that appears in the
 // MCP initialize response. Metadata helps clients display server information
@@ -37,7 +37,7 @@ int main() {
         }
     };
 
-    std::cout << "   ✅ Created 2 icons:\n";
+    std::cout << "   [OK] Created 2 icons:\n";
     std::cout << "      - PNG icon (48x48) from URL\n";
     std::cout << "      - SVG icon (any size) from data URI\n\n";
 
@@ -57,7 +57,7 @@ int main() {
         true                                           // strict_input_validation (optional)
     );
 
-    std::cout << "   ✅ Server created with:\n";
+    std::cout << "   [OK] Server created with:\n";
     std::cout << "      - name: " << server->name() << "\n";
     std::cout << "      - version: " << server->version() << "\n";
     std::cout << "      - website_url: " << *server->website_url() << "\n";
@@ -87,7 +87,7 @@ int main() {
     };
     tool_mgr.register_tool(echo);
 
-    std::cout << "   ✅ Registered 'echo' tool\n\n";
+    std::cout << "   [OK] Registered 'echo' tool\n\n";
 
     // ============================================================================
     // Step 4: Create MCP Handler
@@ -109,7 +109,7 @@ int main() {
         descriptions
     );
 
-    std::cout << "   ✅ MCP handler created\n\n";
+    std::cout << "   [OK] MCP handler created\n\n";
 
     // ============================================================================
     // Step 5: Test Initialize Request
@@ -147,7 +147,7 @@ int main() {
 
         auto& server_info = init_response["result"]["serverInfo"];
 
-        std::cout << "✅ serverInfo fields:\n";
+        std::cout << "[OK] serverInfo fields:\n";
         std::cout << "   - name: " << server_info["name"] << "\n";
         std::cout << "   - version: " << server_info["version"] << "\n";
 
@@ -221,11 +221,11 @@ int main() {
 
     std::cout << "=== Summary ===\n\n";
     std::cout << "Server metadata fields (v2.13.0+):\n";
-    std::cout << "  ✅ name: Required, identifies the server\n";
-    std::cout << "  ✅ version: Required, server version string\n";
-    std::cout << "  ✅ website_url: Optional, URL for documentation/homepage\n";
-    std::cout << "  ✅ icons: Optional, list of Icon objects for UI display\n";
-    std::cout << "  ✅ strict_input_validation: Optional, controls validation behavior\n\n";
+    std::cout << "  [OK] name: Required, identifies the server\n";
+    std::cout << "  [OK] version: Required, server version string\n";
+    std::cout << "  [OK] website_url: Optional, URL for documentation/homepage\n";
+    std::cout << "  [OK] icons: Optional, list of Icon objects for UI display\n";
+    std::cout << "  [OK] strict_input_validation: Optional, controls validation behavior\n\n";
 
     std::cout << "Icon structure:\n";
     std::cout << "  - src: URL or data URI (required)\n";

@@ -15,6 +15,7 @@
 #include "fastmcpp/client/types.hpp"
 #include "fastmcpp/server/server.hpp"
 #include "fastmcpp/util/json_schema.hpp"
+#include "fastmcpp/util/json_schema_type.hpp"
 
 namespace fastmcpp::client {
 
@@ -185,6 +186,31 @@ class Client {
       }
     } else {
       response = invoke_request();
+    }
+
+    // Optional server-side progress events
+    if (options.progress_handler && response.contains("progress") && response["progress"].is_array()) {
+      for (const auto& p : response["progress"]) {
+        float value = p.value("progress", 0.0f);
+        std::optional<float> total = std::nullopt;
+        if (p.contains("total") && p["total"].is_number()) total = p["total"].get<float>();
+        std::string message = p.value("message", "");
+        options.progress_handler(value, total, message);
+      }
+    }
+
+    // Notification forwarding (sampling/elicitation/roots) if provided by server
+    if (response.contains("notifications") && response["notifications"].is_array()) {
+      for (const auto& n : response["notifications"]) {
+        if (!n.contains("method")) continue;
+        std::string method = n.at("method").get<std::string>();
+        fastmcpp::Json params = n.value("params", fastmcpp::Json::object());
+        try {
+          handle_notification(method, params);
+        } catch (const std::exception&) {
+          // Swallow notification errors to avoid breaking main response
+        }
+      }
     }
 
     if (options.progress_handler) {
@@ -440,6 +466,22 @@ class Client {
   void set_sampling_callback(const std::function<fastmcpp::Json(const fastmcpp::Json&)>& cb) { sampling_callback_ = cb; }
   void set_elicitation_callback(const std::function<fastmcpp::Json(const fastmcpp::Json&)>& cb) { elicitation_callback_ = cb; }
 
+  /// Poll server notifications and dispatch to callbacks (sampling/elicitation/roots)
+  void poll_notifications() {
+    auto response = call("notifications/poll", fastmcpp::Json::object());
+    if (!response.contains("notifications") || !response["notifications"].is_array()) return;
+    for (const auto& n : response["notifications"]) {
+      if (!n.contains("method")) continue;
+      std::string method = n.at("method").get<std::string>();
+      fastmcpp::Json params = n.value("params", fastmcpp::Json::object());
+      try {
+        handle_notification(method, params);
+      } catch (...) {
+        // Ignore individual notification failures to keep polling resilient
+      }
+    }
+  }
+
  private:
   std::shared_ptr<ITransport> transport_;
   std::function<fastmcpp::Json()> roots_callback_;
@@ -535,10 +577,16 @@ class Client {
       auto structured = *result.structuredContent;
       auto it = tool_output_schemas_.find(tool_name);
       bool wrap_result = false;
+      bool has_schema = false;
+      fastmcpp::Json target_schema;
       if (it != tool_output_schemas_.end()) {
         try {
           fastmcpp::util::schema::validate(it->second, structured);
           wrap_result = it->second.value("x-fastmcp-wrap-result", false);
+          target_schema = wrap_result && it->second.contains("properties") && it->second["properties"].contains("result")
+            ? it->second["properties"]["result"]
+            : it->second;
+          has_schema = true;
         } catch (const std::exception& e) {
           throw fastmcpp::ValidationError(std::string("Structured content validation failed: ") + e.what());
         }
@@ -555,6 +603,14 @@ class Client {
           result.data = coerce_to_schema(it->second, structured);
         } else {
           result.data = structured;
+        }
+      }
+
+      if (has_schema && result.data) {
+        try {
+          result.typedData = fastmcpp::util::schema_type::json_schema_to_value(target_schema, *result.data);
+        } catch (const std::exception& e) {
+          throw fastmcpp::ValidationError(std::string("Typed mapping failed: ") + e.what());
         }
       }
     }

@@ -9,6 +9,7 @@
 #include <optional>
 #include <variant>
 #include "fastmcpp/types.hpp"
+#include "fastmcpp/util/json_schema_type.hpp"
 
 namespace fastmcpp::client {
 
@@ -68,6 +69,7 @@ struct CallToolResult {
   std::optional<fastmcpp::Json> structuredContent;  ///< Structured output if available
   std::optional<fastmcpp::Json> meta;  ///< Request metadata
   std::optional<fastmcpp::Json> data;  ///< Parsed structured data (if available)
+  std::optional<fastmcpp::util::schema_type::SchemaValue> typedData;  ///< Schema-mapped value
 };
 
 /// Helper to parse structured data into a concrete type using nlohmann::json conversion
@@ -81,6 +83,15 @@ T get_data_as(const CallToolResult& result) {
     return (*result.data)["result"].template get<T>();
   }
   return result.data->get<T>();
+}
+
+/// Convert typedData (schema-mapped) to a concrete type via Json conversion
+template <typename T>
+T get_typed_data_as(const CallToolResult& result) {
+  if (!result.typedData) {
+    throw fastmcpp::ValidationError("No typed data available");
+  }
+  return fastmcpp::util::schema_type::get_as<T>(*result.typedData);
 }
 
 // ============================================================================

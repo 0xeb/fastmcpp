@@ -1,13 +1,16 @@
+/// @file tests/server/basic.cpp
+/// @brief Basic server lifecycle tests - start, stop, restart, concurrent
+
 #include <cassert>
+#include <cmath>
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include <atomic>
+#include <vector>
 #include "fastmcpp/server/server.hpp"
 #include "fastmcpp/server/http_server.hpp"
 #include "fastmcpp/client/transports.hpp"
-
-// Advanced tests for server lifecycle
-// Tests startup, shutdown, restart, concurrent requests, error handling
 
 using namespace fastmcpp;
 
@@ -39,7 +42,7 @@ void test_server_start_stop() {
     http.stop();
     assert(!http.running());
 
-    std::cout << "  ✓ Start/stop works correctly\n";
+    std::cout << "  [PASS] Start/stop works correctly\n";
 }
 
 void test_server_restart() {
@@ -75,7 +78,7 @@ void test_server_restart() {
 
     http.stop();
 
-    std::cout << "  ✓ Server restart works correctly\n";
+    std::cout << "  [PASS] Server restart works correctly\n";
 }
 
 void test_multiple_start_calls() {
@@ -105,7 +108,7 @@ void test_multiple_start_calls() {
 
     http.stop();
 
-    std::cout << "  ✓ Multiple start calls handled correctly\n";
+    std::cout << "  [PASS] Multiple start calls handled correctly\n";
 }
 
 void test_multiple_stop_calls() {
@@ -126,7 +129,7 @@ void test_multiple_stop_calls() {
     http.stop();
     assert(!http.running());
 
-    std::cout << "  ✓ Multiple stop calls handled correctly\n";
+    std::cout << "  [PASS] Multiple stop calls handled correctly\n";
 }
 
 void test_destructor_cleanup() {
@@ -159,7 +162,7 @@ void test_destructor_cleanup() {
     assert(started);
     http2.stop();
 
-    std::cout << "  ✓ Destructor cleanup works correctly\n";
+    std::cout << "  [PASS] Destructor cleanup works correctly\n";
 }
 
 void test_concurrent_requests() {
@@ -208,7 +211,7 @@ void test_concurrent_requests() {
 
     http.stop();
 
-    std::cout << "  ✓ Concurrent requests handled correctly\n";
+    std::cout << "  [PASS] Concurrent requests handled correctly\n";
 }
 
 void test_different_ports() {
@@ -243,7 +246,7 @@ void test_different_ports() {
     http1.stop();
     http2.stop();
 
-    std::cout << "  ✓ Multiple servers work correctly\n";
+    std::cout << "  [PASS] Multiple servers work correctly\n";
 }
 
 void test_server_properties() {
@@ -256,7 +259,7 @@ void test_server_properties() {
     assert(http.port() == 8080);
     assert(!http.running());
 
-    std::cout << "  ✓ Server properties accessible correctly\n";
+    std::cout << "  [PASS] Server properties accessible correctly\n";
 }
 
 void test_error_recovery() {
@@ -295,7 +298,7 @@ void test_error_recovery() {
 
     http.stop();
 
-    std::cout << "  ✓ Error recovery works correctly\n";
+    std::cout << "  [PASS] Error recovery works correctly\n";
 }
 
 void test_quick_start_stop_cycles() {
@@ -317,11 +320,11 @@ void test_quick_start_stop_cycles() {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
-    std::cout << "  ✓ Quick cycles handled correctly\n";
+    std::cout << "  [PASS] Quick cycles handled correctly\n";
 }
 
 int main() {
-    std::cout << "Running server lifecycle tests...\n\n";
+    std::cout << "Running basic server lifecycle tests...\n\n";
 
     try {
         test_server_start_stop();
@@ -335,10 +338,10 @@ int main() {
         test_error_recovery();
         test_quick_start_stop_cycles();
 
-        std::cout << "\n✅ All server lifecycle tests passed!\n";
+        std::cout << "\n[OK] All basic server lifecycle tests passed! (10 tests)\n";
         return 0;
     } catch (const std::exception& e) {
-        std::cerr << "\n❌ Test failed with exception: " << e.what() << "\n";
+        std::cerr << "\n[FAIL] Test failed with exception: " << e.what() << "\n";
         return 1;
     }
 }

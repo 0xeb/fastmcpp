@@ -1,4 +1,4 @@
-#include <cassert>
+﻿#include <cassert>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -33,7 +33,7 @@ void test_loopback_transport_basic() {
     auto add_result = transport.request("add", Json{{"a", 5}, {"b", 7}});
     assert(add_result.get<int>() == 12);
 
-    std::cout << "  ✓ Loopback transport works correctly\n";
+    std::cout << "  [PASS] Loopback transport works correctly\n";
 }
 
 void test_loopback_transport_with_client() {
@@ -49,7 +49,7 @@ void test_loopback_transport_with_client() {
     auto result = c.call("multiply", Json{{"a", 3.5}, {"b", 2.0}});
     assert(result.get<double>() == 7.0);
 
-    std::cout << "  ✓ Loopback with Client works correctly\n";
+    std::cout << "  [PASS] Loopback with Client works correctly\n";
 }
 
 void test_http_transport_basic() {
@@ -70,7 +70,7 @@ void test_http_transport_basic() {
 
     http.stop();
 
-    std::cout << "  ✓ HTTP transport works correctly\n";
+    std::cout << "  [PASS] HTTP transport works correctly\n";
 }
 
 void test_http_transport_multiple_requests() {
@@ -100,7 +100,22 @@ void test_http_transport_multiple_requests() {
 
     http.stop();
 
-    std::cout << "  ✓ HTTP multiple requests work correctly\n";
+    std::cout << "  [PASS] HTTP multiple requests work correctly\n";
+}
+
+void test_http_transport_timeout_failure() {
+    std::cout << "Test 4b: HTTP transport timeout/error path...\n";
+
+    client::HttpTransport transport("127.0.0.1:1");
+    bool failed = false;
+    try {
+        transport.request("greet", Json{{"name", "late"}});
+    } catch (const fastmcpp::TransportError&) {
+        failed = true;
+    }
+    assert(failed);
+
+    std::cout << "  [PASS] HTTP transport surfaces failures\n";
 }
 
 void test_transport_error_handling() {
@@ -122,7 +137,7 @@ void test_transport_error_handling() {
     }
     assert(threw);
 
-    std::cout << "  ✓ Error handling works correctly\n";
+    std::cout << "  [PASS] Error handling works correctly\n";
 }
 
 void test_route_not_found() {
@@ -146,7 +161,7 @@ void test_route_not_found() {
     }
     assert(threw);
 
-    std::cout << "  ✓ Route not found handled correctly\n";
+    std::cout << "  [PASS] Route not found handled correctly\n";
 }
 
 void test_payload_types() {
@@ -191,7 +206,7 @@ void test_payload_types() {
     });
     assert(nested_result["outer"]["inner"] == "value");
 
-    std::cout << "  ✓ Various payload types handled correctly\n";
+    std::cout << "  [PASS] Various payload types handled correctly\n";
 }
 
 void test_client_multiple_calls() {
@@ -211,7 +226,7 @@ void test_client_multiple_calls() {
         assert(result["count"] == i);
     }
 
-    std::cout << "  ✓ Multiple calls through client work correctly\n";
+    std::cout << "  [PASS] Multiple calls through client work correctly\n";
 }
 
 void test_concurrent_loopback_requests() {
@@ -243,7 +258,7 @@ void test_concurrent_loopback_requests() {
 
     assert(counter == num_threads);
 
-    std::cout << "  ✓ Concurrent loopback requests work correctly\n";
+    std::cout << "  [PASS] Concurrent loopback requests work correctly\n";
 }
 
 void test_large_payload() {
@@ -264,7 +279,7 @@ void test_large_payload() {
     assert(result.size() == 1000);
     assert(result["key_500"] == "value_500");
 
-    std::cout << "  ✓ Large payload handled correctly\n";
+    std::cout << "  [PASS] Large payload handled correctly\n";
 }
 
 void test_empty_payload() {
@@ -285,7 +300,7 @@ void test_empty_payload() {
     auto result2 = transport.request("noop", Json(nullptr));
     assert(result2["status"] == "ok");
 
-    std::cout << "  ✓ Empty payload handled correctly\n";
+    std::cout << "  [PASS] Empty payload handled correctly\n";
 }
 
 void test_multiple_http_clients() {
@@ -313,7 +328,7 @@ void test_multiple_http_clients() {
 
     http.stop();
 
-    std::cout << "  ✓ Multiple HTTP clients work correctly\n";
+    std::cout << "  [PASS] Multiple HTTP clients work correctly\n";
 }
 
 int main() {
@@ -324,6 +339,7 @@ int main() {
         test_loopback_transport_with_client();
         test_http_transport_basic();
         test_http_transport_multiple_requests();
+        test_http_transport_timeout_failure();
         test_transport_error_handling();
         test_route_not_found();
         test_payload_types();
@@ -333,10 +349,10 @@ int main() {
         test_empty_payload();
         test_multiple_http_clients();
 
-        std::cout << "\n✅ All client transport tests passed!\n";
+        std::cout << "\n[OK] All client transport tests passed!\n";
         return 0;
     } catch (const std::exception& e) {
-        std::cerr << "\n❌ Test failed with exception: " << e.what() << "\n";
+        std::cerr << "\n[FAIL] Test failed with exception: " << e.what() << "\n";
         return 1;
     }
 }

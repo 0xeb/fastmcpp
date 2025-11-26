@@ -14,7 +14,7 @@ namespace fastmcpp::mcp {
 // - "tools/list"
 // - "tools/call"
 // The ToolManager provides invocation and input schema; descriptions are optional.
-std::function<nlohmann::json(const nlohmann::json&)> make_mcp_handler(
+std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
     const std::string& server_name,
     const std::string& version,
     const tools::ToolManager& tools,
@@ -24,7 +24,7 @@ std::function<nlohmann::json(const nlohmann::json&)> make_mcp_handler(
 
 // Overload: build a handler from a generic Server plus explicit tool metadata.
 // tools_meta: vector of (tool_name, description, inputSchema)
-std::function<nlohmann::json(const nlohmann::json&)> make_mcp_handler(
+std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
     const std::string& server_name,
     const std::string& version,
     const server::Server& server,
@@ -34,7 +34,7 @@ std::function<nlohmann::json(const nlohmann::json&)> make_mcp_handler(
 // Convenience: build a handler from a Server and ToolManager.
 // The ToolManager supplies tool names and inputSchema; the Server supplies routing.
 // Optional descriptions can override/augment tool descriptions.
-std::function<nlohmann::json(const nlohmann::json&)> make_mcp_handler(
+std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
     const std::string& server_name,
     const std::string& version,
     const server::Server& server,

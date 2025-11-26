@@ -1,4 +1,4 @@
-// Simple SSE server for MCP Inspector testing
+﻿// Simple SSE server for MCP Inspector testing
 // Runs indefinitely until Ctrl+C
 
 #include "fastmcpp/server/sse_server.hpp"
@@ -64,13 +64,13 @@ int main() {
         return 1;
     }
 
-    std::cout << "✅ Server started successfully\n";
+    std::cout << "[OK] Server started successfully\n";
     std::cout << "   Host: " << sse_server.host() << "\n";
     std::cout << "   Port: " << sse_server.port() << "\n";
     std::cout << "   SSE endpoint: " << sse_server.sse_path() << " (GET)\n";
     std::cout << "   Message endpoint: " << sse_server.message_path() << " (POST)\n\n";
 
-    std::cout << "🔗 Connect MCP Inspector with:\n";
+    std::cout << "Connect MCP Inspector with:\n";
     std::cout << "   npx @modelcontextprotocol/inspector http://127.0.0.1:18106/sse\n\n";
 
     std::cout << "Press Ctrl+C to stop the server...\n\n";
@@ -82,7 +82,7 @@ int main() {
 
     std::cout << "Stopping server...\n";
     sse_server.stop();
-    std::cout << "✅ Server stopped\n";
+    std::cout << "[OK] Server stopped\n";
 
     return 0;
 }

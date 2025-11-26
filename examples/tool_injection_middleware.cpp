@@ -1,4 +1,4 @@
-// Example demonstrating ToolInjectionMiddleware (v2.13.0+)
+﻿// Example demonstrating ToolInjectionMiddleware (v2.13.0+)
 //
 // This example shows how to use middleware to inject "meta-tools" that allow
 // LLMs to introspect and interact with server resources and prompts through
@@ -100,9 +100,9 @@ int main() {
         }
     );
 
-    std::cout << "  ✅ Prompt middleware (list_prompts, get_prompt)\n";
-    std::cout << "  ✅ Resource middleware (list_resources, read_resource)\n";
-    std::cout << "  ✅ Custom middleware (custom_introspect)\n\n";
+    std::cout << "  [OK] Prompt middleware (list_prompts, get_prompt)\n";
+    std::cout << "  [OK] Resource middleware (list_resources, read_resource)\n";
+    std::cout << "  [OK] Custom middleware (custom_introspect)\n\n";
 
     // ============================================================================
     // Step 4: Configure Server with Middleware
@@ -158,7 +158,7 @@ int main() {
     if (tools_list_response.contains("result") &&
         tools_list_response["result"].contains("tools")) {
         int count = tools_list_response["result"]["tools"].size();
-        std::cout << "   ✅ Found " << count << " tools (1 regular + 5 injected)\n\n";
+        std::cout << "   [OK] Found " << count << " tools (1 regular + 5 injected)\n\n";
     }
 
     // Test 2: Call injected tool (list_prompts)
@@ -255,11 +255,11 @@ int main() {
 
     std::cout << "=== Summary ===\n\n";
     std::cout << "ToolInjectionMiddleware enables:\n";
-    std::cout << "  ✅ Dynamic tool injection without modifying core server\n";
-    std::cout << "  ✅ Meta-tools for resource/prompt introspection\n";
-    std::cout << "  ✅ Custom tools via add_tool()\n";
-    std::cout << "  ✅ Multiple middleware instances can be composed\n";
-    std::cout << "  ✅ Regular tools continue to work normally\n\n";
+    std::cout << "  [OK] Dynamic tool injection without modifying core server\n";
+    std::cout << "  [OK] Meta-tools for resource/prompt introspection\n";
+    std::cout << "  [OK] Custom tools via add_tool()\n";
+    std::cout << "  [OK] Multiple middleware instances can be composed\n";
+    std::cout << "  [OK] Regular tools continue to work normally\n\n";
 
     std::cout << "Use Cases:\n";
     std::cout << "  - LLM self-discovery of server capabilities\n";

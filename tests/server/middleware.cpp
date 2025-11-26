@@ -1,4 +1,4 @@
-#include <cassert>
+﻿#include <cassert>
 #include <iostream>
 #include "fastmcpp/server/server.hpp"
 
@@ -40,7 +40,7 @@ int main() {
   assert(!after_called); // after not called on short-circuit
   assert(r2["error"] == "denied");
 
-  std::cout << "\n✅ server middleware tests passed\n";
+  std::cout << "\n[OK] server middleware tests passed\n";
   return 0;
 }
 

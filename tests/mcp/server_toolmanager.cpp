@@ -22,7 +22,7 @@ int main() {
   auto handler = mcp::make_mcp_handler("echo_srv", "1.0.0", s, tm);
 
   // List should include echo with schema
-  nlohmann::json list = {{"jsonrpc","2.0"},{"id",1},{"method","tools/list"}};
+  Json list = {{"jsonrpc","2.0"},{"id",1},{"method","tools/list"}};
   auto list_resp = handler(list);
   assert(list_resp["result"]["tools"].size() == 1);
   auto tool = list_resp["result"]["tools"][0];
@@ -30,7 +30,7 @@ int main() {
   assert(tool["inputSchema"]["type"] == "object");
 
   // Call echo
-  nlohmann::json call = {{"jsonrpc","2.0"},{"id",2},{"method","tools/call"},{"params", nlohmann::json{{"name","echo"},{"arguments", nlohmann::json{{"text","hello"}}}}}};
+  Json call = {{"jsonrpc","2.0"},{"id",2},{"method","tools/call"},{"params", Json{{"name","echo"},{"arguments", Json{{"text","hello"}}}}}};
   auto call_resp = handler(call);
   auto content = call_resp["result"]["content"];
   assert(content.size() == 1);

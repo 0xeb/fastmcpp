@@ -5,10 +5,13 @@
 #include <optional>
 #include <ostream>
 #include "fastmcpp/types.hpp"
+#include "fastmcpp/client/client.hpp"
 
 namespace fastmcpp::client {
 
-class HttpTransport {
+class ITransport;
+
+class HttpTransport : public ITransport {
  public:
   explicit HttpTransport(std::string base_url) : base_url_(std::move(base_url)) {}
   fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload);
@@ -26,7 +29,7 @@ class HttpTransport {
   std::string base_url_;
 };
 
-class WebSocketTransport {
+class WebSocketTransport : public ITransport {
  public:
   explicit WebSocketTransport(std::string url) : url_(std::move(url)) {}
   fastmcpp::Json request(const std::string& /*route*/, const fastmcpp::Json& /*payload*/);
@@ -44,7 +47,7 @@ class WebSocketTransport {
 
 // Launches an MCP stdio server as a subprocess and performs
 // a single JSON-RPC request/response per call.
-class StdioTransport {
+class StdioTransport : public ITransport {
  public:
   /// Construct a StdioTransport with optional stderr logging (v2.13.0+)
   /// @param command The command to execute (e.g., "python", "node")

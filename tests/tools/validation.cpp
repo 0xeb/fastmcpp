@@ -1,4 +1,5 @@
-#include <cassert>
+﻿#include <cassert>
+#include <cmath>
 #include <iostream>
 #include <string>
 #include <stdexcept>
@@ -56,7 +57,7 @@ void test_multiple_tools_registration() {
     auto text = tm.invoke("concat", Json{{"s1", "Hello "}, {"s2", "World"}});
     assert(text.get<std::string>() == "Hello World");
 
-    std::cout << "  ✓ Multiple tools work correctly\n";
+    std::cout << "  [PASS] Multiple tools work correctly\n";
 }
 
 void test_tool_error_handling() {
@@ -85,7 +86,7 @@ void test_tool_error_handling() {
     }
     assert(threw);
 
-    std::cout << "  ✓ Tool exceptions propagate correctly\n";
+    std::cout << "  [PASS] Tool exceptions propagate correctly\n";
 }
 
 void test_tool_not_found() {
@@ -110,7 +111,7 @@ void test_tool_not_found() {
     }
     assert(threw);
 
-    std::cout << "  ✓ Exceptions thrown for missing tools\n";
+    std::cout << "  [PASS] Exceptions thrown for missing tools\n";
 }
 
 void test_tool_input_variations() {
@@ -146,7 +147,7 @@ void test_tool_input_variations() {
     auto result3 = tm.invoke("flexible", Json{{"nested", Json{{"inner", "value"}}}});
     assert(result3["received_keys"].size() == 1);
 
-    std::cout << "  ✓ Various input formats handled correctly\n";
+    std::cout << "  [PASS] Various input formats handled correctly\n";
 }
 
 void test_tool_output_types() {
@@ -201,7 +202,7 @@ void test_tool_output_types() {
     assert(tm.invoke("arr_tool", Json{}).size() == 3);
     assert(tm.invoke("obj_tool", Json{})["status"] == "ok");
 
-    std::cout << "  ✓ Different output types work correctly\n";
+    std::cout << "  [PASS] Different output types work correctly\n";
 }
 
 void test_tool_replacement() {
@@ -232,7 +233,7 @@ void test_tool_replacement() {
     // Should still have only one tool
     assert(tm.list_names().size() == 1);
 
-    std::cout << "  ✓ Tool replacement works correctly\n";
+    std::cout << "  [PASS] Tool replacement works correctly\n";
 }
 
 void test_tool_with_complex_schema() {
@@ -281,7 +282,7 @@ void test_tool_with_complex_schema() {
     auto result = tm.invoke("complex_tool", complex_input);
     assert(result.get<std::string>() == "Alice processed");
 
-    std::cout << "  ✓ Complex schema handled correctly\n";
+    std::cout << "  [PASS] Complex schema handled correctly\n";
 }
 
 void test_tool_list_operations() {
@@ -313,12 +314,12 @@ void test_tool_list_operations() {
         assert(result.get<int>() == i);
     }
 
-    std::cout << "  ✓ Multiple tool management works correctly\n";
+    std::cout << "  [PASS] Multiple tool management works correctly\n";
 }
 
-int main() {
-    std::cout << "Running advanced tools tests...\n\n";
 
+int main() {
+    std::cout << "Running tool validation tests...\n\n";
     try {
         test_multiple_tools_registration();
         test_tool_error_handling();
@@ -328,11 +329,10 @@ int main() {
         test_tool_replacement();
         test_tool_with_complex_schema();
         test_tool_list_operations();
-
-        std::cout << "\n✅ All advanced tools tests passed!\n";
+        std::cout << "\n[OK] All tool validation tests passed! (8 tests)\n";
         return 0;
     } catch (const std::exception& e) {
-        std::cerr << "\n❌ Test failed with exception: " << e.what() << "\n";
+        std::cerr << "\nTest failed: " << e.what() << "\n";
         return 1;
     }
 }

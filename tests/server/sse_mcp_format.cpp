@@ -1,4 +1,4 @@
-// End-to-end test for MCP-compliant SSE event format
+﻿// End-to-end test for MCP-compliant SSE event format
 // Tests the fix for GitHub Issue #1: "MCP Inspector can not connect"
 //
 // Validates:
@@ -61,11 +61,11 @@ int main() {
     SseServerWrapper server(handler, "127.0.0.1", port, "/sse", "/messages");
 
     if (!server.start()) {
-        std::cerr << "❌ Failed to start SSE server\n";
+        std::cerr << "[FAIL] Failed to start SSE server\n";
         return 1;
     }
 
-    std::cout << "✅ Server started on port " << port << "\n";
+    std::cout << "[OK] Server started on port " << port << "\n";
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     // Storage for captured SSE events
@@ -138,16 +138,16 @@ int main() {
                 break;
             }
             if (!res) {
-                std::cerr << "❌ SSE GET failed: " << res.error()
+                std::cerr << "[FAIL] SSE GET failed: " << res.error()
                           << " (attempt " << (attempt + 1) << ")\n";
             } else if (res->status != 200) {
-                std::cerr << "❌ SSE GET returned status: " << res->status
+                std::cerr << "[FAIL] SSE GET returned status: " << res->status
                           << " (attempt " << (attempt + 1) << ")\n";
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
         if (!sse_connected) {
-            std::cerr << "❌ SSE connection did not produce any data after retries\n";
+            std::cerr << "[FAIL] SSE connection did not produce any data after retries\n";
         }
     });
 
@@ -158,14 +158,14 @@ int main() {
     }
 
     if (!sse_connected) {
-        std::cerr << "❌ SSE connection failed to establish\n";
+        std::cerr << "[FAIL] SSE connection failed to establish\n";
         server.stop();
         stop_capturing = true;
         if (sse_thread.joinable()) sse_thread.detach();
         return 1;
     }
 
-    std::cout << "✅ SSE connection established\n\n";
+    std::cout << "[OK] SSE connection established\n\n";
 
     // Wait to capture initial events and at least one heartbeat
     // (heartbeats are sent every 15 seconds, we'll wait 17 seconds)
@@ -188,7 +188,7 @@ int main() {
         std::cout << "Total events captured: " << captured_events.size() << "\n\n";
 
         if (captured_events.empty()) {
-            std::cerr << "❌ No events captured\n";
+            std::cerr << "[FAIL] No events captured\n";
             return 1;
         }
 
@@ -197,23 +197,23 @@ int main() {
         const auto& first_event = captured_events[0];
 
         if (first_event.event_type != "endpoint") {
-            std::cerr << "❌ FAIL: First event type is '" << first_event.event_type
+            std::cerr << "[FAIL] FAIL: First event type is '" << first_event.event_type
                       << "', expected 'endpoint'\n";
             return 1;
         }
-        std::cout << "✅ PASS: First event is 'endpoint'\n";
+        std::cout << "[OK] PASS: First event is 'endpoint'\n";
 
         // TEST 2: Endpoint data must contain session ID
         std::cout << "\nTEST 2: Verify endpoint data contains session ID\n";
         std::cout << "   Endpoint data: " << first_event.data << "\n";
 
         if (first_event.data.find("/messages?session_id=") != 0) {
-            std::cerr << "❌ FAIL: Endpoint data missing session ID format\n";
+            std::cerr << "[FAIL] FAIL: Endpoint data missing session ID format\n";
             std::cerr << "   Expected: /messages?session_id=<id>\n";
             std::cerr << "   Got: " << first_event.data << "\n";
             return 1;
         }
-        std::cout << "✅ PASS: Endpoint contains session ID\n";
+        std::cout << "[OK] PASS: Endpoint contains session ID\n";
 
         // TEST 3: Must have at least one heartbeat event
         std::cout << "\nTEST 3: Verify heartbeat events are sent\n";
@@ -227,11 +227,11 @@ int main() {
         }
 
         if (heartbeat_count == 0) {
-            std::cerr << "❌ FAIL: No heartbeat events captured\n";
+            std::cerr << "[FAIL] FAIL: No heartbeat events captured\n";
             std::cerr << "   (Expected at least 1 heartbeat in 17 seconds)\n";
             return 1;
         }
-        std::cout << "✅ PASS: " << heartbeat_count << " heartbeat(s) received\n";
+        std::cout << "[OK] PASS: " << heartbeat_count << " heartbeat(s) received\n";
 
         // TEST 4: Heartbeat intervals should be ~15 seconds
         if (heartbeat_count >= 2) {
@@ -260,9 +260,9 @@ int main() {
 
                 // Allow 13-17 seconds (15 ± 2s tolerance)
                 if (interval < 13 || interval > 17) {
-                    std::cerr << "⚠️  WARNING: Heartbeat interval outside expected range (13-17s)\n";
+                    std::cerr << "[WARN]  WARNING: Heartbeat interval outside expected range (13-17s)\n";
                 } else {
-                    std::cout << "✅ PASS: Heartbeat timing within acceptable range\n";
+                    std::cout << "[OK] PASS: Heartbeat timing within acceptable range\n";
                 }
             }
         }
@@ -272,14 +272,14 @@ int main() {
         bool all_typed = true;
         for (const auto& evt : captured_events) {
             if (evt.event_type.empty()) {
-                std::cerr << "❌ FAIL: Found event without event type\n";
+                std::cerr << "[FAIL] FAIL: Found event without event type\n";
                 all_typed = false;
                 break;
             }
         }
 
         if (all_typed) {
-            std::cout << "✅ PASS: All " << captured_events.size()
+            std::cout << "[OK] PASS: All " << captured_events.size()
                       << " events have event type field\n";
         } else {
             return 1;
@@ -297,8 +297,8 @@ int main() {
     }
 
     std::cout << "\n=== MCP SSE Format Test PASSED ===\n";
-    std::cout << "✅ All MCP protocol requirements validated\n";
-    std::cout << "✅ Regression prevention for GitHub Issue #1\n";
+    std::cout << "[OK] All MCP protocol requirements validated\n";
+    std::cout << "[OK] Regression prevention for GitHub Issue #1\n";
 
     return 0;
 }

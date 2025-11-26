@@ -1,4 +1,4 @@
-// Example demonstrating SSE Server Robustness (v2.13.0+)
+﻿// Example demonstrating SSE Server Robustness (v2.13.0+)
 //
 // This example demonstrates SSE server error handling improvements:
 // - 405 Method Not Allowed for POST on GET-only SSE endpoint
@@ -48,7 +48,7 @@ int main() {
 
     auto handler = mcp::make_mcp_handler("sse_test", "1.0.0", tool_mgr, descriptions);
 
-    std::cout << "   ✅ MCP handler created\n\n";
+    std::cout << "   [OK] MCP handler created\n\n";
 
     // ============================================================================
     // Step 2: Start SSE Server
@@ -65,11 +65,11 @@ int main() {
     );
 
     if (!sse_server.start()) {
-        std::cerr << "   ❌ Failed to start server\n";
+        std::cerr << "   [FAIL] Failed to start server\n";
         return 1;
     }
 
-    std::cout << "   ✅ Server started at http://" << sse_server.host()
+    std::cout << "   [OK] Server started at http://" << sse_server.host()
               << ":" << sse_server.port() << "\n";
     std::cout << "      - SSE endpoint: " << sse_server.sse_path() << " (GET only)\n";
     std::cout << "      - Message endpoint: " << sse_server.message_path() << " (POST)\n\n";
@@ -84,7 +84,7 @@ int main() {
     std::cout << "=== Testing 405 Error Handling ===\n\n";
 
     std::cout << "3. Attempting POST to GET-only SSE endpoint...\n";
-    std::cout << "   ℹ️  Expected: 405 Method Not Allowed with 'Allow: GET' header\n\n";
+    std::cout << "   [INFO]  Expected: 405 Method Not Allowed with 'Allow: GET' header\n\n";
 
     httplib::Client client("127.0.0.1", 18080);
 
@@ -107,9 +107,9 @@ int main() {
 
         // Check status code
         if (post_result->status == 405) {
-            std::cout << "   ✅ Received 405 Method Not Allowed\n\n";
+            std::cout << "   [OK] Received 405 Method Not Allowed\n\n";
         } else {
-            std::cout << "   ❌ Expected 405, got " << post_result->status << "\n\n";
+            std::cout << "   [FAIL] Expected 405, got " << post_result->status << "\n\n";
         }
 
         // Check Allow header
@@ -122,14 +122,14 @@ int main() {
         // Verify Allow header
         auto allow_it = post_result->headers.find("Allow");
         if (allow_it != post_result->headers.end()) {
-            std::cout << "   ✅ 'Allow' header present: " << allow_it->second << "\n";
+            std::cout << "   [OK] 'Allow' header present: " << allow_it->second << "\n";
             if (allow_it->second == "GET") {
-                std::cout << "   ✅ 'Allow' header correctly specifies GET\n\n";
+                std::cout << "   [OK] 'Allow' header correctly specifies GET\n\n";
             } else {
-                std::cout << "   ⚠️  'Allow' header value unexpected: " << allow_it->second << "\n\n";
+                std::cout << "   [WARN]  'Allow' header value unexpected: " << allow_it->second << "\n\n";
             }
         } else {
-            std::cout << "   ❌ 'Allow' header missing\n\n";
+            std::cout << "   [FAIL] 'Allow' header missing\n\n";
         }
 
         // Check response body
@@ -139,7 +139,7 @@ int main() {
             std::cout << "      " << std::setw(2) << error_json << "\n\n";
 
             if (error_json.contains("error") && error_json.contains("message")) {
-                std::cout << "   ✅ Error response properly formatted\n";
+                std::cout << "   [OK] Error response properly formatted\n";
                 std::cout << "      Error: " << error_json["error"] << "\n";
                 std::cout << "      Message: " << error_json["message"] << "\n\n";
             }
@@ -147,7 +147,7 @@ int main() {
             std::cout << "      " << post_result->body << "\n\n";
         }
     } else {
-        std::cout << "   ❌ Request failed: " << httplib::to_string(post_result.error()) << "\n\n";
+        std::cout << "   [FAIL] Request failed: " << httplib::to_string(post_result.error()) << "\n\n";
     }
 
     // ============================================================================
@@ -155,7 +155,7 @@ int main() {
     // ============================================================================
 
     std::cout << "4. Testing valid GET request to SSE endpoint...\n";
-    std::cout << "   ℹ️  Expected: 200 OK with event-stream content\n\n";
+    std::cout << "   [INFO]  Expected: 200 OK with event-stream content\n\n";
 
     // Create async GET request to SSE endpoint
     std::atomic<bool> sse_connected{false};
@@ -166,8 +166,8 @@ int main() {
             sse_server.sse_path().c_str(),
             [&](const char* data, size_t length) {
                 if (!sse_connected) {
-                    std::cout << "   ✅ SSE connection established\n";
-                    std::cout << "   ℹ️  Receiving: ";
+                    std::cout << "   [OK] SSE connection established\n";
+                    std::cout << "   [INFO]  Receiving: ";
                     sse_connected = true;
                 }
                 std::string chunk(data, length);
@@ -184,7 +184,7 @@ int main() {
         );
 
         if (!sse_connected) {
-            std::cout << "   ❌ SSE connection failed\n";
+            std::cout << "   [FAIL] SSE connection failed\n";
         }
     });
 
@@ -206,7 +206,7 @@ int main() {
     // ============================================================================
 
     std::cout << "5. Testing valid POST to message endpoint...\n";
-    std::cout << "   ℹ️  Expected: 200 OK with JSON response\n\n";
+    std::cout << "   [INFO]  Expected: 200 OK with JSON response\n\n";
 
     auto message_result = client.Post(
         sse_server.message_path().c_str(),
@@ -218,7 +218,7 @@ int main() {
         std::cout << "   Response Status: " << message_result->status << "\n";
 
         if (message_result->status == 200) {
-            std::cout << "   ✅ Received 200 OK\n\n";
+            std::cout << "   [OK] Received 200 OK\n\n";
 
             std::cout << "   Response Body:\n";
             try {
@@ -226,16 +226,16 @@ int main() {
                 std::cout << "      " << std::setw(2) << response_json << "\n\n";
 
                 if (response_json.contains("result")) {
-                    std::cout << "   ✅ Valid JSON-RPC response\n\n";
+                    std::cout << "   [OK] Valid JSON-RPC response\n\n";
                 }
             } catch (const std::exception& e) {
                 std::cout << "      Parse error: " << e.what() << "\n\n";
             }
         } else {
-            std::cout << "   ⚠️  Unexpected status: " << message_result->status << "\n\n";
+            std::cout << "   [WARN]  Unexpected status: " << message_result->status << "\n\n";
         }
     } else {
-        std::cout << "   ❌ Request failed\n\n";
+        std::cout << "   [FAIL] Request failed\n\n";
     }
 
     // ============================================================================
@@ -245,8 +245,8 @@ int main() {
     std::cout << "6. Testing other unsupported methods...\n\n";
 
     // Test PUT on SSE endpoint (httplib doesn't support arbitrary methods easily)
-    std::cout << "   ℹ️  PUT, DELETE, PATCH would also return 405 from httplib framework\n";
-    std::cout << "   ℹ️  Only GET and POST are explicitly configured\n\n";
+    std::cout << "   [INFO]  PUT, DELETE, PATCH would also return 405 from httplib framework\n";
+    std::cout << "   [INFO]  Only GET and POST are explicitly configured\n\n";
 
     // ============================================================================
     // Step 7: Cleanup
@@ -254,7 +254,7 @@ int main() {
 
     std::cout << "7. Stopping server...\n";
     sse_server.stop();
-    std::cout << "   ✅ Server stopped\n\n";
+    std::cout << "   [OK] Server stopped\n\n";
 
     // ============================================================================
     // Summary
@@ -262,12 +262,12 @@ int main() {
 
     std::cout << "=== Summary ===\n\n";
     std::cout << "SSE Server Robustness Features (v2.13.0+):\n";
-    std::cout << "  ✅ 405 Method Not Allowed for POST on SSE endpoint\n";
-    std::cout << "  ✅ 'Allow: GET' header in 405 response\n";
-    std::cout << "  ✅ Descriptive error message in JSON response\n";
-    std::cout << "  ✅ Proper Content-Type: application/json header\n";
-    std::cout << "  ✅ GET requests to SSE endpoint work normally\n";
-    std::cout << "  ✅ POST requests to message endpoint work normally\n\n";
+    std::cout << "  [OK] 405 Method Not Allowed for POST on SSE endpoint\n";
+    std::cout << "  [OK] 'Allow: GET' header in 405 response\n";
+    std::cout << "  [OK] Descriptive error message in JSON response\n";
+    std::cout << "  [OK] Proper Content-Type: application/json header\n";
+    std::cout << "  [OK] GET requests to SSE endpoint work normally\n";
+    std::cout << "  [OK] POST requests to message endpoint work normally\n\n";
 
     std::cout << "Error Response Format:\n";
     std::cout << "  {\n";

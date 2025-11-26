@@ -1,4 +1,4 @@
-#include "fastmcpp/client/transports.hpp"
+﻿#include "fastmcpp/client/transports.hpp"
 #include <cassert>
 #include <iostream>
 #include <filesystem>
@@ -47,7 +47,7 @@ int main() {
       if (t.value("name", std::string()) == "add") found_add = true;
     }
     assert(found_add);
-    std::cout << "✓ tools/list returned add" << std::endl;
+    std::cout << "[PASS] tools/list returned add" << std::endl;
   }
 
   // tools/call add
@@ -61,9 +61,9 @@ int main() {
     // Check first content item string contains 7
     std::string text = content.at(0).value("text", std::string());
     assert(text.find("7") != std::string::npos);
-    std::cout << "✓ tools/call add returned 7" << std::endl;
+    std::cout << "[PASS] tools/call add returned 7" << std::endl;
   }
 
-  std::cout << "\n✅ stdio client conformance passed" << std::endl;
+  std::cout << "\n[OK] stdio client conformance passed" << std::endl;
   return 0;
 }
