@@ -1,24 +1,26 @@
 /// @file tests/server/basic.cpp
 /// @brief Basic server lifecycle tests - start, stop, restart, concurrent
 
+#include "fastmcpp/client/transports.hpp"
+#include "fastmcpp/server/http_server.hpp"
+#include "fastmcpp/server/server.hpp"
+
+#include <atomic>
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include <thread>
-#include <chrono>
-#include <atomic>
 #include <vector>
-#include "fastmcpp/server/server.hpp"
-#include "fastmcpp/server/http_server.hpp"
-#include "fastmcpp/client/transports.hpp"
 
 using namespace fastmcpp;
 
-void test_server_start_stop() {
+void test_server_start_stop()
+{
     std::cout << "Test 1: Basic server start/stop...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("ping", [](const Json&){ return Json{{"status", "pong"}}; });
+    srv->route("ping", [](const Json&) { return Json{{"status", "pong"}}; });
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18090};
 
@@ -45,14 +47,13 @@ void test_server_start_stop() {
     std::cout << "  [PASS] Start/stop works correctly\n";
 }
 
-void test_server_restart() {
+void test_server_restart()
+{
     std::cout << "Test 2: Server restart...\n";
 
     auto srv = std::make_shared<server::Server>();
     int counter = 0;
-    srv->route("count", [&counter](const Json&){
-        return Json{{"count", counter++}};
-    });
+    srv->route("count", [&counter](const Json&) { return Json{{"count", counter++}}; });
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18091};
 
@@ -81,11 +82,12 @@ void test_server_restart() {
     std::cout << "  [PASS] Server restart works correctly\n";
 }
 
-void test_multiple_start_calls() {
+void test_multiple_start_calls()
+{
     std::cout << "Test 3: Multiple start calls (idempotent)...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("test", [](const Json&){ return "ok"; });
+    srv->route("test", [](const Json&) { return "ok"; });
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18092};
 
@@ -111,7 +113,8 @@ void test_multiple_start_calls() {
     std::cout << "  [PASS] Multiple start calls handled correctly\n";
 }
 
-void test_multiple_stop_calls() {
+void test_multiple_stop_calls()
+{
     std::cout << "Test 4: Multiple stop calls (idempotent)...\n";
 
     auto srv = std::make_shared<server::Server>();
@@ -132,11 +135,12 @@ void test_multiple_stop_calls() {
     std::cout << "  [PASS] Multiple stop calls handled correctly\n";
 }
 
-void test_destructor_cleanup() {
+void test_destructor_cleanup()
+{
     std::cout << "Test 5: Destructor cleanup...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("test", [](const Json&){ return "ok"; });
+    srv->route("test", [](const Json&) { return "ok"; });
 
     // Create server in scope
     {
@@ -165,18 +169,21 @@ void test_destructor_cleanup() {
     std::cout << "  [PASS] Destructor cleanup works correctly\n";
 }
 
-void test_concurrent_requests() {
+void test_concurrent_requests()
+{
     std::cout << "Test 6: Concurrent requests...\n";
 
     auto srv = std::make_shared<server::Server>();
     std::atomic<int> request_count{0};
 
-    srv->route("concurrent", [&request_count](const Json& in){
-        request_count++;
-        // Simulate some work
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        return Json{{"request_id", in["id"]}};
-    });
+    srv->route("concurrent",
+               [&request_count](const Json& in)
+               {
+                   request_count++;
+                   // Simulate some work
+                   std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                   return Json{{"request_id", in["id"]}};
+               });
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18095};
     http.start();
@@ -187,24 +194,28 @@ void test_concurrent_requests() {
     std::vector<std::thread> threads;
     std::atomic<int> success_count{0};
 
-    for (int i = 0; i < num_threads; ++i) {
-        threads.emplace_back([i, &success_count](){
-            try {
-                client::HttpTransport client{"127.0.0.1:18095"};
-                auto response = client.request("concurrent", Json{{"id", i}});
-                if (response["request_id"] == i) {
-                    success_count++;
+    for (int i = 0; i < num_threads; ++i)
+    {
+        threads.emplace_back(
+            [i, &success_count]()
+            {
+                try
+                {
+                    client::HttpTransport client{"127.0.0.1:18095"};
+                    auto response = client.request("concurrent", Json{{"id", i}});
+                    if (response["request_id"] == i)
+                        success_count++;
                 }
-            } catch (...) {
-                // Request failed
-            }
-        });
+                catch (...)
+                {
+                    // Request failed
+                }
+            });
     }
 
     // Wait for all threads
-    for (auto& t : threads) {
+    for (auto& t : threads)
         t.join();
-    }
 
     assert(success_count == num_threads);
     assert(request_count == num_threads);
@@ -214,14 +225,15 @@ void test_concurrent_requests() {
     std::cout << "  [PASS] Concurrent requests handled correctly\n";
 }
 
-void test_different_ports() {
+void test_different_ports()
+{
     std::cout << "Test 7: Multiple servers on different ports...\n";
 
     auto srv1 = std::make_shared<server::Server>();
-    srv1->route("test", [](const Json&){ return Json{{"server", 1}}; });
+    srv1->route("test", [](const Json&) { return Json{{"server", 1}}; });
 
     auto srv2 = std::make_shared<server::Server>();
-    srv2->route("test", [](const Json&){ return Json{{"server", 2}}; });
+    srv2->route("test", [](const Json&) { return Json{{"server", 2}}; });
 
     server::HttpServerWrapper http1{srv1, "127.0.0.1", 18096};
     server::HttpServerWrapper http2{srv2, "127.0.0.1", 18097};
@@ -249,7 +261,8 @@ void test_different_ports() {
     std::cout << "  [PASS] Multiple servers work correctly\n";
 }
 
-void test_server_properties() {
+void test_server_properties()
+{
     std::cout << "Test 8: Server property accessors...\n";
 
     auto srv = std::make_shared<server::Server>();
@@ -262,20 +275,17 @@ void test_server_properties() {
     std::cout << "  [PASS] Server properties accessible correctly\n";
 }
 
-void test_error_recovery() {
+void test_error_recovery()
+{
     std::cout << "Test 9: Error recovery in request handlers...\n";
 
     auto srv = std::make_shared<server::Server>();
 
     // Route that throws exception
-    srv->route("error", [](const Json&) -> Json {
-        throw std::runtime_error("Handler error");
-    });
+    srv->route("error", [](const Json&) -> Json { throw std::runtime_error("Handler error"); });
 
     // Normal route
-    srv->route("normal", [](const Json&){
-        return Json{{"status", "ok"}};
-    });
+    srv->route("normal", [](const Json&) { return Json{{"status", "ok"}}; });
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18098};
     http.start();
@@ -285,9 +295,12 @@ void test_error_recovery() {
 
     // Error route should fail gracefully
     bool threw = false;
-    try {
+    try
+    {
         client.request("error", Json::object());
-    } catch (...) {
+    }
+    catch (...)
+    {
         threw = true;
     }
     assert(threw);
@@ -301,16 +314,18 @@ void test_error_recovery() {
     std::cout << "  [PASS] Error recovery works correctly\n";
 }
 
-void test_quick_start_stop_cycles() {
+void test_quick_start_stop_cycles()
+{
     std::cout << "Test 10: Quick start/stop cycles...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("test", [](const Json&){ return "ok"; });
+    srv->route("test", [](const Json&) { return "ok"; });
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18099};
 
     // Rapid cycles
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 3; ++i)
+    {
         http.start();
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
         assert(http.running());
@@ -323,10 +338,12 @@ void test_quick_start_stop_cycles() {
     std::cout << "  [PASS] Quick cycles handled correctly\n";
 }
 
-int main() {
+int main()
+{
     std::cout << "Running basic server lifecycle tests...\n\n";
 
-    try {
+    try
+    {
         test_server_start_stop();
         test_server_restart();
         test_multiple_start_calls();
@@ -340,7 +357,9 @@ int main() {
 
         std::cout << "\n[OK] All basic server lifecycle tests passed! (10 tests)\n";
         return 0;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cerr << "\n[FAIL] Test failed with exception: " << e.what() << "\n";
         return 1;
     }

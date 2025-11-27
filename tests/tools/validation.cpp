@@ -1,40 +1,45 @@
-﻿#include <cassert>
+﻿#include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/tools/manager.hpp"
+#include "fastmcpp/util/json_schema.hpp"
+
+#include <cassert>
 #include <cmath>
 #include <iostream>
-#include <string>
 #include <stdexcept>
-#include "fastmcpp/tools/manager.hpp"
-#include "fastmcpp/exceptions.hpp"
-#include "fastmcpp/util/json_schema.hpp"
+#include <string>
 
 // Advanced tests for tools functionality
 // Tests edge cases, error handling, validation, and complex scenarios
 
 using namespace fastmcpp;
 
-void test_multiple_tools_registration() {
+void test_multiple_tools_registration()
+{
     std::cout << "Test 1: Multiple tools registration...\n";
 
     tools::ToolManager tm;
 
     // Register multiple tools
     tools::Tool add{"add",
-        Json{{"type","object"},{"properties",Json{{"a",Json{{"type","number"}}},{"b",Json{{"type","number"}}}}}},
-        Json{{"type","number"}},
-        [](const Json& in){ return in.at("a").get<double>() + in.at("b").get<double>(); }
-    };
+                    Json{{"type", "object"},
+                         {"properties",
+                          Json{{"a", Json{{"type", "number"}}}, {"b", Json{{"type", "number"}}}}}},
+                    Json{{"type", "number"}}, [](const Json& in)
+                    { return in.at("a").get<double>() + in.at("b").get<double>(); }};
 
     tools::Tool multiply{"multiply",
-        Json{{"type","object"},{"properties",Json{{"a",Json{{"type","number"}}},{"b",Json{{"type","number"}}}}}},
-        Json{{"type","number"}},
-        [](const Json& in){ return in.at("a").get<double>() * in.at("b").get<double>(); }
-    };
+                         Json{{"type", "object"},
+                              {"properties", Json{{"a", Json{{"type", "number"}}},
+                                                  {"b", Json{{"type", "number"}}}}}},
+                         Json{{"type", "number"}}, [](const Json& in)
+                         { return in.at("a").get<double>() * in.at("b").get<double>(); }};
 
     tools::Tool concat{"concat",
-        Json{{"type","object"},{"properties",Json{{"s1",Json{{"type","string"}}},{"s2",Json{{"type","string"}}}}}},
-        Json{{"type","string"}},
-        [](const Json& in){ return in.at("s1").get<std::string>() + in.at("s2").get<std::string>(); }
-    };
+                       Json{{"type", "object"},
+                            {"properties", Json{{"s1", Json{{"type", "string"}}},
+                                                {"s2", Json{{"type", "string"}}}}}},
+                       Json{{"type", "string"}}, [](const Json& in)
+                       { return in.at("s1").get<std::string>() + in.at("s2").get<std::string>(); }};
 
     tm.register_tool(add);
     tm.register_tool(multiply);
@@ -60,27 +65,27 @@ void test_multiple_tools_registration() {
     std::cout << "  [PASS] Multiple tools work correctly\n";
 }
 
-void test_tool_error_handling() {
+void test_tool_error_handling()
+{
     std::cout << "Test 2: Tool error handling...\n";
 
     tools::ToolManager tm;
 
     // Tool that throws exception
-    tools::Tool error_tool{"error_tool",
-        Json{{"type","object"}},
-        Json{{"type","number"}},
-        [](const Json&) -> Json {
-            throw std::runtime_error("Tool execution failed");
-        }
-    };
+    tools::Tool error_tool{"error_tool", Json{{"type", "object"}}, Json{{"type", "number"}},
+                           [](const Json&) -> Json
+                           { throw std::runtime_error("Tool execution failed"); }};
 
     tm.register_tool(error_tool);
 
     // Invocation should propagate exception
     bool threw = false;
-    try {
+    try
+    {
         tm.invoke("error_tool", Json{});
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         threw = true;
         assert(std::string(e.what()).find("Tool execution failed") != std::string::npos);
     }
@@ -89,24 +94,31 @@ void test_tool_error_handling() {
     std::cout << "  [PASS] Tool exceptions propagate correctly\n";
 }
 
-void test_tool_not_found() {
+void test_tool_not_found()
+{
     std::cout << "Test 3: Tool not found error...\n";
 
     tools::ToolManager tm;
 
     bool threw = false;
-    try {
+    try
+    {
         tm.invoke("nonexistent_tool", Json{});
-    } catch (const NotFoundError& e) {
+    }
+    catch (const NotFoundError& e)
+    {
         threw = true;
     }
     assert(threw);
 
     // get() throws standard exception (std::out_of_range from unordered_map::at)
     threw = false;
-    try {
+    try
+    {
         tm.get("nonexistent_tool");
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         threw = true;
     }
     assert(threw);
@@ -114,24 +126,22 @@ void test_tool_not_found() {
     std::cout << "  [PASS] Exceptions thrown for missing tools\n";
 }
 
-void test_tool_input_variations() {
+void test_tool_input_variations()
+{
     std::cout << "Test 4: Tool input variations...\n";
 
     tools::ToolManager tm;
 
     // Tool that handles various input types
-    tools::Tool flexible{"flexible",
-        Json{{"type","object"}},
-        Json{{"type","object"}},
-        [](const Json& in) -> Json {
-            Json result;
-            result["received_keys"] = Json::array();
-            for (auto it = in.begin(); it != in.end(); ++it) {
-                result["received_keys"].push_back(it.key());
-            }
-            return result;
-        }
-    };
+    tools::Tool flexible{"flexible", Json{{"type", "object"}}, Json{{"type", "object"}},
+                         [](const Json& in) -> Json
+                         {
+                             Json result;
+                             result["received_keys"] = Json::array();
+                             for (auto it = in.begin(); it != in.end(); ++it)
+                                 result["received_keys"].push_back(it.key());
+                             return result;
+                         }};
 
     tm.register_tool(flexible);
 
@@ -150,45 +160,31 @@ void test_tool_input_variations() {
     std::cout << "  [PASS] Various input formats handled correctly\n";
 }
 
-void test_tool_output_types() {
+void test_tool_output_types()
+{
     std::cout << "Test 5: Tool output types...\n";
 
     tools::ToolManager tm;
 
     // Number output
-    tools::Tool num_tool{"num_tool",
-        Json{{"type","object"}},
-        Json{{"type","number"}},
-        [](const Json&){ return 42; }
-    };
+    tools::Tool num_tool{"num_tool", Json{{"type", "object"}}, Json{{"type", "number"}},
+                         [](const Json&) { return 42; }};
 
     // String output
-    tools::Tool str_tool{"str_tool",
-        Json{{"type","object"}},
-        Json{{"type","string"}},
-        [](const Json&){ return "test"; }
-    };
+    tools::Tool str_tool{"str_tool", Json{{"type", "object"}}, Json{{"type", "string"}},
+                         [](const Json&) { return "test"; }};
 
     // Boolean output
-    tools::Tool bool_tool{"bool_tool",
-        Json{{"type","object"}},
-        Json{{"type","boolean"}},
-        [](const Json&){ return true; }
-    };
+    tools::Tool bool_tool{"bool_tool", Json{{"type", "object"}}, Json{{"type", "boolean"}},
+                          [](const Json&) { return true; }};
 
     // Array output
-    tools::Tool arr_tool{"arr_tool",
-        Json{{"type","object"}},
-        Json{{"type","array"}},
-        [](const Json&){ return Json::array({1, 2, 3}); }
-    };
+    tools::Tool arr_tool{"arr_tool", Json{{"type", "object"}}, Json{{"type", "array"}},
+                         [](const Json&) { return Json::array({1, 2, 3}); }};
 
     // Object output
-    tools::Tool obj_tool{"obj_tool",
-        Json{{"type","object"}},
-        Json{{"type","object"}},
-        [](const Json&){ return Json{{"status", "ok"}}; }
-    };
+    tools::Tool obj_tool{"obj_tool", Json{{"type", "object"}}, Json{{"type", "object"}},
+                         [](const Json&) { return Json{{"status", "ok"}}; }};
 
     tm.register_tool(num_tool);
     tm.register_tool(str_tool);
@@ -205,27 +201,22 @@ void test_tool_output_types() {
     std::cout << "  [PASS] Different output types work correctly\n";
 }
 
-void test_tool_replacement() {
+void test_tool_replacement()
+{
     std::cout << "Test 6: Tool replacement...\n";
 
     tools::ToolManager tm;
 
     // Register initial tool
-    tools::Tool v1{"test_tool",
-        Json{{"type","object"}},
-        Json{{"type","number"}},
-        [](const Json&){ return 1; }
-    };
+    tools::Tool v1{"test_tool", Json{{"type", "object"}}, Json{{"type", "number"}},
+                   [](const Json&) { return 1; }};
 
     tm.register_tool(v1);
     assert(tm.invoke("test_tool", Json{}).get<int>() == 1);
 
     // Replace with new implementation
-    tools::Tool v2{"test_tool",
-        Json{{"type","object"}},
-        Json{{"type","number"}},
-        [](const Json&){ return 2; }
-    };
+    tools::Tool v2{"test_tool", Json{{"type", "object"}}, Json{{"type", "number"}},
+                   [](const Json&) { return 2; }};
 
     tm.register_tool(v2);
     assert(tm.invoke("test_tool", Json{}).get<int>() == 2);
@@ -236,48 +227,32 @@ void test_tool_replacement() {
     std::cout << "  [PASS] Tool replacement works correctly\n";
 }
 
-void test_tool_with_complex_schema() {
+void test_tool_with_complex_schema()
+{
     std::cout << "Test 7: Tool with complex JSON schema...\n";
 
     tools::ToolManager tm;
 
     // Tool with complex nested schema
-    Json complex_schema = {
-        {"type", "object"},
-        {"properties", {
-            {"user", {
-                {"type", "object"},
-                {"properties", {
-                    {"name", {{"type", "string"}}},
-                    {"age", {{"type", "integer"}}},
-                    {"tags", {
-                        {"type", "array"},
-                        {"items", {{"type", "string"}}}
-                    }}
-                }},
-                {"required", Json::array({"name"})}
-            }}
-        }},
-        {"required", Json::array({"user"})}
-    };
+    Json complex_schema = {{"type", "object"},
+                           {"properties",
+                            {{"user",
+                              {{"type", "object"},
+                               {"properties",
+                                {{"name", {{"type", "string"}}},
+                                 {"age", {{"type", "integer"}}},
+                                 {"tags", {{"type", "array"}, {"items", {{"type", "string"}}}}}}},
+                               {"required", Json::array({"name"})}}}}},
+                           {"required", Json::array({"user"})}};
 
-    tools::Tool complex_tool{"complex_tool",
-        complex_schema,
-        Json{{"type","string"}},
-        [](const Json& in) -> Json {
-            return in["user"]["name"].get<std::string>() + " processed";
-        }
-    };
+    tools::Tool complex_tool{"complex_tool", complex_schema, Json{{"type", "string"}},
+                             [](const Json& in) -> Json
+                             { return in["user"]["name"].get<std::string>() + " processed"; }};
 
     tm.register_tool(complex_tool);
 
     Json complex_input = {
-        {"user", {
-            {"name", "Alice"},
-            {"age", 30},
-            {"tags", Json::array({"admin", "developer"})}
-        }}
-    };
+        {"user", {{"name", "Alice"}, {"age", 30}, {"tags", Json::array({"admin", "developer"})}}}};
 
     auto result = tm.invoke("complex_tool", complex_input);
     assert(result.get<std::string>() == "Alice processed");
@@ -285,7 +260,8 @@ void test_tool_with_complex_schema() {
     std::cout << "  [PASS] Complex schema handled correctly\n";
 }
 
-void test_tool_list_operations() {
+void test_tool_list_operations()
+{
     std::cout << "Test 8: Tool list operations...\n";
 
     tools::ToolManager tm;
@@ -294,13 +270,11 @@ void test_tool_list_operations() {
     assert(tm.list_names().empty());
 
     // Add tools
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 10; ++i)
+    {
         std::string name = "tool_" + std::to_string(i);
-        tools::Tool t{name,
-            Json{{"type","object"}},
-            Json{{"type","number"}},
-            [i](const Json&){ return i; }
-        };
+        tools::Tool t{name, Json{{"type", "object"}}, Json{{"type", "number"}},
+                      [i](const Json&) { return i; }};
         tm.register_tool(t);
     }
 
@@ -308,7 +282,8 @@ void test_tool_list_operations() {
     assert(names.size() == 10);
 
     // Verify all tools are accessible
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 10; ++i)
+    {
         std::string name = "tool_" + std::to_string(i);
         auto result = tm.invoke(name, Json{});
         assert(result.get<int>() == i);
@@ -317,10 +292,11 @@ void test_tool_list_operations() {
     std::cout << "  [PASS] Multiple tool management works correctly\n";
 }
 
-
-int main() {
+int main()
+{
     std::cout << "Running tool validation tests...\n\n";
-    try {
+    try
+    {
         test_multiple_tools_registration();
         test_tool_error_handling();
         test_tool_not_found();
@@ -331,7 +307,9 @@ int main() {
         test_tool_list_operations();
         std::cout << "\n[OK] All tool validation tests passed! (8 tests)\n";
         return 0;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cerr << "\nTest failed: " << e.what() << "\n";
         return 1;
     }

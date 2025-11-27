@@ -4,15 +4,17 @@
 // LLMs to introspect and interact with server resources and prompts through
 // the tool interface.
 
+#include "fastmcpp/mcp/handler.hpp"
+#include "fastmcpp/prompts/manager.hpp"
+#include "fastmcpp/resources/manager.hpp"
 #include "fastmcpp/server/middleware.hpp"
 #include "fastmcpp/server/server.hpp"
-#include "fastmcpp/resources/manager.hpp"
-#include "fastmcpp/prompts/manager.hpp"
 #include "fastmcpp/tools/manager.hpp"
-#include "fastmcpp/mcp/handler.hpp"
+
 #include <iostream>
 
-int main() {
+int main()
+{
     using namespace fastmcpp;
     using Json = nlohmann::json;
 
@@ -26,17 +28,13 @@ int main() {
     prompts::PromptManager prompt_mgr;
 
     // Register some resources
-    resource_mgr.register_resource(resources::Resource{
-        Id{"file://docs/readme.md"},
-        resources::Kind::File,
-        Json{{"description", "Project README"}}
-    });
+    resource_mgr.register_resource(resources::Resource{Id{"file://docs/readme.md"},
+                                                       resources::Kind::File,
+                                                       Json{{"description", "Project README"}}});
 
-    resource_mgr.register_resource(resources::Resource{
-        Id{"file://docs/api.md"},
-        resources::Kind::File,
-        Json{{"description", "API Documentation"}}
-    });
+    resource_mgr.register_resource(resources::Resource{Id{"file://docs/api.md"},
+                                                       resources::Kind::File,
+                                                       Json{{"description", "API Documentation"}}});
 
     // Register some prompts
     prompt_mgr.add("greeting", prompts::Prompt("Hello {{name}}!"));
@@ -52,18 +50,12 @@ int main() {
 
     tools::ToolManager tool_mgr;
 
-    tools::Tool echo{
-        "echo",
-        Json{
-            {"type", "object"},
-            {"properties", Json{{"message", Json{{"type", "string"}}}}},
-            {"required", Json::array({"message"})}
-        },
-        Json{{"type", "string"}},
-        [](const Json& input) -> Json {
-            return input.at("message");
-        }
-    };
+    tools::Tool echo{"echo",
+                     Json{{"type", "object"},
+                          {"properties", Json{{"message", Json{{"type", "string"}}}}},
+                          {"required", Json::array({"message"})}},
+                     Json{{"type", "string"}},
+                     [](const Json& input) -> Json { return input.at("message"); }};
     tool_mgr.register_tool(echo);
 
     std::cout << "Regular tools: echo\n\n";
@@ -81,24 +73,17 @@ int main() {
     // Option B: Manual configuration
     server::ToolInjectionMiddleware custom_middleware;
     custom_middleware.add_tool(
-        "custom_introspect",
-        "Get metadata about the server",
-        Json{
-            {"type", "object"},
-            {"properties", Json::object()},
-            {"required", Json::array()}
-        },
-        [](const Json& /*args*/) -> Json {
+        "custom_introspect", "Get metadata about the server",
+        Json{{"type", "object"}, {"properties", Json::object()}, {"required", Json::array()}},
+        [](const Json& /*args*/) -> Json
+        {
             return Json{
-                {"content", Json::array({
-                    Json{
-                        {"type", "text"},
-                        {"text", "Server: fastmcpp v0.0.1\\nCapabilities: tools, resources, prompts"}
-                    }
-                })}
-            };
-        }
-    );
+                {"content",
+                 Json::array({Json{
+                     {"type", "text"},
+                     {"text",
+                      "Server: fastmcpp v0.0.1\\nCapabilities: tools, resources, prompts"}}})}};
+        });
 
     std::cout << "  [OK] Prompt middleware (list_prompts, get_prompt)\n";
     std::cout << "  [OK] Resource middleware (list_resources, read_resource)\n";
@@ -111,14 +96,11 @@ int main() {
     auto server = std::make_shared<server::Server>();
 
     // Register tools/list route (returns empty - AfterHooks will augment it)
-    server->route("tools/list", [](const Json& /*input*/) {
-        return Json{{"tools", Json::array()}};
-    });
+    server->route("tools/list",
+                  [](const Json& /*input*/) { return Json{{"tools", Json::array()}}; });
 
     // Register regular tool routes
-    server->route("echo", [&](const Json& input) {
-        return tool_mgr.invoke("echo", input);
-    });
+    server->route("echo", [&](const Json& input) { return tool_mgr.invoke("echo", input); });
 
     // Install middleware hooks - ORDER MATTERS!
     // tools/list: use AfterHook to append injected tools to response
@@ -146,17 +128,13 @@ int main() {
     std::cout << "   " << std::string(60, '-') << "\n";
 
     Json tools_list_request = {
-        {"jsonrpc", "2.0"},
-        {"id", 1},
-        {"method", "tools/list"},
-        {"params", Json::object()}
-    };
+        {"jsonrpc", "2.0"}, {"id", 1}, {"method", "tools/list"}, {"params", Json::object()}};
 
     Json tools_list_response = handler(tools_list_request);
     std::cout << "   Response: " << tools_list_response.dump(2) << "\n\n";
 
-    if (tools_list_response.contains("result") &&
-        tools_list_response["result"].contains("tools")) {
+    if (tools_list_response.contains("result") && tools_list_response["result"].contains("tools"))
+    {
         int count = tools_list_response["result"]["tools"].size();
         std::cout << "   [OK] Found " << count << " tools (1 regular + 5 injected)\n\n";
     }
@@ -169,11 +147,7 @@ int main() {
         {"jsonrpc", "2.0"},
         {"id", 2},
         {"method", "tools/call"},
-        {"params", Json{
-            {"name", "list_prompts"},
-            {"arguments", Json::object()}
-        }}
-    };
+        {"params", Json{{"name", "list_prompts"}, {"arguments", Json::object()}}}};
 
     Json list_prompts_response = handler(list_prompts_request);
     std::cout << "   Response: " << list_prompts_response.dump(2) << "\n\n";
@@ -186,14 +160,9 @@ int main() {
         {"jsonrpc", "2.0"},
         {"id", 3},
         {"method", "tools/call"},
-        {"params", Json{
-            {"name", "get_prompt"},
-            {"arguments", Json{
-                {"name", "greeting"},
-                {"arguments", Json{{"name", "Alice"}}}
-            }}
-        }}
-    };
+        {"params",
+         Json{{"name", "get_prompt"},
+              {"arguments", Json{{"name", "greeting"}, {"arguments", Json{{"name", "Alice"}}}}}}}};
 
     Json get_prompt_response = handler(get_prompt_request);
     std::cout << "   Response: " << get_prompt_response.dump(2) << "\n\n";
@@ -206,11 +175,7 @@ int main() {
         {"jsonrpc", "2.0"},
         {"id", 4},
         {"method", "tools/call"},
-        {"params", Json{
-            {"name", "list_resources"},
-            {"arguments", Json::object()}
-        }}
-    };
+        {"params", Json{{"name", "list_resources"}, {"arguments", Json::object()}}}};
 
     Json list_resources_response = handler(list_resources_request);
     std::cout << "   Response: " << list_resources_response.dump(2) << "\n\n";
@@ -223,11 +188,7 @@ int main() {
         {"jsonrpc", "2.0"},
         {"id", 5},
         {"method", "tools/call"},
-        {"params", Json{
-            {"name", "custom_introspect"},
-            {"arguments", Json::object()}
-        }}
-    };
+        {"params", Json{{"name", "custom_introspect"}, {"arguments", Json::object()}}}};
 
     Json custom_response = handler(custom_request);
     std::cout << "   Response: " << custom_response.dump(2) << "\n\n";
@@ -240,11 +201,8 @@ int main() {
         {"jsonrpc", "2.0"},
         {"id", 6},
         {"method", "tools/call"},
-        {"params", Json{
-            {"name", "echo"},
-            {"arguments", Json{{"message", "Hello from regular tool!"}}}
-        }}
-    };
+        {"params",
+         Json{{"name", "echo"}, {"arguments", Json{{"message", "Hello from regular tool!"}}}}}};
 
     Json echo_response = handler(echo_request);
     std::cout << "   Response: " << echo_response.dump(2) << "\n\n";

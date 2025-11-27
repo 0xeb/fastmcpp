@@ -1,50 +1,35 @@
+#include <cassert>
+#include <fastmcpp/mcp/handler.hpp>
 #include <fastmcpp/server/stdio_server.hpp>
 #include <fastmcpp/tools/manager.hpp>
-#include <fastmcpp/mcp/handler.hpp>
-#include <cassert>
 #include <iostream>
 #include <sstream>
 
 // Test STDIO server by redirecting stdin/stdout
 
-int main() {
+int main()
+{
     using fastmcpp::Json;
 
     // Create a simple tool
     fastmcpp::tools::ToolManager tm;
     fastmcpp::tools::Tool add{
         "add",
-        Json{
-            {"type", "object"},
-            {"properties", Json{
-                {"a", Json{{"type", "number"}}},
-                {"b", Json{{"type", "number"}}}
-            }},
-            {"required", Json::array({"a", "b"})}
-        },
-        Json{{"type", "number"}},
-        [](const Json& input) -> Json {
-            return input.at("a").get<double>() + input.at("b").get<double>();
-        }
-    };
+        Json{{"type", "object"},
+             {"properties", Json{{"a", Json{{"type", "number"}}}, {"b", Json{{"type", "number"}}}}},
+             {"required", Json::array({"a", "b"})}},
+        Json{{"type", "number"}}, [](const Json& input) -> Json
+        { return input.at("a").get<double>() + input.at("b").get<double>(); }};
     tm.register_tool(add);
 
     // Create MCP handler
-    auto handler = fastmcpp::mcp::make_mcp_handler(
-        "test_server",
-        "1.0.0",
-        tm,
-        {{"add", "Add two numbers"}}
-    );
+    auto handler =
+        fastmcpp::mcp::make_mcp_handler("test_server", "1.0.0", tm, {{"add", "Add two numbers"}});
 
     // Test 1: Verify handler works directly
     {
         Json init_request = {
-            {"jsonrpc", "2.0"},
-            {"id", 1},
-            {"method", "initialize"},
-            {"params", Json::object()}
-        };
+            {"jsonrpc", "2.0"}, {"id", 1}, {"method", "initialize"}, {"params", Json::object()}};
 
         Json init_response = handler(init_request);
         assert(init_response.contains("result"));
@@ -55,11 +40,7 @@ int main() {
 
     // Test 2: List tools
     {
-        Json list_request = {
-            {"jsonrpc", "2.0"},
-            {"id", 2},
-            {"method", "tools/list"}
-        };
+        Json list_request = {{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}};
 
         Json list_response = handler(list_request);
         assert(list_response.contains("result"));
@@ -72,15 +53,10 @@ int main() {
 
     // Test 3: Call tool
     {
-        Json call_request = {
-            {"jsonrpc", "2.0"},
-            {"id", 3},
-            {"method", "tools/call"},
-            {"params", {
-                {"name", "add"},
-                {"arguments", {{"a", 5}, {"b", 7}}}
-            }}
-        };
+        Json call_request = {{"jsonrpc", "2.0"},
+                             {"id", 3},
+                             {"method", "tools/call"},
+                             {"params", {{"name", "add"}, {"arguments", {{"a", 5}, {"b", 7}}}}}};
 
         Json call_response = handler(call_request);
         assert(call_response.contains("result"));
@@ -98,11 +74,7 @@ int main() {
 
     // Test 5: Error handling for invalid request
     {
-        Json invalid_request = {
-            {"jsonrpc", "2.0"},
-            {"id", 99},
-            {"method", "invalid/method"}
-        };
+        Json invalid_request = {{"jsonrpc", "2.0"}, {"id", 99}, {"method", "invalid/method"}};
 
         Json error_response = handler(invalid_request);
         assert(error_response.contains("error") || error_response.contains("result"));

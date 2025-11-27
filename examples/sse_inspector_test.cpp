@@ -1,23 +1,26 @@
 ﻿// Simple SSE server for MCP Inspector testing
 // Runs indefinitely until Ctrl+C
 
+#include "fastmcpp/mcp/handler.hpp"
 #include "fastmcpp/server/sse_server.hpp"
 #include "fastmcpp/tools/manager.hpp"
-#include "fastmcpp/mcp/handler.hpp"
-#include <iostream>
-#include <thread>
+
+#include <atomic>
 #include <chrono>
 #include <csignal>
-#include <atomic>
+#include <iostream>
+#include <thread>
 
 std::atomic<bool> keep_running{true};
 
-void signal_handler(int signal) {
+void signal_handler(int signal)
+{
     std::cout << "\nReceived signal " << signal << ", shutting down...\n";
     keep_running = false;
 }
 
-int main() {
+int main()
+{
     using namespace fastmcpp;
     using Json = nlohmann::json;
 
@@ -30,36 +33,28 @@ int main() {
     // Create a simple MCP handler with echo tool
     tools::ToolManager tool_mgr;
 
-    tools::Tool echo{
-        "echo",
-        Json{
-            {"type", "object"},
-            {"properties", Json{{"message", Json{{"type", "string"}}}}},
-            {"required", Json::array({"message"})}
-        },
-        Json{{"type", "string"}},
-        [](const Json& input) -> Json {
-            return input.at("message");
-        }
-    };
+    tools::Tool echo{"echo",
+                     Json{{"type", "object"},
+                          {"properties", Json{{"message", Json{{"type", "string"}}}}},
+                          {"required", Json::array({"message"})}},
+                     Json{{"type", "string"}},
+                     [](const Json& input) -> Json { return input.at("message"); }};
     tool_mgr.register_tool(echo);
 
     std::unordered_map<std::string, std::string> descriptions = {
-        {"echo", "Echo back the input message"}
-    };
+        {"echo", "Echo back the input message"}};
 
-    auto handler = mcp::make_mcp_handler("fastmcpp_inspector_test", "1.0.0", tool_mgr, descriptions);
+    auto handler =
+        mcp::make_mcp_handler("fastmcpp_inspector_test", "1.0.0", tool_mgr, descriptions);
 
     // Start SSE server on port 18106
-    server::SseServerWrapper sse_server(
-        handler,
-        "127.0.0.1",
-        18106,
-        "/sse",       // SSE endpoint (GET only)
-        "/messages"   // Message endpoint (POST)
+    server::SseServerWrapper sse_server(handler, "127.0.0.1", 18106,
+                                        "/sse",     // SSE endpoint (GET only)
+                                        "/messages" // Message endpoint (POST)
     );
 
-    if (!sse_server.start()) {
+    if (!sse_server.start())
+    {
         std::cerr << "Failed to start server\n";
         return 1;
     }
@@ -76,9 +71,8 @@ int main() {
     std::cout << "Press Ctrl+C to stop the server...\n\n";
 
     // Keep server running
-    while (keep_running) {
+    while (keep_running)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
 
     std::cout << "Stopping server...\n";
     sse_server.stop();

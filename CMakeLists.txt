@@ -229,6 +229,14 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_server_patterns PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_patterns COMMAND fastmcpp_server_patterns)
 
+  add_executable(fastmcpp_server_interactions tests/server/interactions.cpp)
+  target_link_libraries(fastmcpp_server_interactions PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_interactions COMMAND fastmcpp_server_interactions)
+
+  add_executable(fastmcpp_server_context_meta tests/server/context_meta.cpp)
+  target_link_libraries(fastmcpp_server_context_meta PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_context_meta COMMAND fastmcpp_server_context_meta)
+
   add_executable(fastmcpp_client_transports tests/client/transports.cpp)
   target_link_libraries(fastmcpp_client_transports PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_client_transports COMMAND fastmcpp_client_transports)
