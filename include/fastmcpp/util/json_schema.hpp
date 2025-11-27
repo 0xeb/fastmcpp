@@ -1,11 +1,13 @@
 #pragma once
+#include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/types.hpp"
+
+#include <optional>
 #include <string>
 #include <vector>
-#include <optional>
-#include "fastmcpp/types.hpp"
-#include "fastmcpp/exceptions.hpp"
 
-namespace fastmcpp::util::schema {
+namespace fastmcpp::util::schema
+{
 
 // Minimal JSON Schema v7-like validator supporting:
 // - type: object, array, string, number, integer, boolean
@@ -15,4 +17,3 @@ namespace fastmcpp::util::schema {
 void validate(const Json& schema, const Json& instance);
 
 } // namespace fastmcpp::util::schema
-

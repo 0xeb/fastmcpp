@@ -1,10 +1,11 @@
-﻿#include <cassert>
+﻿#include "fastmcpp/client/types.hpp"
+#include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/resources/manager.hpp"
+
+#include <algorithm>
+#include <cassert>
 #include <iostream>
 #include <string>
-#include <algorithm>
-#include "fastmcpp/resources/manager.hpp"
-#include "fastmcpp/client/types.hpp"
-#include "fastmcpp/exceptions.hpp"
 
 // Advanced tests for resources functionality
 // Tests multiple resource types, metadata handling, edge cases,
@@ -12,38 +13,26 @@
 
 using namespace fastmcpp;
 
-void test_multiple_resource_kinds() {
+void test_multiple_resource_kinds()
+{
     std::cout << "Test 1: Multiple resource kinds...\n";
 
     resources::ResourceManager rm;
 
     // File resource
-    resources::Resource file_res{
-        Id{"file1"},
-        resources::Kind::File,
-        Json{{"path", "/data/file.txt"}, {"size", 1024}}
-    };
+    resources::Resource file_res{Id{"file1"}, resources::Kind::File,
+                                 Json{{"path", "/data/file.txt"}, {"size", 1024}}};
 
     // Text resource
-    resources::Resource text_res{
-        Id{"text1"},
-        resources::Kind::Text,
-        Json{{"content", "Hello World"}, {"encoding", "utf-8"}}
-    };
+    resources::Resource text_res{Id{"text1"}, resources::Kind::Text,
+                                 Json{{"content", "Hello World"}, {"encoding", "utf-8"}}};
 
     // JSON resource
-    resources::Resource json_res{
-        Id{"json1"},
-        resources::Kind::Json,
-        Json{{"data", Json{{"key", "value"}}}}
-    };
+    resources::Resource json_res{Id{"json1"}, resources::Kind::Json,
+                                 Json{{"data", Json{{"key", "value"}}}}};
 
     // Unknown kind resource
-    resources::Resource unknown_res{
-        Id{"unknown1"},
-        resources::Kind::Unknown,
-        Json::object()
-    };
+    resources::Resource unknown_res{Id{"unknown1"}, resources::Kind::Unknown, Json::object()};
 
     rm.register_resource(file_res);
     rm.register_resource(text_res);
@@ -73,26 +62,20 @@ void test_multiple_resource_kinds() {
     std::cout << "  [PASS] Multiple resource kinds work correctly\n";
 }
 
-void test_resource_metadata() {
+void test_resource_metadata()
+{
     std::cout << "Test 2: Resource metadata handling...\n";
 
     resources::ResourceManager rm;
 
     // Resource with rich metadata
     resources::Resource rich_res{
-        Id{"rich1"},
-        resources::Kind::File,
-        Json{
-            {"name", "document.pdf"},
-            {"size_bytes", 2048},
-            {"created_at", "2025-01-01T00:00:00Z"},
-            {"tags", Json::array({"important", "draft"})},
-            {"author", Json{
-                {"name", "Alice"},
-                {"email", "alice@example.com"}
-            }}
-        }
-    };
+        Id{"rich1"}, resources::Kind::File,
+        Json{{"name", "document.pdf"},
+             {"size_bytes", 2048},
+             {"created_at", "2025-01-01T00:00:00Z"},
+             {"tags", Json::array({"important", "draft"})},
+             {"author", Json{{"name", "Alice"}, {"email", "alice@example.com"}}}}};
 
     rm.register_resource(rich_res);
 
@@ -105,27 +88,22 @@ void test_resource_metadata() {
     std::cout << "  [PASS] Rich metadata preserved correctly\n";
 }
 
-void test_resource_update() {
+void test_resource_update()
+{
     std::cout << "Test 3: Resource update/replacement...\n";
 
     resources::ResourceManager rm;
 
     // Register initial version
-    resources::Resource v1{
-        Id{"doc1"},
-        resources::Kind::Text,
-        Json{{"version", 1}, {"content", "Version 1"}}
-    };
+    resources::Resource v1{Id{"doc1"}, resources::Kind::Text,
+                           Json{{"version", 1}, {"content", "Version 1"}}};
 
     rm.register_resource(v1);
     assert(rm.get("doc1").metadata["version"] == 1);
 
     // Update with new version (same ID)
-    resources::Resource v2{
-        Id{"doc1"},
-        resources::Kind::Text,
-        Json{{"version", 2}, {"content", "Version 2"}}
-    };
+    resources::Resource v2{Id{"doc1"}, resources::Kind::Text,
+                           Json{{"version", 2}, {"content", "Version 2"}}};
 
     rm.register_resource(v2);
 
@@ -140,15 +118,19 @@ void test_resource_update() {
     std::cout << "  [PASS] Resource replacement works correctly\n";
 }
 
-void test_resource_not_found() {
+void test_resource_not_found()
+{
     std::cout << "Test 4: Resource not found error...\n";
 
     resources::ResourceManager rm;
 
     bool threw = false;
-    try {
+    try
+    {
         rm.get("nonexistent");
-    } catch (const NotFoundError& e) {
+    }
+    catch (const NotFoundError& e)
+    {
         threw = true;
     }
     assert(threw);
@@ -156,7 +138,8 @@ void test_resource_not_found() {
     std::cout << "  [PASS] NotFoundError thrown for missing resources\n";
 }
 
-void test_resource_list_ordering() {
+void test_resource_list_ordering()
+{
     std::cout << "Test 5: Resource list operations...\n";
 
     resources::ResourceManager rm;
@@ -165,12 +148,10 @@ void test_resource_list_ordering() {
     assert(rm.list().empty());
 
     // Add multiple resources
-    for (int i = 0; i < 5; ++i) {
-        resources::Resource res{
-            Id{"res_" + std::to_string(i)},
-            resources::Kind::Text,
-            Json{{"index", i}}
-        };
+    for (int i = 0; i < 5; ++i)
+    {
+        resources::Resource res{Id{"res_" + std::to_string(i)}, resources::Kind::Text,
+                                Json{{"index", i}}};
         rm.register_resource(res);
     }
 
@@ -178,10 +159,11 @@ void test_resource_list_ordering() {
     assert(list.size() == 5);
 
     // Verify all resources present
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 5; ++i)
+    {
         std::string id = "res_" + std::to_string(i);
         auto found = std::find_if(list.begin(), list.end(),
-            [&id](const resources::Resource& r) { return r.id.value == id; });
+                                  [&id](const resources::Resource& r) { return r.id.value == id; });
         assert(found != list.end());
         assert(found->metadata["index"] == i);
     }
@@ -189,17 +171,14 @@ void test_resource_list_ordering() {
     std::cout << "  [PASS] Resource listing works correctly\n";
 }
 
-void test_empty_metadata() {
+void test_empty_metadata()
+{
     std::cout << "Test 6: Empty and minimal metadata...\n";
 
     resources::ResourceManager rm;
 
     // Resource with empty metadata
-    resources::Resource empty_meta{
-        Id{"empty1"},
-        resources::Kind::Text,
-        Json::object()
-    };
+    resources::Resource empty_meta{Id{"empty1"}, resources::Kind::Text, Json::object()};
 
     rm.register_resource(empty_meta);
 
@@ -210,22 +189,18 @@ void test_empty_metadata() {
     std::cout << "  [PASS] Empty metadata handled correctly\n";
 }
 
-void test_large_metadata() {
+void test_large_metadata()
+{
     std::cout << "Test 7: Large metadata objects...\n";
 
     resources::ResourceManager rm;
 
     // Resource with large metadata
     Json large_meta;
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < 100; ++i)
         large_meta["field_" + std::to_string(i)] = "value_" + std::to_string(i);
-    }
 
-    resources::Resource large_res{
-        Id{"large1"},
-        resources::Kind::Json,
-        large_meta
-    };
+    resources::Resource large_res{Id{"large1"}, resources::Kind::Json, large_meta};
 
     rm.register_resource(large_res);
 
@@ -236,33 +211,26 @@ void test_large_metadata() {
     std::cout << "  [PASS] Large metadata handled correctly\n";
 }
 
-void test_special_characters_in_id() {
+void test_special_characters_in_id()
+{
     std::cout << "Test 8: Special characters in resource IDs...\n";
 
     resources::ResourceManager rm;
 
     // IDs with special characters
     std::vector<std::string> special_ids = {
-        "res:with:colons",
-        "res/with/slashes",
-        "res.with.dots",
-        "res-with-dashes",
-        "res_with_underscores",
-        "res@with@at",
-        "res#with#hash"
-    };
+        "res:with:colons",      "res/with/slashes", "res.with.dots", "res-with-dashes",
+        "res_with_underscores", "res@with@at",      "res#with#hash"};
 
-    for (const auto& id : special_ids) {
-        resources::Resource res{
-            Id{id},
-            resources::Kind::Text,
-            Json{{"id", id}}
-        };
+    for (const auto& id : special_ids)
+    {
+        resources::Resource res{Id{id}, resources::Kind::Text, Json{{"id", id}}};
         rm.register_resource(res);
     }
 
     // Verify all can be retrieved
-    for (const auto& id : special_ids) {
+    for (const auto& id : special_ids)
+    {
         auto retrieved = rm.get(id);
         assert(retrieved.id.value == id);
         assert(retrieved.metadata["id"] == id);
@@ -273,7 +241,8 @@ void test_special_characters_in_id() {
     std::cout << "  [PASS] Special characters in IDs handled correctly\n";
 }
 
-void test_kind_string_conversion() {
+void test_kind_string_conversion()
+{
     std::cout << "Test 9: Kind to string conversion...\n";
 
     assert(std::string(resources::to_string(resources::Kind::File)) == "file");
@@ -284,7 +253,8 @@ void test_kind_string_conversion() {
     std::cout << "  [PASS] Kind string conversion works correctly\n";
 }
 
-void test_many_resources() {
+void test_many_resources()
+{
     std::cout << "Test 10: Managing many resources...\n";
 
     resources::ResourceManager rm;
@@ -292,12 +262,11 @@ void test_many_resources() {
     const int num_resources = 100;
 
     // Register many resources
-    for (int i = 0; i < num_resources; ++i) {
-        resources::Resource res{
-            Id{"bulk_" + std::to_string(i)},
-            static_cast<resources::Kind>((i % 4)), // Cycle through kinds
-            Json{{"index", i}}
-        };
+    for (int i = 0; i < num_resources; ++i)
+    {
+        resources::Resource res{Id{"bulk_" + std::to_string(i)},
+                                static_cast<resources::Kind>((i % 4)), // Cycle through kinds
+                                Json{{"index", i}}};
         rm.register_resource(res);
     }
 
@@ -318,7 +287,8 @@ void test_many_resources() {
 // Client-side Resource Type Tests
 // ============================================================================
 
-void test_resource_info_serialization() {
+void test_resource_info_serialization()
+{
     std::cout << "Test 11: ResourceInfo JSON serialization...\n";
 
     // Create ResourceInfo with all fields
@@ -352,7 +322,8 @@ void test_resource_info_serialization() {
     std::cout << "  [PASS] ResourceInfo serialization works correctly\n";
 }
 
-void test_resource_info_minimal() {
+void test_resource_info_minimal()
+{
     std::cout << "Test 12: ResourceInfo with minimal fields...\n";
 
     // Only required fields
@@ -370,7 +341,8 @@ void test_resource_info_minimal() {
     std::cout << "  [PASS] Minimal ResourceInfo parsed correctly\n";
 }
 
-void test_resource_template_fields() {
+void test_resource_template_fields()
+{
     std::cout << "Test 13: ResourceTemplate fields...\n";
 
     client::ResourceTemplate tmpl;
@@ -387,14 +359,13 @@ void test_resource_template_fields() {
     std::cout << "  [PASS] ResourceTemplate fields work correctly\n";
 }
 
-void test_text_resource_content_parsing() {
+void test_text_resource_content_parsing()
+{
     std::cout << "Test 14: TextResourceContent parsing...\n";
 
-    Json j = {
-        {"uri", "file:///readme.md"},
-        {"mimeType", "text/markdown"},
-        {"text", "# Hello World\n\nThis is a test."}
-    };
+    Json j = {{"uri", "file:///readme.md"},
+              {"mimeType", "text/markdown"},
+              {"text", "# Hello World\n\nThis is a test."}};
 
     client::TextResourceContent content;
     from_json(j, content);
@@ -406,17 +377,14 @@ void test_text_resource_content_parsing() {
     std::cout << "  [PASS] TextResourceContent parsed correctly\n";
 }
 
-void test_blob_resource_content_parsing() {
+void test_blob_resource_content_parsing()
+{
     std::cout << "Test 15: BlobResourceContent parsing...\n";
 
     // Base64 encoded "Hello"
     std::string base64_data = "SGVsbG8=";
 
-    Json j = {
-        {"uri", "file:///image.png"},
-        {"mimeType", "image/png"},
-        {"blob", base64_data}
-    };
+    Json j = {{"uri", "file:///image.png"}, {"mimeType", "image/png"}, {"blob", base64_data}};
 
     client::BlobResourceContent content;
     from_json(j, content);
@@ -428,13 +396,11 @@ void test_blob_resource_content_parsing() {
     std::cout << "  [PASS] BlobResourceContent parsed correctly\n";
 }
 
-void test_parse_resource_content_text() {
+void test_parse_resource_content_text()
+{
     std::cout << "Test 16: parse_resource_content for text...\n";
 
-    Json j = {
-        {"uri", "mem://doc"},
-        {"text", "Document content"}
-    };
+    Json j = {{"uri", "mem://doc"}, {"text", "Document content"}};
 
     auto content = client::parse_resource_content(j);
 
@@ -447,14 +413,13 @@ void test_parse_resource_content_text() {
     std::cout << "  [PASS] Text content parsed via parse_resource_content\n";
 }
 
-void test_parse_resource_content_blob() {
+void test_parse_resource_content_blob()
+{
     std::cout << "Test 17: parse_resource_content for blob...\n";
 
-    Json j = {
-        {"uri", "file:///binary.dat"},
-        {"blob", "AQIDBA=="},  // Base64 for bytes 1,2,3,4
-        {"mimeType", "application/octet-stream"}
-    };
+    Json j = {{"uri", "file:///binary.dat"},
+              {"blob", "AQIDBA=="}, // Base64 for bytes 1,2,3,4
+              {"mimeType", "application/octet-stream"}};
 
     auto content = client::parse_resource_content(j);
 
@@ -468,7 +433,8 @@ void test_parse_resource_content_blob() {
     std::cout << "  [PASS] Blob content parsed via parse_resource_content\n";
 }
 
-void test_list_resources_result() {
+void test_list_resources_result()
+{
     std::cout << "Test 18: ListResourcesResult structure...\n";
 
     client::ListResourcesResult result;
@@ -495,7 +461,8 @@ void test_list_resources_result() {
     std::cout << "  [PASS] ListResourcesResult works correctly\n";
 }
 
-void test_list_resource_templates_result() {
+void test_list_resource_templates_result()
+{
     std::cout << "Test 19: ListResourceTemplatesResult structure...\n";
 
     client::ListResourceTemplatesResult result;
@@ -519,7 +486,8 @@ void test_list_resource_templates_result() {
     std::cout << "  [PASS] ListResourceTemplatesResult works correctly\n";
 }
 
-void test_read_resource_result() {
+void test_read_resource_result()
+{
     std::cout << "Test 20: ReadResourceResult with multiple contents...\n";
 
     client::ReadResourceResult result;
@@ -533,7 +501,7 @@ void test_read_resource_result() {
     // Blob content
     client::BlobResourceContent blob;
     blob.uri = "file:///img.png";
-    blob.blob = "iVBORw0KGgo=";  // Partial PNG header base64
+    blob.blob = "iVBORw0KGgo="; // Partial PNG header base64
     blob.mimeType = "image/png";
     result.contents.push_back(blob);
 
@@ -552,20 +520,18 @@ void test_read_resource_result() {
     std::cout << "  [PASS] ReadResourceResult with mixed contents works\n";
 }
 
-void test_resource_uri_patterns() {
+void test_resource_uri_patterns()
+{
     std::cout << "Test 21: Various URI patterns...\n";
 
     std::vector<std::string> valid_uris = {
-        "file:///path/to/file.txt",
-        "mem://resource-name",
-        "http://example.com/resource",
-        "https://api.example.com/v1/data",
-        "custom://my-protocol/resource",
-        "db://postgres/users/123",
-        "s3://bucket/key/path"
-    };
+        "file:///path/to/file.txt",      "mem://resource-name",
+        "http://example.com/resource",   "https://api.example.com/v1/data",
+        "custom://my-protocol/resource", "db://postgres/users/123",
+        "s3://bucket/key/path"};
 
-    for (const auto& uri : valid_uris) {
+    for (const auto& uri : valid_uris)
+    {
         client::ResourceInfo info;
         info.uri = uri;
         info.name = "Test";
@@ -582,7 +548,8 @@ void test_resource_uri_patterns() {
     std::cout << "  [PASS] Various URI patterns handled correctly\n";
 }
 
-void test_resource_with_complex_annotations() {
+void test_resource_with_complex_annotations()
+{
     std::cout << "Test 22: ResourceInfo with complex annotations...\n";
 
     client::ResourceInfo info;
@@ -590,16 +557,8 @@ void test_resource_with_complex_annotations() {
     info.name = "Data File";
     info.annotations = Json{
         {"tags", Json::array({"important", "reviewed", "v2"})},
-        {"metadata", Json{
-            {"created", "2025-01-01"},
-            {"modified", "2025-01-15"},
-            {"size", 4096}
-        }},
-        {"permissions", Json{
-            {"read", true},
-            {"write", false}
-        }}
-    };
+        {"metadata", Json{{"created", "2025-01-01"}, {"modified", "2025-01-15"}, {"size", 4096}}},
+        {"permissions", Json{{"read", true}, {"write", false}}}};
 
     Json j;
     to_json(j, info);
@@ -616,15 +575,13 @@ void test_resource_with_complex_annotations() {
     std::cout << "  [PASS] Complex annotations preserved correctly\n";
 }
 
-void test_embedded_resource_content() {
+void test_embedded_resource_content()
+{
     std::cout << "Test 23: EmbeddedResourceContent parsing...\n";
 
     // Text embedded resource
     Json text_json = {
-        {"type", "resource"},
-        {"uri", "mem://embedded-doc"},
-        {"text", "Embedded text content"}
-    };
+        {"type", "resource"}, {"uri", "mem://embedded-doc"}, {"text", "Embedded text content"}};
 
     auto text_block = client::parse_content_block(text_json);
     assert(std::holds_alternative<client::EmbeddedResourceContent>(text_block));
@@ -633,12 +590,10 @@ void test_embedded_resource_content() {
     assert(text_res.text == "Embedded text content");
 
     // Blob embedded resource
-    Json blob_json = {
-        {"type", "resource"},
-        {"uri", "file:///embedded.bin"},
-        {"blob", "AAEC"},
-        {"mimeType", "application/octet-stream"}
-    };
+    Json blob_json = {{"type", "resource"},
+                      {"uri", "file:///embedded.bin"},
+                      {"blob", "AAEC"},
+                      {"mimeType", "application/octet-stream"}};
 
     auto blob_block = client::parse_content_block(blob_json);
     assert(std::holds_alternative<client::EmbeddedResourceContent>(blob_block));
@@ -650,14 +605,12 @@ void test_embedded_resource_content() {
     std::cout << "  [PASS] EmbeddedResourceContent parsed correctly\n";
 }
 
-void test_resource_content_without_mimetype() {
+void test_resource_content_without_mimetype()
+{
     std::cout << "Test 24: Resource content without mimeType...\n";
 
     // Text without mimeType
-    Json text_json = {
-        {"uri", "mem://plain"},
-        {"text", "Plain text"}
-    };
+    Json text_json = {{"uri", "mem://plain"}, {"text", "Plain text"}};
 
     client::TextResourceContent text;
     from_json(text_json, text);
@@ -665,10 +618,7 @@ void test_resource_content_without_mimetype() {
     assert(text.text == "Plain text");
 
     // Blob without mimeType
-    Json blob_json = {
-        {"uri", "mem://binary"},
-        {"blob", "data"}
-    };
+    Json blob_json = {{"uri", "mem://binary"}, {"blob", "data"}};
 
     client::BlobResourceContent blob;
     from_json(blob_json, blob);
@@ -677,7 +627,8 @@ void test_resource_content_without_mimetype() {
     std::cout << "  [PASS] Content without mimeType handled correctly\n";
 }
 
-void test_resource_pagination() {
+void test_resource_pagination()
+{
     std::cout << "Test 25: Resource pagination fields...\n";
 
     // With cursor
@@ -699,10 +650,12 @@ void test_resource_pagination() {
     std::cout << "  [PASS] Pagination fields work correctly\n";
 }
 
-int main() {
+int main()
+{
     std::cout << "Running advanced resources tests...\n\n";
 
-    try {
+    try
+    {
         // Server-side ResourceManager tests (1-10)
         test_multiple_resource_kinds();
         test_resource_metadata();
@@ -734,7 +687,9 @@ int main() {
 
         std::cout << "\n[OK] All 25 advanced resources tests passed!\n";
         return 0;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cerr << "\n[FAIL] Test failed with exception: " << e.what() << "\n";
         return 1;
     }

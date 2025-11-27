@@ -5,11 +5,13 @@
 
 #include "fastmcpp/client/transports.hpp"
 #include "fastmcpp/exceptions.hpp"
-#include <iostream>
-#include <fstream>
-#include <filesystem>
 
-int main() {
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+
+int main()
+{
     using namespace fastmcpp;
     namespace fs = std::filesystem;
 
@@ -26,13 +28,15 @@ int main() {
     std::cout << "1. StdioTransport with log_file path:\n";
     std::cout << "   " << std::string(40, '-') << "\n";
 
-    try {
+    try
+    {
         // Create transport with log_file parameter
         // This redirects subprocess stderr to the file in append mode
         client::StdioTransport transport(
-            "python",  // or "python3" on Unix
-            {"-c", "\"import sys,json;print(json.dumps({'result':'ok'}));sys.stderr.write('Debug\\\\n')\""},
-            log_path  // stderr redirected to this file
+            "python", // or "python3" on Unix
+            {"-c", "\"import "
+                   "sys,json;print(json.dumps({'result':'ok'}));sys.stderr.write('Debug\\\\n')\""},
+            log_path // stderr redirected to this file
         );
 
         // Make a request
@@ -40,7 +44,8 @@ int main() {
         std::cout << "   Response: " << response.dump() << "\n";
         std::cout << "   [OK] Subprocess stderr written to: " << log_path << "\n\n";
     }
-    catch (const TransportError& e) {
+    catch (const TransportError& e)
+    {
         std::cerr << "   [FAIL] Transport error: " << e.what() << "\n\n";
     }
 
@@ -51,9 +56,11 @@ int main() {
     std::cout << "2. StdioTransport with std::ostream*:\n";
     std::cout << "   " << std::string(40, '-') << "\n";
 
-    try {
+    try
+    {
         std::ofstream log_stream("stdio_transport_stream.log", std::ios::app);
-        if (!log_stream.is_open()) {
+        if (!log_stream.is_open())
+        {
             std::cerr << "   [FAIL] Failed to open log stream\n\n";
             return 1;
         }
@@ -61,8 +68,9 @@ int main() {
         // Create transport with ostream pointer
         client::StdioTransport transport(
             "python",
-            {"-c", R"(import sys,json;print(json.dumps({"result":"ok"}));sys.stderr.write("Stream\n"))"},
-            &log_stream  // stderr redirected to this stream
+            {"-c",
+             R"(import sys,json;print(json.dumps({"result":"ok"}));sys.stderr.write("Stream\n"))"},
+            &log_stream // stderr redirected to this stream
         );
 
         // Make a request
@@ -72,7 +80,8 @@ int main() {
 
         log_stream.close();
     }
-    catch (const TransportError& e) {
+    catch (const TransportError& e)
+    {
         std::cerr << "   [FAIL] Transport error: " << e.what() << "\n\n";
     }
 
@@ -83,18 +92,20 @@ int main() {
     std::cout << "3. StdioTransport without log_file (default):\n";
     std::cout << "   " << std::string(40, '-') << "\n";
 
-    try {
+    try
+    {
         // No log_file parameter - stderr is captured and included in errors
         client::StdioTransport transport(
             "python",
-            {"-c", R"(import sys,json;print(json.dumps({"result":"ok"}));sys.stderr.write("Captured\n"))"}
-        );
+            {"-c",
+             R"(import sys,json;print(json.dumps({"result":"ok"}));sys.stderr.write("Captured\n"))"});
 
         Json response = transport.request("test", Json{});
         std::cout << "   Response: " << response.dump() << "\n";
         std::cout << "   [INFO]  Stderr captured internally (no file written)\n\n";
     }
-    catch (const TransportError& e) {
+    catch (const TransportError& e)
+    {
         std::cerr << "   [FAIL] Transport error: " << e.what() << "\n\n";
     }
 
@@ -105,16 +116,18 @@ int main() {
     std::cout << "4. Log file contents:\n";
     std::cout << "   " << std::string(40, '-') << "\n";
 
-    if (fs::exists(log_path)) {
+    if (fs::exists(log_path))
+    {
         std::ifstream log_file(log_path);
         std::string line;
         std::cout << "   --- " << log_path << " ---\n";
-        while (std::getline(log_file, line)) {
+        while (std::getline(log_file, line))
             std::cout << "   " << line << "\n";
-        }
         std::cout << "   --- end ---\n\n";
         log_file.close();
-    } else {
+    }
+    else
+    {
         std::cout << "   Log file not found\n\n";
     }
 

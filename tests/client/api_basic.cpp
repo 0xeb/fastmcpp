@@ -3,7 +3,8 @@
 
 #include "test_helpers.hpp"
 
-void test_list_tools() {
+void test_list_tools()
+{
     std::cout << "Test 1: list_tools()...\n";
 
     auto srv = create_tool_server();
@@ -19,7 +20,8 @@ void test_list_tools() {
     std::cout << "  [PASS] list_tools() returns 6 tools\n";
 }
 
-void test_list_tools_mcp() {
+void test_list_tools_mcp()
+{
     std::cout << "Test 2: list_tools_mcp() with full result...\n";
 
     auto srv = create_tool_server();
@@ -28,12 +30,13 @@ void test_list_tools_mcp() {
     auto result = c.list_tools_mcp();
 
     assert(result.tools.size() == 6);
-    assert(!result.nextCursor.has_value());  // No pagination in this test
+    assert(!result.nextCursor.has_value()); // No pagination in this test
 
     std::cout << "  [PASS] list_tools_mcp() returns ListToolsResult\n";
 }
 
-void test_call_tool_basic() {
+void test_call_tool_basic()
+{
     std::cout << "Test 3: call_tool() basic...\n";
 
     auto srv = create_tool_server();
@@ -52,7 +55,8 @@ void test_call_tool_basic() {
     std::cout << "  [PASS] call_tool() returns correct result\n";
 }
 
-void test_call_tool_with_meta() {
+void test_call_tool_with_meta()
+{
     std::cout << "Test 4: call_tool() with meta...\n";
 
     auto srv = create_tool_server();
@@ -77,7 +81,8 @@ void test_call_tool_with_meta() {
     std::cout << "  [PASS] call_tool() with meta works\n";
 }
 
-void test_call_tool_mcp_with_options() {
+void test_call_tool_mcp_with_options()
+{
     std::cout << "Test 5: call_tool_mcp() with CallToolOptions...\n";
 
     auto srv = create_tool_server();
@@ -96,7 +101,8 @@ void test_call_tool_mcp_with_options() {
     std::cout << "  [PASS] call_tool_mcp() with options works\n";
 }
 
-void test_list_resources() {
+void test_list_resources()
+{
     std::cout << "Test 6: list_resources()...\n";
 
     auto srv = create_resource_server();
@@ -112,7 +118,8 @@ void test_list_resources() {
     std::cout << "  [PASS] list_resources() works\n";
 }
 
-void test_read_resource() {
+void test_read_resource()
+{
     std::cout << "Test 7: read_resource()...\n";
 
     auto srv = create_resource_server();
@@ -135,7 +142,8 @@ void test_read_resource() {
     std::cout << "  [PASS] read_resource() works\n";
 }
 
-void test_list_prompts() {
+void test_list_prompts()
+{
     std::cout << "Test 8: list_prompts()...\n";
 
     auto srv = create_prompt_server();
@@ -153,7 +161,8 @@ void test_list_prompts() {
     std::cout << "  [PASS] list_prompts() works\n";
 }
 
-void test_get_prompt() {
+void test_get_prompt()
+{
     std::cout << "Test 9: get_prompt()...\n";
 
     auto srv = create_prompt_server();
@@ -168,10 +177,11 @@ void test_get_prompt() {
     std::cout << "  [PASS] get_prompt() works\n";
 }
 
-
-int main() {
+int main()
+{
     std::cout << "Running basic Client API tests...\n\n";
-    try {
+    try
+    {
         test_list_tools();
         test_list_tools_mcp();
         test_call_tool_basic();
@@ -183,7 +193,9 @@ int main() {
         test_get_prompt();
         std::cout << "\n[OK] All basic client API tests passed! (9 tests)\n";
         return 0;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cerr << "\nTest failed: " << e.what() << "\n";
         return 1;
     }

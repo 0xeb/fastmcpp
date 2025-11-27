@@ -3,7 +3,8 @@
 
 #include "test_helpers.hpp"
 
-void test_is_connected() {
+void test_is_connected()
+{
     std::cout << "Test 10: is_connected()...\n";
 
     client::Client c1;
@@ -16,7 +17,8 @@ void test_is_connected() {
     std::cout << "  [PASS] is_connected() works\n";
 }
 
-void test_empty_meta() {
+void test_empty_meta()
+{
     std::cout << "Test 11: call_tool() with empty meta...\n";
 
     auto srv = create_tool_server();
@@ -33,7 +35,8 @@ void test_empty_meta() {
     std::cout << "  [PASS] call_tool() without meta works\n";
 }
 
-void test_call_tool_error_and_data() {
+void test_call_tool_error_and_data()
+{
     std::cout << "Test 12: call_tool() error handling and structured data...\n";
 
     auto srv = create_tool_server();
@@ -41,14 +44,18 @@ void test_call_tool_error_and_data() {
 
     c.list_tools(); // populate output schemas
     bool threw = false;
-    try {
+    try
+    {
         c.call_tool("fail", Json::object());
-    } catch (const fastmcpp::Error&) {
+    }
+    catch (const fastmcpp::Error&)
+    {
         threw = true;
     }
     assert(threw);
 
-    auto structured = c.call_tool("structured", Json::object(), std::nullopt, std::chrono::milliseconds{0}, nullptr, false);
+    auto structured = c.call_tool("structured", Json::object(), std::nullopt,
+                                  std::chrono::milliseconds{0}, nullptr, false);
     assert(!structured.isError);
     assert(structured.structuredContent.has_value());
     assert(structured.data.has_value());
@@ -56,9 +63,12 @@ void test_call_tool_error_and_data() {
     assert(val == 42);
 
     bool missing_content = false;
-    try {
+    try
+    {
         c.call_tool_mcp("bad_response", Json::object());
-    } catch (const fastmcpp::ValidationError&) {
+    }
+    catch (const fastmcpp::ValidationError&)
+    {
         missing_content = true;
     }
     assert(missing_content);
@@ -66,7 +76,8 @@ void test_call_tool_error_and_data() {
     std::cout << "  [PASS] errors throw and structuredContent populates data\n";
 }
 
-void test_mixed_content_roundtrip() {
+void test_mixed_content_roundtrip()
+{
     std::cout << "Test 12a: mixed content round-trip...\n";
 
     auto srv = create_tool_server();
@@ -82,7 +93,8 @@ void test_mixed_content_roundtrip() {
     std::cout << "  [PASS] mixed content (text + blob) preserved\n";
 }
 
-void test_typed_schema_mapping() {
+void test_typed_schema_mapping()
+{
     std::cout << "Test 12b: schema-to-typed-class mapping...\n";
 
     auto srv = create_tool_server();
@@ -105,7 +117,8 @@ void test_typed_schema_mapping() {
     std::cout << "  [PASS] typed mapping returns structured values with defaults\n";
 }
 
-void test_typed_schema_validation_failure() {
+void test_typed_schema_validation_failure()
+{
     std::cout << "Test 12c: schema validation failure on structured data...\n";
 
     auto srv = create_tool_server();
@@ -113,9 +126,12 @@ void test_typed_schema_validation_failure() {
     c.list_tools();
 
     bool failed = false;
-    try {
+    try
+    {
         c.call_tool("typed_invalid", Json::object());
-    } catch (const fastmcpp::ValidationError&) {
+    }
+    catch (const fastmcpp::ValidationError&)
+    {
         failed = true;
     }
     assert(failed);
@@ -123,7 +139,8 @@ void test_typed_schema_validation_failure() {
     std::cout << "  [PASS] invalid structured content triggers validation error\n";
 }
 
-void test_call_tool_timeout_and_progress() {
+void test_call_tool_timeout_and_progress()
+{
     std::cout << "Test 13: call_tool_mcp() timeout + progress callback...\n";
 
     auto srv = create_tool_server();
@@ -132,14 +149,17 @@ void test_call_tool_timeout_and_progress() {
     client::CallToolOptions opts;
     opts.timeout = std::chrono::milliseconds{50};
     std::vector<std::string> progress_messages;
-    opts.progress_handler = [&progress_messages](float, std::optional<float>, const std::string& msg) {
-        progress_messages.push_back(msg);
-    };
+    opts.progress_handler =
+        [&progress_messages](float, std::optional<float>, const std::string& msg)
+    { progress_messages.push_back(msg); };
 
     bool timed_out = false;
-    try {
+    try
+    {
         c.call_tool_mcp("slow", Json::object(), opts);
-    } catch (const fastmcpp::TransportError&) {
+    }
+    catch (const fastmcpp::TransportError&)
+    {
         timed_out = true;
     }
     assert(timed_out);
@@ -149,7 +169,8 @@ void test_call_tool_timeout_and_progress() {
     std::cout << "  [PASS] timeout enforced and progress handler invoked\n";
 }
 
-void test_progress_and_notifications() {
+void test_progress_and_notifications()
+{
     std::cout << "Test 13b: server progress events and notifications forwarded...\n";
 
     auto srv = create_tool_server();
@@ -158,24 +179,29 @@ void test_progress_and_notifications() {
     bool sampling_called = false;
     bool elicitation_called = false;
     bool roots_called = false;
-    c.set_sampling_callback([&](const Json& in) {
-        sampling_called = true;
-        return Json{{"from", "sampling"}, {"val", in.value("x", 0)}};
-    });
-    c.set_elicitation_callback([&](const Json& in) {
-        elicitation_called = true;
-        return Json{{"from", "elicitation"}, {"prompt", in.value("prompt", "")}};
-    });
-    c.set_roots_callback([&]() {
-        roots_called = true;
-        return Json::array({"root1"});
-    });
+    c.set_sampling_callback(
+        [&](const Json& in)
+        {
+            sampling_called = true;
+            return Json{{"from", "sampling"}, {"val", in.value("x", 0)}};
+        });
+    c.set_elicitation_callback(
+        [&](const Json& in)
+        {
+            elicitation_called = true;
+            return Json{{"from", "elicitation"}, {"prompt", in.value("prompt", "")}};
+        });
+    c.set_roots_callback(
+        [&]()
+        {
+            roots_called = true;
+            return Json::array({"root1"});
+        });
 
     client::CallToolOptions opts;
     std::vector<std::string> messages;
-    opts.progress_handler = [&messages](float, std::optional<float>, const std::string& msg) {
-        messages.push_back(msg);
-    };
+    opts.progress_handler = [&messages](float, std::optional<float>, const std::string& msg)
+    { messages.push_back(msg); };
 
     auto result = c.call_tool_mcp("slow", Json::object(), opts);
     assert(!result.isError);
@@ -191,16 +217,19 @@ void test_progress_and_notifications() {
     std::cout << "  [PASS] progress events propagated and notifications handled\n";
 }
 
-void test_multiple_progress_and_cancel() {
+void test_multiple_progress_and_cancel()
+{
     std::cout << "Test 13d: multiple progress events and cancel handling...\n";
 
     ProtocolState state;
     auto srv = create_protocol_server(state);
 
-    srv->route("notifications/progress", [&state](const Json& in) {
-        state.last_progress = in;
-        return Json::object();
-    });
+    srv->route("notifications/progress",
+               [&state](const Json& in)
+               {
+                   state.last_progress = in;
+                   return Json::object();
+               });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
@@ -219,7 +248,8 @@ void test_multiple_progress_and_cancel() {
     std::cout << "  [PASS] Multiple progress and cancel recorded\n";
 }
 
-void test_poll_notifications_route() {
+void test_poll_notifications_route()
+{
     std::cout << "Test 13c: polling notifications triggers callbacks...\n";
 
     ProtocolState state;
@@ -229,18 +259,24 @@ void test_poll_notifications_route() {
     bool sampling_called = false;
     bool elicitation_called = false;
     bool roots_called = false;
-    c.set_sampling_callback([&](const Json& in) {
-        sampling_called = true;
-        return Json{{"from", "sampling"}, {"val", in.value("x", 0)}};
-    });
-    c.set_elicitation_callback([&](const Json& in) {
-        elicitation_called = true;
-        return Json{{"from", "elicitation"}, {"prompt", in.value("prompt", "")}};
-    });
-    c.set_roots_callback([&]() {
-        roots_called = true;
-        return Json::array({"root1"});
-    });
+    c.set_sampling_callback(
+        [&](const Json& in)
+        {
+            sampling_called = true;
+            return Json{{"from", "sampling"}, {"val", in.value("x", 0)}};
+        });
+    c.set_elicitation_callback(
+        [&](const Json& in)
+        {
+            elicitation_called = true;
+            return Json{{"from", "elicitation"}, {"prompt", in.value("prompt", "")}};
+        });
+    c.set_roots_callback(
+        [&]()
+        {
+            roots_called = true;
+            return Json::array({"root1"});
+        });
 
     c.poll_notifications();
     assert(sampling_called);
@@ -250,7 +286,8 @@ void test_poll_notifications_route() {
     std::cout << "  [PASS] notifications/poll dispatches to callbacks\n";
 }
 
-void test_list_resource_templates() {
+void test_list_resource_templates()
+{
     std::cout << "Test 14: list_resource_templates()...\n";
 
     auto srv = create_resource_server();
@@ -264,7 +301,8 @@ void test_list_resource_templates() {
     std::cout << "  [PASS] list_resource_templates() works\n";
 }
 
-void test_complete_and_meta() {
+void test_complete_and_meta()
+{
     std::cout << "Test 15: complete_mcp() returns completion + meta...\n";
 
     ProtocolState state;
@@ -284,7 +322,8 @@ void test_complete_and_meta() {
     std::cout << "  [PASS] complete_mcp() returns meta and values\n";
 }
 
-void test_initialize_ping_cancel_progress_roots_clone() {
+void test_initialize_ping_cancel_progress_roots_clone()
+{
     std::cout << "Test 16: initialize/ping/cancel/progress/roots and clone...\n";
 
     ProtocolState state;
@@ -315,14 +354,18 @@ void test_initialize_ping_cancel_progress_roots_clone() {
     std::cout << "  [PASS] protocol helpers and new_client() work\n";
 }
 
-void test_transport_failure() {
+void test_transport_failure()
+{
     std::cout << "Test 17: transport failure surfaces TransportError...\n";
 
     client::Client c(std::make_unique<FailingTransport>("boom"));
     bool failed = false;
-    try {
+    try
+    {
         c.call_tool("any", Json::object());
-    } catch (const fastmcpp::TransportError&) {
+    }
+    catch (const fastmcpp::TransportError&)
+    {
         failed = true;
     }
     assert(failed);
@@ -330,12 +373,16 @@ void test_transport_failure() {
     std::cout << "  [PASS] transport errors propagate\n";
 }
 
-void test_callbacks_invoked() {
+void test_callbacks_invoked()
+{
     std::cout << "Test 18: sampling/elicitation callbacks invoked via notifications...\n";
 
     client::Client c;
-    c.set_sampling_callback([](const Json& in) { return Json{{"from", "sampling"}, {"value", in.value("x", 0)}}; });
-    c.set_elicitation_callback([](const Json& in) { return Json{{"from", "elicitation"}, {"text", in.value("prompt", "")}}; });
+    c.set_sampling_callback([](const Json& in)
+                            { return Json{{"from", "sampling"}, {"value", in.value("x", 0)}}; });
+    c.set_elicitation_callback(
+        [](const Json& in)
+        { return Json{{"from", "elicitation"}, {"text", in.value("prompt", "")}}; });
 
     CallbackTransport transport(&c);
     c.set_transport(std::make_unique<CallbackTransport>(&c));
@@ -351,9 +398,11 @@ void test_callbacks_invoked() {
     std::cout << "  [PASS] callbacks invoked and responses returned\n";
 }
 
-int main() {
+int main()
+{
     std::cout << "Running advanced Client API tests...\n\n";
-    try {
+    try
+    {
         test_is_connected();
         test_empty_meta();
         test_call_tool_error_and_data();
@@ -371,7 +420,9 @@ int main() {
         test_callbacks_invoked();
         std::cout << "\n[OK] All advanced client API tests passed! (15 tests)\n";
         return 0;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cerr << "\nTest failed: " << e.what() << "\n";
         return 1;
     }

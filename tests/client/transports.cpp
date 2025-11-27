@@ -1,27 +1,28 @@
-﻿#include <cassert>
+﻿#include "fastmcpp/client/transports.hpp"
+
+#include "fastmcpp/client/client.hpp"
+#include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/server/http_server.hpp"
+#include "fastmcpp/server/server.hpp"
+
+#include <cassert>
+#include <chrono>
 #include <iostream>
 #include <string>
 #include <thread>
-#include <chrono>
-#include "fastmcpp/client/client.hpp"
-#include "fastmcpp/client/transports.hpp"
-#include "fastmcpp/server/server.hpp"
-#include "fastmcpp/server/http_server.hpp"
-#include "fastmcpp/exceptions.hpp"
 
 // Advanced tests for client transports
 // Tests HTTP, Loopback, error handling, edge cases
 
 using namespace fastmcpp;
 
-void test_loopback_transport_basic() {
+void test_loopback_transport_basic()
+{
     std::cout << "Test 1: Loopback transport basic functionality...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("echo", [](const Json& in){ return in; });
-    srv->route("add", [](const Json& in){
-        return in.at("a").get<int>() + in.at("b").get<int>();
-    });
+    srv->route("echo", [](const Json& in) { return in; });
+    srv->route("add", [](const Json& in) { return in.at("a").get<int>() + in.at("b").get<int>(); });
 
     client::LoopbackTransport transport(srv);
 
@@ -36,13 +37,13 @@ void test_loopback_transport_basic() {
     std::cout << "  [PASS] Loopback transport works correctly\n";
 }
 
-void test_loopback_transport_with_client() {
+void test_loopback_transport_with_client()
+{
     std::cout << "Test 2: Loopback transport with Client wrapper...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("multiply", [](const Json& in){
-        return in.at("a").get<double>() * in.at("b").get<double>();
-    });
+    srv->route("multiply",
+               [](const Json& in) { return in.at("a").get<double>() * in.at("b").get<double>(); });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
@@ -52,13 +53,13 @@ void test_loopback_transport_with_client() {
     std::cout << "  [PASS] Loopback with Client works correctly\n";
 }
 
-void test_http_transport_basic() {
+void test_http_transport_basic()
+{
     std::cout << "Test 3: HTTP transport basic functionality...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("greet", [](const Json& in){
-        return Json{{"greeting", "Hello, " + in["name"].get<std::string>()}};
-    });
+    srv->route("greet", [](const Json& in)
+               { return Json{{"greeting", "Hello, " + in["name"].get<std::string>()}}; });
 
     server::HttpServerWrapper http(srv, "127.0.0.1", 18300);
     http.start();
@@ -73,18 +74,23 @@ void test_http_transport_basic() {
     std::cout << "  [PASS] HTTP transport works correctly\n";
 }
 
-void test_http_transport_multiple_requests() {
+void test_http_transport_multiple_requests()
+{
     std::cout << "Test 4: HTTP transport multiple requests...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("calculate", [](const Json& in){
-        std::string op = in["op"];
-        int a = in["a"];
-        int b = in["b"];
-        if (op == "add") return Json{{"result", a + b}};
-        if (op == "sub") return Json{{"result", a - b}};
-        return Json{{"error", "unknown operation"}};
-    });
+    srv->route("calculate",
+               [](const Json& in)
+               {
+                   std::string op = in["op"];
+                   int a = in["a"];
+                   int b = in["b"];
+                   if (op == "add")
+                       return Json{{"result", a + b}};
+                   if (op == "sub")
+                       return Json{{"result", a - b}};
+                   return Json{{"error", "unknown operation"}};
+               });
 
     server::HttpServerWrapper http(srv, "127.0.0.1", 18301);
     http.start();
@@ -103,14 +109,18 @@ void test_http_transport_multiple_requests() {
     std::cout << "  [PASS] HTTP multiple requests work correctly\n";
 }
 
-void test_http_transport_timeout_failure() {
+void test_http_transport_timeout_failure()
+{
     std::cout << "Test 4b: HTTP transport timeout/error path...\n";
 
     client::HttpTransport transport("127.0.0.1:1");
     bool failed = false;
-    try {
+    try
+    {
         transport.request("greet", Json{{"name", "late"}});
-    } catch (const fastmcpp::TransportError&) {
+    }
+    catch (const fastmcpp::TransportError&)
+    {
         failed = true;
     }
     assert(failed);
@@ -118,20 +128,22 @@ void test_http_transport_timeout_failure() {
     std::cout << "  [PASS] HTTP transport surfaces failures\n";
 }
 
-void test_transport_error_handling() {
+void test_transport_error_handling()
+{
     std::cout << "Test 5: Transport error handling...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("error", [](const Json&) -> Json {
-        throw std::runtime_error("Server error");
-    });
+    srv->route("error", [](const Json&) -> Json { throw std::runtime_error("Server error"); });
 
     // Loopback - errors propagate directly
     client::LoopbackTransport loopback(srv);
     bool threw = false;
-    try {
+    try
+    {
         loopback.request("error", Json{});
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         threw = true;
         assert(std::string(e.what()).find("Server error") != std::string::npos);
     }
@@ -140,11 +152,12 @@ void test_transport_error_handling() {
     std::cout << "  [PASS] Error handling works correctly\n";
 }
 
-void test_route_not_found() {
+void test_route_not_found()
+{
     std::cout << "Test 6: Route not found error...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("exists", [](const Json&){ return "ok"; });
+    srv->route("exists", [](const Json&) { return "ok"; });
 
     client::LoopbackTransport transport(srv);
 
@@ -154,9 +167,12 @@ void test_route_not_found() {
 
     // Non-existent route should throw
     bool threw = false;
-    try {
+    try
+    {
         transport.request("nonexistent", Json{});
-    } catch (const NotFoundError&) {
+    }
+    catch (const NotFoundError&)
+    {
         threw = true;
     }
     assert(threw);
@@ -164,15 +180,14 @@ void test_route_not_found() {
     std::cout << "  [PASS] Route not found handled correctly\n";
 }
 
-void test_payload_types() {
+void test_payload_types()
+{
     std::cout << "Test 7: Various payload types...\n";
 
     auto srv = std::make_shared<server::Server>();
 
     // Route that returns different types based on input
-    srv->route("mirror", [](const Json& in){
-        return in;
-    });
+    srv->route("mirror", [](const Json& in) { return in; });
 
     client::LoopbackTransport transport(srv);
 
@@ -199,29 +214,25 @@ void test_payload_types() {
     assert(obj_result["key"] == "value");
 
     // Nested payload
-    auto nested_result = transport.request("mirror", Json{
-        {"outer", Json{
-            {"inner", "value"}
-        }}
-    });
+    auto nested_result = transport.request("mirror", Json{{"outer", Json{{"inner", "value"}}}});
     assert(nested_result["outer"]["inner"] == "value");
 
     std::cout << "  [PASS] Various payload types handled correctly\n";
 }
 
-void test_client_multiple_calls() {
+void test_client_multiple_calls()
+{
     std::cout << "Test 8: Client with multiple calls...\n";
 
     auto srv = std::make_shared<server::Server>();
     std::atomic<int> call_count{0};
-    srv->route("count", [&call_count](const Json&){
-        return Json{{"count", ++call_count}};
-    });
+    srv->route("count", [&call_count](const Json&) { return Json{{"count", ++call_count}}; });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     // Multiple calls through same client
-    for (int i = 1; i <= 5; ++i) {
+    for (int i = 1; i <= 5; ++i)
+    {
         auto result = c.call("count", Json{});
         assert(result["count"] == i);
     }
@@ -229,16 +240,19 @@ void test_client_multiple_calls() {
     std::cout << "  [PASS] Multiple calls through client work correctly\n";
 }
 
-void test_concurrent_loopback_requests() {
+void test_concurrent_loopback_requests()
+{
     std::cout << "Test 9: Concurrent loopback requests...\n";
 
     auto srv = std::make_shared<server::Server>();
     std::atomic<int> counter{0};
 
-    srv->route("count", [&counter](const Json&){
-        counter++;
-        return Json{{"count", counter.load()}};
-    });
+    srv->route("count",
+               [&counter](const Json&)
+               {
+                   counter++;
+                   return Json{{"count", counter.load()}};
+               });
 
     client::LoopbackTransport transport(srv);
 
@@ -246,34 +260,30 @@ void test_concurrent_loopback_requests() {
     const int num_threads = 10;
     std::vector<std::thread> threads;
 
-    for (int i = 0; i < num_threads; ++i) {
-        threads.emplace_back([&transport](){
-            transport.request("count", Json{});
-        });
-    }
+    for (int i = 0; i < num_threads; ++i)
+        threads.emplace_back([&transport]() { transport.request("count", Json{}); });
 
-    for (auto& t : threads) {
+    for (auto& t : threads)
         t.join();
-    }
 
     assert(counter == num_threads);
 
     std::cout << "  [PASS] Concurrent loopback requests work correctly\n";
 }
 
-void test_large_payload() {
+void test_large_payload()
+{
     std::cout << "Test 10: Large payload handling...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("echo", [](const Json& in){ return in; });
+    srv->route("echo", [](const Json& in) { return in; });
 
     client::LoopbackTransport transport(srv);
 
     // Create large JSON object
     Json large_payload;
-    for (int i = 0; i < 1000; ++i) {
+    for (int i = 0; i < 1000; ++i)
         large_payload["key_" + std::to_string(i)] = "value_" + std::to_string(i);
-    }
 
     auto result = transport.request("echo", large_payload);
     assert(result.size() == 1000);
@@ -282,13 +292,12 @@ void test_large_payload() {
     std::cout << "  [PASS] Large payload handled correctly\n";
 }
 
-void test_empty_payload() {
+void test_empty_payload()
+{
     std::cout << "Test 11: Empty payload handling...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("noop", [](const Json&){
-        return Json{{"status", "ok"}};
-    });
+    srv->route("noop", [](const Json&) { return Json{{"status", "ok"}}; });
 
     client::LoopbackTransport transport(srv);
 
@@ -303,11 +312,12 @@ void test_empty_payload() {
     std::cout << "  [PASS] Empty payload handled correctly\n";
 }
 
-void test_multiple_http_clients() {
+void test_multiple_http_clients()
+{
     std::cout << "Test 12: Multiple HTTP clients to same server...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("ping", [](const Json&){ return Json{{"pong", true}}; });
+    srv->route("ping", [](const Json&) { return Json{{"pong", true}}; });
 
     server::HttpServerWrapper http(srv, "127.0.0.1", 18303);
     http.start();
@@ -331,10 +341,12 @@ void test_multiple_http_clients() {
     std::cout << "  [PASS] Multiple HTTP clients work correctly\n";
 }
 
-int main() {
+int main()
+{
     std::cout << "Running client transports tests...\n\n";
 
-    try {
+    try
+    {
         test_loopback_transport_basic();
         test_loopback_transport_with_client();
         test_http_transport_basic();
@@ -351,7 +363,9 @@ int main() {
 
         std::cout << "\n[OK] All client transport tests passed!\n";
         return 0;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cerr << "\n[FAIL] Test failed with exception: " << e.what() << "\n";
         return 1;
     }

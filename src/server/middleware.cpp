@@ -1,223 +1,190 @@
 #include "fastmcpp/server/middleware.hpp"
-#include "fastmcpp/server/context.hpp"
-#include "fastmcpp/resources/manager.hpp"
-#include "fastmcpp/prompts/manager.hpp"
+
 #include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/prompts/manager.hpp"
+#include "fastmcpp/resources/manager.hpp"
+#include "fastmcpp/server/context.hpp"
 
-namespace fastmcpp::server {
+namespace fastmcpp::server
+{
 
-void ToolInjectionMiddleware::add_prompt_tools(const prompts::PromptManager& pm) {
+void ToolInjectionMiddleware::add_prompt_tools(const prompts::PromptManager& pm)
+{
     // list_prompts tool
     add_tool(
-        "list_prompts",
-        "List all available prompts from the server",
-        Json{
-            {"type", "object"},
-            {"properties", Json::object()},
-            {"required", Json::array()}
-        },
-        [&pm](const Json& /*args*/) -> Json {
+        "list_prompts", "List all available prompts from the server",
+        Json{{"type", "object"}, {"properties", Json::object()}, {"required", Json::array()}},
+        [&pm](const Json& /*args*/) -> Json
+        {
             Context ctx(resources::ResourceManager(), pm);
             auto prompts = ctx.list_prompts();
 
             Json prompt_list = Json::array();
-            for (const auto& [name, prompt] : prompts) {
+            for (const auto& [name, prompt] : prompts)
+            {
                 Json prompt_obj = {
                     {"name", name},
                     {"description", prompt.template_string()},
                     {"arguments", Json::array()},
-                    {"messages", Json::array({
-                        Json{{"role", "user"},
-                             {"content", Json::array({
-                                 Json{{"type", "text"}, {"text", prompt.template_string()}}
-                             })}}
-                    })}
-                };
+                    {"messages",
+                     Json::array({Json{
+                         {"role", "user"},
+                         {"content", Json::array({Json{{"type", "text"},
+                                                       {"text", prompt.template_string()}}})}}})}};
                 prompt_list.push_back(prompt_obj);
             }
 
-            return Json{
-                {"prompts", prompt_list}
-            };
-        }
-    );
+            return Json{{"prompts", prompt_list}};
+        });
 
     // get_prompt tool
     add_tool(
-        "get_prompt",
-        "Get and render a specific prompt with arguments",
-        Json{
-            {"type", "object"},
-            {"properties", Json{
-                {"name", Json{{"type", "string"}, {"description", "The name of the prompt to render"}}},
-                {"arguments", Json{
-                    {"type", "object"},
-                    {"description", "Arguments to pass to the prompt template"},
-                    {"additionalProperties", true}
-                }}
-            }},
-            {"required", Json::array({"name"})}
-        },
-        [&pm](const Json& args) -> Json {
+        "get_prompt", "Get and render a specific prompt with arguments",
+        Json{{"type", "object"},
+             {"properties",
+              Json{{"name",
+                    Json{{"type", "string"}, {"description", "The name of the prompt to render"}}},
+                   {"arguments", Json{{"type", "object"},
+                                      {"description", "Arguments to pass to the prompt template"},
+                                      {"additionalProperties", true}}}}},
+             {"required", Json::array({"name"})}},
+        [&pm](const Json& args) -> Json
+        {
             std::string name = args.at("name").get<std::string>();
             Json arguments = args.value("arguments", Json::object());
 
             Context ctx(resources::ResourceManager(), pm);
             std::string rendered = ctx.get_prompt(name, arguments);
 
-            Json messages = Json::array({
-                Json{{"role", "user"},
-                     {"content", Json::array({
-                         Json{{"type", "text"}, {"text", rendered}}
-                     })}}
-            });
+            Json messages = Json::array(
+                {Json{{"role", "user"},
+                      {"content", Json::array({Json{{"type", "text"}, {"text", rendered}}})}}});
 
-            return Json{
-                {"name", name},
-                {"description", nullptr},
-                {"arguments", Json::array()},
-                {"messages", messages}
-            };
-        }
-    );
+            return Json{{"name", name},
+                        {"description", nullptr},
+                        {"arguments", Json::array()},
+                        {"messages", messages}};
+        });
 }
 
-void ToolInjectionMiddleware::add_resource_tools(const resources::ResourceManager& rm) {
+void ToolInjectionMiddleware::add_resource_tools(const resources::ResourceManager& rm)
+{
     // list_resources tool
-    add_tool(
-        "list_resources",
-        "List all available resources from the server",
-        Json{
-            {"type", "object"},
-            {"properties", Json::object()},
-            {"required", Json::array()}
-        },
-        [&rm](const Json& /*args*/) -> Json {
-            // Preserve full metadata in MCP-like structure
-            Context ctx(rm, prompts::PromptManager());
-            auto resources = ctx.list_resources();
+    add_tool("list_resources", "List all available resources from the server",
+             Json{{"type", "object"}, {"properties", Json::object()}, {"required", Json::array()}},
+             [&rm](const Json& /*args*/) -> Json
+             {
+                 // Preserve full metadata in MCP-like structure
+                 Context ctx(rm, prompts::PromptManager());
+                 auto resources = ctx.list_resources();
 
-            Json resource_list = Json::array();
-            for (const auto& res : resources) {
-                resource_list.push_back(Json{
-                    {"uri", res.id.value},
-                    {"name", res.id.value},
-                    {"description", nullptr},
-                    {"mimeType", res.metadata.value("mimeType", "text/plain")},
-                    {"annotations", res.metadata.value("annotations", Json::object())},
-                    {"metadata", res.metadata}
-                });
-            }
+                 Json resource_list = Json::array();
+                 for (const auto& res : resources)
+                 {
+                     resource_list.push_back(
+                         Json{{"uri", res.id.value},
+                              {"name", res.id.value},
+                              {"description", nullptr},
+                              {"mimeType", res.metadata.value("mimeType", "text/plain")},
+                              {"annotations", res.metadata.value("annotations", Json::object())},
+                              {"metadata", res.metadata}});
+                 }
 
-            return Json{
-                {"resources", resource_list}
-            };
-        }
-    );
+                 return Json{{"resources", resource_list}};
+             });
 
     // read_resource tool
-    add_tool(
-        "read_resource",
-        "Read the contents of a specific resource",
-        Json{
-            {"type", "object"},
-            {"properties", Json{
-                {"uri", Json{{"type", "string"}, {"description", "The URI of the resource to read"}}}
-            }},
-            {"required", Json::array({"uri"})}
-        },
-        [&rm](const Json& args) -> Json {
-            std::string uri = args.at("uri").get<std::string>();
+    add_tool("read_resource", "Read the contents of a specific resource",
+             Json{{"type", "object"},
+                  {"properties",
+                   Json{{"uri", Json{{"type", "string"},
+                                     {"description", "The URI of the resource to read"}}}}},
+                  {"required", Json::array({"uri"})}},
+             [&rm](const Json& args) -> Json
+             {
+                 std::string uri = args.at("uri").get<std::string>();
 
-            Context ctx(rm, prompts::PromptManager());
-            std::string content = ctx.read_resource(uri);
+                 Context ctx(rm, prompts::PromptManager());
+                 std::string content = ctx.read_resource(uri);
 
-            Json contents = Json::array({
-                Json{
-                    {"uri", uri},
-                    {"mimeType", "text/plain"},
-                    {"text", content}
-                }
-            });
+                 Json contents = Json::array(
+                     {Json{{"uri", uri}, {"mimeType", "text/plain"}, {"text", content}}});
 
-            return Json{
-                {"contents", contents}
-            };
-        }
-    );
+                 return Json{{"contents", contents}};
+             });
 }
 
-void ToolInjectionMiddleware::add_tool(const std::string& name,
-                                       const std::string& description,
+void ToolInjectionMiddleware::add_tool(const std::string& name, const std::string& description,
                                        const Json& input_schema,
-                                       std::function<Json(const Json&)> handler) {
+                                       std::function<Json(const Json&)> handler)
+{
     size_t index = tools_.size();
     tools_.push_back(InjectedTool{name, description, input_schema, std::move(handler)});
     tool_index_[name] = index;
 }
 
-AfterHook ToolInjectionMiddleware::create_tools_list_hook() {
+AfterHook ToolInjectionMiddleware::create_tools_list_hook()
+{
     // Capture 'this' to access tools_
-    return [this](const std::string& route, const Json& /*payload*/, Json& response) {
-        if (route != "tools/list") {
-            return;  // Not our concern
-        }
+    return [this](const std::string& route, const Json& /*payload*/, Json& response)
+    {
+        if (route != "tools/list")
+            return; // Not our concern
 
         // Append injected tools to the existing tools array
-        if (!response.contains("tools") || !response["tools"].is_array()) {
+        if (!response.contains("tools") || !response["tools"].is_array())
             response["tools"] = Json::array();
-        }
 
-        for (const auto& tool : tools_) {
-            response["tools"].push_back(Json{
-                {"name", tool.name},
-                {"description", tool.description},
-                {"inputSchema", tool.input_schema}
-            });
+        for (const auto& tool : tools_)
+        {
+            response["tools"].push_back(Json{{"name", tool.name},
+                                             {"description", tool.description},
+                                             {"inputSchema", tool.input_schema}});
         }
     };
 }
 
-BeforeHook ToolInjectionMiddleware::create_tools_call_hook() {
+BeforeHook ToolInjectionMiddleware::create_tools_call_hook()
+{
     // Capture 'this' to access tools_ and tool_index_
-    return [this](const std::string& route, const Json& payload) -> std::optional<Json> {
+    return [this](const std::string& route, const Json& payload) -> std::optional<Json>
+    {
         // The MCP handler calls server.handle(tool_name, arguments)
         // So 'route' is the tool name, and 'payload' is the tool arguments
 
         // Check if this is one of our injected tools
         auto it = tool_index_.find(route);
-        if (it == tool_index_.end()) {
-            return std::nullopt;  // Not our tool, continue to normal handler
-        }
+        if (it == tool_index_.end())
+            return std::nullopt; // Not our tool, continue to normal handler
 
         // Execute the injected tool
         const auto& tool = tools_[it->second];
 
-        try {
+        try
+        {
             return tool.handler(payload);
         }
-        catch (const std::exception& e) {
+        catch (const std::exception& e)
+        {
             // Return MCP error response
             return Json{
-                {"content", Json::array({
-                    Json{
-                        {"type", "text"},
-                        {"text", std::string("Tool execution error: ") + e.what()}
-                    }
-                })},
-                {"isError", true}
-            };
+                {"content",
+                 Json::array({Json{{"type", "text"},
+                                   {"text", std::string("Tool execution error: ") + e.what()}}})},
+                {"isError", true}};
         }
     };
 }
 
-ToolInjectionMiddleware make_prompt_tool_middleware(const prompts::PromptManager& pm) {
+ToolInjectionMiddleware make_prompt_tool_middleware(const prompts::PromptManager& pm)
+{
     ToolInjectionMiddleware mw;
     mw.add_prompt_tools(pm);
     return mw;
 }
 
-ToolInjectionMiddleware make_resource_tool_middleware(const resources::ResourceManager& rm) {
+ToolInjectionMiddleware make_resource_tool_middleware(const resources::ResourceManager& rm)
+{
     ToolInjectionMiddleware mw;
     mw.add_resource_tools(rm);
     return mw;

@@ -1,21 +1,22 @@
 #include "fastmcpp/server/context.hpp"
-#include "fastmcpp/resources/manager.hpp"
-#include "fastmcpp/prompts/manager.hpp"
+
 #include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/prompts/manager.hpp"
+#include "fastmcpp/resources/manager.hpp"
+
 #include <sstream>
 
-namespace fastmcpp::server {
+namespace fastmcpp::server
+{
 
-Context::Context(const resources::ResourceManager& rm,
-                 const prompts::PromptManager& pm)
-    : resource_mgr_(&rm), prompt_mgr_(&pm), request_meta_(std::nullopt), request_id_(std::nullopt), session_id_(std::nullopt)
+Context::Context(const resources::ResourceManager& rm, const prompts::PromptManager& pm)
+    : resource_mgr_(&rm), prompt_mgr_(&pm), request_meta_(std::nullopt), request_id_(std::nullopt),
+      session_id_(std::nullopt)
 {
 }
 
-Context::Context(const resources::ResourceManager& rm,
-                 const prompts::PromptManager& pm,
-                 std::optional<fastmcpp::Json> request_meta,
-                 std::optional<std::string> request_id,
+Context::Context(const resources::ResourceManager& rm, const prompts::PromptManager& pm,
+                 std::optional<fastmcpp::Json> request_meta, std::optional<std::string> request_id,
                  std::optional<std::string> session_id)
     : resource_mgr_(&rm), prompt_mgr_(&pm), request_meta_(std::move(request_meta)),
       request_id_(std::move(request_id)), session_id_(std::move(session_id))
@@ -32,25 +33,24 @@ std::vector<std::pair<std::string, prompts::Prompt>> Context::list_prompts() con
     return prompt_mgr_->list();
 }
 
-std::string Context::get_prompt(const std::string& name,
-                                const Json& arguments) const
+std::string Context::get_prompt(const std::string& name, const Json& arguments) const
 {
-    if (!prompt_mgr_->has(name)) {
+    if (!prompt_mgr_->has(name))
         throw NotFoundError("Prompt not found: " + name);
-    }
 
     const auto& prompt = prompt_mgr_->get(name);
 
     // Convert JSON arguments to string map for rendering
     std::unordered_map<std::string, std::string> vars;
-    if (arguments.is_object()) {
-        for (auto it = arguments.begin(); it != arguments.end(); ++it) {
+    if (arguments.is_object())
+    {
+        for (auto it = arguments.begin(); it != arguments.end(); ++it)
+        {
             // Convert JSON values to strings
-            if (it.value().is_string()) {
+            if (it.value().is_string())
                 vars[it.key()] = it.value().get<std::string>();
-            } else {
+            else
                 vars[it.key()] = it.value().dump();
-            }
         }
     }
 

@@ -1,7 +1,8 @@
 #pragma once
 #include "fastmcpp/types.hpp"
 
-namespace fastmcpp::util::schema_build {
+namespace fastmcpp::util::schema_build
+{
 
 // Convert a simple parameter map into a JSON Schema.
 // If the input already looks like a JSON Schema (has both type and properties),
@@ -12,4 +13,3 @@ namespace fastmcpp::util::schema_build {
 fastmcpp::Json to_object_schema_from_simple(const fastmcpp::Json& simple);
 
 } // namespace fastmcpp::util::schema_build
-

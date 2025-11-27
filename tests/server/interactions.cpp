@@ -2,15 +2,16 @@
 /// @brief Server interaction tests - client<->server roundtrip tests
 /// Mirrors Python's test_server_interactions.py where applicable
 
+#include "fastmcpp/client/client.hpp"
+#include "fastmcpp/client/transports.hpp"
+#include "fastmcpp/server/server.hpp"
+#include "fastmcpp/tools/manager.hpp"
+#include "fastmcpp/tools/tool.hpp"
+
 #include <cassert>
 #include <iostream>
 #include <string>
 #include <vector>
-#include "fastmcpp/server/server.hpp"
-#include "fastmcpp/client/client.hpp"
-#include "fastmcpp/client/transports.hpp"
-#include "fastmcpp/tools/tool.hpp"
-#include "fastmcpp/tools/manager.hpp"
 
 using namespace fastmcpp;
 
@@ -18,108 +19,113 @@ using namespace fastmcpp;
 // Test Server Fixture - creates a server with multiple tools
 // ============================================================================
 
-std::shared_ptr<server::Server> create_interaction_server() {
+std::shared_ptr<server::Server> create_interaction_server()
+{
     auto srv = std::make_shared<server::Server>();
 
     // Tool: add - basic arithmetic
-    srv->route("tools/list", [](const Json&) {
-        Json tools = Json::array();
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
+            Json tools = Json::array();
 
-        tools.push_back(Json{
-            {"name", "add"}, {"description", "Add two numbers"},
-            {"inputSchema", Json{{"type", "object"},
-                {"properties", Json{{"x", {{"type", "integer"}}}, {"y", {{"type", "integer"}}}}},
-                {"required", Json::array({"x", "y"})}}}
+            tools.push_back(
+                Json{{"name", "add"},
+                     {"description", "Add two numbers"},
+                     {"inputSchema", Json{{"type", "object"},
+                                          {"properties", Json{{"x", {{"type", "integer"}}},
+                                                              {"y", {{"type", "integer"}}}}},
+                                          {"required", Json::array({"x", "y"})}}}});
+
+            tools.push_back(
+                Json{{"name", "greet"},
+                     {"description", "Greet a person"},
+                     {"inputSchema", Json{{"type", "object"},
+                                          {"properties", Json{{"name", {{"type", "string"}}}}},
+                                          {"required", Json::array({"name"})}}}});
+
+            tools.push_back(Json{{"name", "error_tool"},
+                                 {"description", "Always fails"},
+                                 {"inputSchema", Json{{"type", "object"}}}});
+
+            tools.push_back(Json{{"name", "list_tool"},
+                                 {"description", "Returns a list"},
+                                 {"inputSchema", Json{{"type", "object"}}}});
+
+            tools.push_back(Json{{"name", "nested_tool"},
+                                 {"description", "Returns nested data"},
+                                 {"inputSchema", Json{{"type", "object"}}}});
+
+            tools.push_back(Json{
+                {"name", "optional_params"},
+                {"description", "Has optional params"},
+                {"inputSchema",
+                 Json{{"type", "object"},
+                      {"properties", Json{{"required_param", {{"type", "string"}}},
+                                          {"optional_param",
+                                           {{"type", "string"}, {"default", "default_value"}}}}},
+                      {"required", Json::array({"required_param"})}}}});
+
+            return Json{{"tools", tools}};
         });
 
-        tools.push_back(Json{
-            {"name", "greet"}, {"description", "Greet a person"},
-            {"inputSchema", Json{{"type", "object"},
-                {"properties", Json{{"name", {{"type", "string"}}}}},
-                {"required", Json::array({"name"})}}}
+    srv->route(
+        "tools/call",
+        [](const Json& in)
+        {
+            std::string name = in.at("name").get<std::string>();
+            Json args = in.value("arguments", Json::object());
+
+            if (name == "add")
+            {
+                int x = args.at("x").get<int>();
+                int y = args.at("y").get<int>();
+                int result = x + y;
+                return Json{{"content", Json::array({Json{{"type", "text"},
+                                                          {"text", std::to_string(result)}}})},
+                            {"structuredContent", Json{{"result", result}}},
+                            {"isError", false}};
+            }
+            if (name == "greet")
+            {
+                std::string greeting = "Hello, " + args.at("name").get<std::string>() + "!";
+                return Json{{"content", Json::array({Json{{"type", "text"}, {"text", greeting}}})},
+                            {"isError", false}};
+            }
+            if (name == "error_tool")
+            {
+                return Json{
+                    {"content", Json::array({Json{{"type", "text"}, {"text", "Test error"}}})},
+                    {"isError", true}};
+            }
+            if (name == "list_tool")
+            {
+                return Json{
+                    {"content", Json::array({Json{{"type", "text"}, {"text", "[\"x\",2]"}}})},
+                    {"structuredContent", Json{{"result", Json::array({"x", 2})}}},
+                    {"isError", false}};
+            }
+            if (name == "nested_tool")
+            {
+                Json nested = {{"level1", {{"level2", {{"value", 42}}}}}};
+                return Json{
+                    {"content", Json::array({Json{{"type", "text"}, {"text", nested.dump()}}})},
+                    {"structuredContent", Json{{"result", nested}}},
+                    {"isError", false}};
+            }
+            if (name == "optional_params")
+            {
+                std::string req = args.at("required_param").get<std::string>();
+                std::string opt = args.value("optional_param", "default_value");
+                return Json{
+                    {"content", Json::array({Json{{"type", "text"}, {"text", req + ":" + opt}}})},
+                    {"isError", false}};
+            }
+            return Json{
+                {"content", Json::array({Json{{"type", "text"}, {"text", "Unknown tool"}}})},
+                {"isError", true}};
         });
-
-        tools.push_back(Json{
-            {"name", "error_tool"}, {"description", "Always fails"},
-            {"inputSchema", Json{{"type", "object"}}}
-        });
-
-        tools.push_back(Json{
-            {"name", "list_tool"}, {"description", "Returns a list"},
-            {"inputSchema", Json{{"type", "object"}}}
-        });
-
-        tools.push_back(Json{
-            {"name", "nested_tool"}, {"description", "Returns nested data"},
-            {"inputSchema", Json{{"type", "object"}}}
-        });
-
-        tools.push_back(Json{
-            {"name", "optional_params"}, {"description", "Has optional params"},
-            {"inputSchema", Json{{"type", "object"},
-                {"properties", Json{{"required_param", {{"type", "string"}}},
-                                   {"optional_param", {{"type", "string"}, {"default", "default_value"}}}}},
-                {"required", Json::array({"required_param"})}}}
-        });
-
-        return Json{{"tools", tools}};
-    });
-
-    srv->route("tools/call", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
-        Json args = in.value("arguments", Json::object());
-
-        if (name == "add") {
-            int x = args.at("x").get<int>();
-            int y = args.at("y").get<int>();
-            int result = x + y;
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", std::to_string(result)}}})},
-                {"structuredContent", Json{{"result", result}}},
-                {"isError", false}
-            };
-        }
-        if (name == "greet") {
-            std::string greeting = "Hello, " + args.at("name").get<std::string>() + "!";
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", greeting}}})},
-                {"isError", false}
-            };
-        }
-        if (name == "error_tool") {
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", "Test error"}}})},
-                {"isError", true}
-            };
-        }
-        if (name == "list_tool") {
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", "[\"x\",2]"}}})},
-                {"structuredContent", Json{{"result", Json::array({"x", 2})}}},
-                {"isError", false}
-            };
-        }
-        if (name == "nested_tool") {
-            Json nested = {{"level1", {{"level2", {{"value", 42}}}}}};
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", nested.dump()}}})},
-                {"structuredContent", Json{{"result", nested}}},
-                {"isError", false}
-            };
-        }
-        if (name == "optional_params") {
-            std::string req = args.at("required_param").get<std::string>();
-            std::string opt = args.value("optional_param", "default_value");
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", req + ":" + opt}}})},
-                {"isError", false}
-            };
-        }
-        return Json{
-            {"content", Json::array({Json{{"type", "text"}, {"text", "Unknown tool"}}})},
-            {"isError", true}
-        };
-    });
 
     return srv;
 }
@@ -128,7 +134,8 @@ std::shared_ptr<server::Server> create_interaction_server() {
 // TestTools - Basic tool operations
 // ============================================================================
 
-void test_tool_exists() {
+void test_tool_exists()
+{
     std::cout << "Test: tool exists after registration...\n";
 
     auto srv = create_interaction_server();
@@ -136,8 +143,10 @@ void test_tool_exists() {
 
     auto tools = c.list_tools();
     bool found = false;
-    for (const auto& t : tools) {
-        if (t.name == "add") {
+    for (const auto& t : tools)
+    {
+        if (t.name == "add")
+        {
             found = true;
             break;
         }
@@ -147,7 +156,8 @@ void test_tool_exists() {
     std::cout << "  [PASS] Tool 'add' exists\n";
 }
 
-void test_list_tools_count() {
+void test_list_tools_count()
+{
     std::cout << "Test: list_tools returns correct count...\n";
 
     auto srv = create_interaction_server();
@@ -159,7 +169,8 @@ void test_list_tools_count() {
     std::cout << "  [PASS] list_tools() returns 6 tools\n";
 }
 
-void test_call_tool_basic() {
+void test_call_tool_basic()
+{
     std::cout << "Test: call_tool basic arithmetic...\n";
 
     auto srv = create_interaction_server();
@@ -176,7 +187,8 @@ void test_call_tool_basic() {
     std::cout << "  [PASS] call_tool('add', {x:1, y:2}) = 3\n";
 }
 
-void test_call_tool_structured_content() {
+void test_call_tool_structured_content()
+{
     std::cout << "Test: call_tool returns structuredContent...\n";
 
     auto srv = create_interaction_server();
@@ -190,16 +202,20 @@ void test_call_tool_structured_content() {
     std::cout << "  [PASS] structuredContent has result=30\n";
 }
 
-void test_call_tool_error() {
+void test_call_tool_error()
+{
     std::cout << "Test: call_tool error handling...\n";
 
     auto srv = create_interaction_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     bool threw = false;
-    try {
+    try
+    {
         c.call_tool("error_tool", Json::object());
-    } catch (const fastmcpp::Error&) {
+    }
+    catch (const fastmcpp::Error&)
+    {
         threw = true;
     }
     assert(threw);
@@ -207,7 +223,8 @@ void test_call_tool_error() {
     std::cout << "  [PASS] error_tool throws exception\n";
 }
 
-void test_call_tool_list_return() {
+void test_call_tool_list_return()
+{
     std::cout << "Test: call_tool with list return type...\n";
 
     auto srv = create_interaction_server();
@@ -226,7 +243,8 @@ void test_call_tool_list_return() {
     std::cout << "  [PASS] list_tool returns [\"x\", 2]\n";
 }
 
-void test_call_tool_nested_return() {
+void test_call_tool_nested_return()
+{
     std::cout << "Test: call_tool with nested return type...\n";
 
     auto srv = create_interaction_server();
@@ -242,7 +260,8 @@ void test_call_tool_nested_return() {
     std::cout << "  [PASS] nested_tool returns nested structure\n";
 }
 
-void test_call_tool_optional_params() {
+void test_call_tool_optional_params()
+{
     std::cout << "Test: call_tool with optional parameters...\n";
 
     auto srv = create_interaction_server();
@@ -255,7 +274,8 @@ void test_call_tool_optional_params() {
     assert(text1 && text1->text == "hello:default_value");
 
     // With both params
-    auto result2 = c.call_tool("optional_params", {{"required_param", "hello"}, {"optional_param", "world"}});
+    auto result2 =
+        c.call_tool("optional_params", {{"required_param", "hello"}, {"optional_param", "world"}});
     assert(!result2.isError);
     auto* text2 = std::get_if<client::TextContent>(&result2.content[0]);
     assert(text2 && text2->text == "hello:world");
@@ -267,15 +287,18 @@ void test_call_tool_optional_params() {
 // TestToolParameters - Parameter validation
 // ============================================================================
 
-void test_tool_input_schema_present() {
+void test_tool_input_schema_present()
+{
     std::cout << "Test: tool inputSchema is present...\n";
 
     auto srv = create_interaction_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     auto tools = c.list_tools();
-    for (const auto& t : tools) {
-        if (t.name == "add") {
+    for (const auto& t : tools)
+    {
+        if (t.name == "add")
+        {
             assert(t.inputSchema.contains("properties"));
             assert(t.inputSchema["properties"].contains("x"));
             assert(t.inputSchema["properties"].contains("y"));
@@ -286,15 +309,18 @@ void test_tool_input_schema_present() {
     std::cout << "  [PASS] inputSchema has properties\n";
 }
 
-void test_tool_required_params() {
+void test_tool_required_params()
+{
     std::cout << "Test: tool required params in schema...\n";
 
     auto srv = create_interaction_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     auto tools = c.list_tools();
-    for (const auto& t : tools) {
-        if (t.name == "optional_params") {
+    for (const auto& t : tools)
+    {
+        if (t.name == "optional_params")
+        {
             assert(t.inputSchema.contains("required"));
             auto required = t.inputSchema["required"];
             assert(required.size() == 1);
@@ -306,15 +332,18 @@ void test_tool_required_params() {
     std::cout << "  [PASS] required params correctly specified\n";
 }
 
-void test_tool_default_values() {
+void test_tool_default_values()
+{
     std::cout << "Test: tool default values in schema...\n";
 
     auto srv = create_interaction_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     auto tools = c.list_tools();
-    for (const auto& t : tools) {
-        if (t.name == "optional_params") {
+    for (const auto& t : tools)
+    {
+        if (t.name == "optional_params")
+        {
             auto props = t.inputSchema["properties"];
             assert(props["optional_param"].contains("default"));
             assert(props["optional_param"]["default"] == "default_value");
@@ -329,7 +358,8 @@ void test_tool_default_values() {
 // TestMultipleCallSequence - Sequential operations
 // ============================================================================
 
-void test_multiple_tool_calls() {
+void test_multiple_tool_calls()
+{
     std::cout << "Test: multiple sequential tool calls...\n";
 
     auto srv = create_interaction_server();
@@ -347,7 +377,8 @@ void test_multiple_tool_calls() {
     std::cout << "  [PASS] multiple calls work correctly\n";
 }
 
-void test_interleaved_operations() {
+void test_interleaved_operations()
+{
     std::cout << "Test: interleaved tool and list operations...\n";
 
     auto srv = create_interaction_server();
@@ -370,45 +401,64 @@ void test_interleaved_operations() {
 // Resource Server Fixture
 // ============================================================================
 
-std::shared_ptr<server::Server> create_resource_interaction_server() {
+std::shared_ptr<server::Server> create_resource_interaction_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("resources/list", [](const Json&) {
-        return Json{{"resources", Json::array({
-            Json{{"uri", "file:///config.json"}, {"name", "config.json"}, {"mimeType", "application/json"},
-                 {"description", "Configuration file"}},
-            Json{{"uri", "file:///readme.md"}, {"name", "readme.md"}, {"mimeType", "text/markdown"},
-                 {"description", "README documentation"}},
-            Json{{"uri", "mem:///cache"}, {"name", "cache"}, {"mimeType", "application/octet-stream"}}
-        })}};
-    });
+    srv->route("resources/list",
+               [](const Json&)
+               {
+                   return Json{{"resources",
+                                Json::array({Json{{"uri", "file:///config.json"},
+                                                  {"name", "config.json"},
+                                                  {"mimeType", "application/json"},
+                                                  {"description", "Configuration file"}},
+                                             Json{{"uri", "file:///readme.md"},
+                                                  {"name", "readme.md"},
+                                                  {"mimeType", "text/markdown"},
+                                                  {"description", "README documentation"}},
+                                             Json{{"uri", "mem:///cache"},
+                                                  {"name", "cache"},
+                                                  {"mimeType", "application/octet-stream"}}})}};
+               });
 
-    srv->route("resources/read", [](const Json& in) {
-        std::string uri = in.at("uri").get<std::string>();
-        if (uri == "file:///config.json") {
-            return Json{{"contents", Json::array({
-                Json{{"uri", uri}, {"mimeType", "application/json"}, {"text", "{\"key\": \"value\"}"}}
-            })}};
-        }
-        if (uri == "file:///readme.md") {
-            return Json{{"contents", Json::array({
-                Json{{"uri", uri}, {"mimeType", "text/markdown"}, {"text", "# Hello World"}}
-            })}};
-        }
-        if (uri == "mem:///cache") {
-            return Json{{"contents", Json::array({
-                Json{{"uri", uri}, {"mimeType", "application/octet-stream"}, {"blob", "YmluYXJ5ZGF0YQ=="}}
-            })}};
-        }
-        return Json{{"contents", Json::array()}};
-    });
+    srv->route(
+        "resources/read",
+        [](const Json& in)
+        {
+            std::string uri = in.at("uri").get<std::string>();
+            if (uri == "file:///config.json")
+            {
+                return Json{{"contents", Json::array({Json{{"uri", uri},
+                                                           {"mimeType", "application/json"},
+                                                           {"text", "{\"key\": \"value\"}"}}})}};
+            }
+            if (uri == "file:///readme.md")
+            {
+                return Json{{"contents", Json::array({Json{{"uri", uri},
+                                                           {"mimeType", "text/markdown"},
+                                                           {"text", "# Hello World"}}})}};
+            }
+            if (uri == "mem:///cache")
+            {
+                return Json{{"contents", Json::array({Json{{"uri", uri},
+                                                           {"mimeType", "application/octet-stream"},
+                                                           {"blob", "YmluYXJ5ZGF0YQ=="}}})}};
+            }
+            return Json{{"contents", Json::array()}};
+        });
 
-    srv->route("resources/templates/list", [](const Json&) {
-        return Json{{"resourceTemplates", Json::array({
-            Json{{"uriTemplate", "file:///{path}"}, {"name", "file"}, {"description", "File access"}},
-            Json{{"uriTemplate", "db:///{table}/{id}"}, {"name", "database"}, {"description", "Database record"}}
-        })}};
-    });
+    srv->route("resources/templates/list",
+               [](const Json&)
+               {
+                   return Json{{"resourceTemplates",
+                                Json::array({Json{{"uriTemplate", "file:///{path}"},
+                                                  {"name", "file"},
+                                                  {"description", "File access"}},
+                                             Json{{"uriTemplate", "db:///{table}/{id}"},
+                                                  {"name", "database"},
+                                                  {"description", "Database record"}}})}};
+               });
 
     return srv;
 }
@@ -417,7 +467,8 @@ std::shared_ptr<server::Server> create_resource_interaction_server() {
 // TestResource - Basic resource operations
 // ============================================================================
 
-void test_list_resources() {
+void test_list_resources()
+{
     std::cout << "Test: list_resources returns resources...\n";
 
     auto srv = create_resource_interaction_server();
@@ -431,7 +482,8 @@ void test_list_resources() {
     std::cout << "  [PASS] list_resources() returns 3 resources\n";
 }
 
-void test_read_resource_text() {
+void test_read_resource_text()
+{
     std::cout << "Test: read_resource returns text content...\n";
 
     auto srv = create_resource_interaction_server();
@@ -447,7 +499,8 @@ void test_read_resource_text() {
     std::cout << "  [PASS] read_resource returns text\n";
 }
 
-void test_read_resource_blob() {
+void test_read_resource_blob()
+{
     std::cout << "Test: read_resource returns blob content...\n";
 
     auto srv = create_resource_interaction_server();
@@ -463,7 +516,8 @@ void test_read_resource_blob() {
     std::cout << "  [PASS] read_resource returns blob\n";
 }
 
-void test_list_resource_templates() {
+void test_list_resource_templates()
+{
     std::cout << "Test: list_resource_templates returns templates...\n";
 
     auto srv = create_resource_interaction_server();
@@ -477,7 +531,8 @@ void test_list_resource_templates() {
     std::cout << "  [PASS] list_resource_templates() returns 2 templates\n";
 }
 
-void test_resource_with_description() {
+void test_resource_with_description()
+{
     std::cout << "Test: resource has description...\n";
 
     auto srv = create_resource_interaction_server();
@@ -485,8 +540,10 @@ void test_resource_with_description() {
 
     auto resources = c.list_resources();
     bool found = false;
-    for (const auto& r : resources) {
-        if (r.uri == "file:///config.json") {
+    for (const auto& r : resources)
+    {
+        if (r.uri == "file:///config.json")
+        {
             assert(r.description.has_value());
             assert(*r.description == "Configuration file");
             found = true;
@@ -502,60 +559,76 @@ void test_resource_with_description() {
 // Prompt Server Fixture
 // ============================================================================
 
-std::shared_ptr<server::Server> create_prompt_interaction_server() {
+std::shared_ptr<server::Server> create_prompt_interaction_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("prompts/list", [](const Json&) {
-        return Json{{"prompts", Json::array({
-            Json{{"name", "greeting"}, {"description", "Generate a greeting"},
-                 {"arguments", Json::array({
-                     Json{{"name", "name"}, {"description", "Name to greet"}, {"required", true}},
-                     Json{{"name", "style"}, {"description", "Greeting style"}, {"required", false}}
-                 })}},
-            Json{{"name", "summarize"}, {"description", "Summarize text"},
-                 {"arguments", Json::array({
-                     Json{{"name", "text"}, {"description", "Text to summarize"}, {"required", true}},
-                     Json{{"name", "length"}, {"description", "Max length"}, {"required", false}}
-                 })}},
-            Json{{"name", "simple"}, {"description", "Simple prompt with no args"}}
-        })}};
-    });
+    srv->route(
+        "prompts/list",
+        [](const Json&)
+        {
+            return Json{
+                {"prompts",
+                 Json::array(
+                     {Json{{"name", "greeting"},
+                           {"description", "Generate a greeting"},
+                           {"arguments", Json::array({Json{{"name", "name"},
+                                                           {"description", "Name to greet"},
+                                                           {"required", true}},
+                                                      Json{{"name", "style"},
+                                                           {"description", "Greeting style"},
+                                                           {"required", false}}})}},
+                      Json{{"name", "summarize"},
+                           {"description", "Summarize text"},
+                           {"arguments", Json::array({Json{{"name", "text"},
+                                                           {"description", "Text to summarize"},
+                                                           {"required", true}},
+                                                      Json{{"name", "length"},
+                                                           {"description", "Max length"},
+                                                           {"required", false}}})}},
+                      Json{{"name", "simple"}, {"description", "Simple prompt with no args"}}})}};
+        });
 
-    srv->route("prompts/get", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
-        Json args = in.value("arguments", Json::object());
+    srv->route(
+        "prompts/get",
+        [](const Json& in)
+        {
+            std::string name = in.at("name").get<std::string>();
+            Json args = in.value("arguments", Json::object());
 
-        if (name == "greeting") {
-            std::string greet_name = args.value("name", "World");
-            std::string style = args.value("style", "formal");
-            std::string message = (style == "casual")
-                ? "Hey " + greet_name + "!"
-                : "Good day, " + greet_name + ".";
-            return Json{
-                {"description", "A personalized greeting"},
-                {"messages", Json::array({
-                    Json{{"role", "user"}, {"content", Json{{"type", "text"}, {"text", message}}}}
-                })}
-            };
-        }
-        if (name == "summarize") {
-            return Json{
-                {"description", "Summarize the following"},
-                {"messages", Json::array({
-                    Json{{"role", "user"}, {"content", Json{{"type", "text"}, {"text", "Please summarize: " + args.value("text", "")}}}}
-                })}
-            };
-        }
-        if (name == "simple") {
-            return Json{
-                {"description", "A simple prompt"},
-                {"messages", Json::array({
-                    Json{{"role", "user"}, {"content", Json{{"type", "text"}, {"text", "Hello from simple prompt"}}}}
-                })}
-            };
-        }
-        return Json{{"messages", Json::array()}};
-    });
+            if (name == "greeting")
+            {
+                std::string greet_name = args.value("name", "World");
+                std::string style = args.value("style", "formal");
+                std::string message = (style == "casual") ? "Hey " + greet_name + "!"
+                                                          : "Good day, " + greet_name + ".";
+                return Json{
+                    {"description", "A personalized greeting"},
+                    {"messages",
+                     Json::array({Json{{"role", "user"},
+                                       {"content", Json{{"type", "text"}, {"text", message}}}}})}};
+            }
+            if (name == "summarize")
+            {
+                return Json{
+                    {"description", "Summarize the following"},
+                    {"messages",
+                     Json::array({Json{{"role", "user"},
+                                       {"content", Json{{"type", "text"},
+                                                        {"text", "Please summarize: " +
+                                                                     args.value("text", "")}}}}})}};
+            }
+            if (name == "simple")
+            {
+                return Json{
+                    {"description", "A simple prompt"},
+                    {"messages",
+                     Json::array({Json{{"role", "user"},
+                                       {"content", Json{{"type", "text"},
+                                                        {"text", "Hello from simple prompt"}}}}})}};
+            }
+            return Json{{"messages", Json::array()}};
+        });
 
     return srv;
 }
@@ -564,7 +637,8 @@ std::shared_ptr<server::Server> create_prompt_interaction_server() {
 // TestPrompts - Prompt operations
 // ============================================================================
 
-void test_list_prompts() {
+void test_list_prompts()
+{
     std::cout << "Test: list_prompts returns prompts...\n";
 
     auto srv = create_prompt_interaction_server();
@@ -579,15 +653,18 @@ void test_list_prompts() {
     std::cout << "  [PASS] list_prompts() returns 3 prompts\n";
 }
 
-void test_prompt_has_arguments() {
+void test_prompt_has_arguments()
+{
     std::cout << "Test: prompt has arguments...\n";
 
     auto srv = create_prompt_interaction_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     auto prompts = c.list_prompts();
-    for (const auto& p : prompts) {
-        if (p.name == "greeting") {
+    for (const auto& p : prompts)
+    {
+        if (p.name == "greeting")
+        {
             assert(p.arguments.has_value());
             assert(p.arguments->size() == 2);
             assert((*p.arguments)[0].name == "name");
@@ -601,7 +678,8 @@ void test_prompt_has_arguments() {
     std::cout << "  [PASS] prompt arguments present\n";
 }
 
-void test_get_prompt_basic() {
+void test_get_prompt_basic()
+{
     std::cout << "Test: get_prompt returns messages...\n";
 
     auto srv = create_prompt_interaction_server();
@@ -614,7 +692,8 @@ void test_get_prompt_basic() {
     std::cout << "  [PASS] get_prompt returns messages\n";
 }
 
-void test_get_prompt_with_args() {
+void test_get_prompt_with_args()
+{
     std::cout << "Test: get_prompt with arguments...\n";
 
     auto srv = create_prompt_interaction_server();
@@ -627,15 +706,18 @@ void test_get_prompt_with_args() {
     std::cout << "  [PASS] get_prompt with args works\n";
 }
 
-void test_prompt_no_args() {
+void test_prompt_no_args()
+{
     std::cout << "Test: prompt with no arguments defined...\n";
 
     auto srv = create_prompt_interaction_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     auto prompts = c.list_prompts();
-    for (const auto& p : prompts) {
-        if (p.name == "simple") {
+    for (const auto& p : prompts)
+    {
+        if (p.name == "simple")
+        {
             // simple prompt has no arguments array
             assert(!p.arguments.has_value() || p.arguments->empty());
             break;
@@ -649,45 +731,55 @@ void test_prompt_no_args() {
 // Meta Server Fixture - tests meta field handling
 // ============================================================================
 
-std::shared_ptr<server::Server> create_meta_server() {
+std::shared_ptr<server::Server> create_meta_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "meta_tool"}, {"description", "Tool with meta"},
-                 {"inputSchema", Json{{"type", "object"}}},
-                 {"_meta", Json{{"custom_field", "custom_value"}, {"version", 2}}}},
-            Json{{"name", "no_meta_tool"}, {"description", "Tool without meta"},
-                 {"inputSchema", Json{{"type", "object"}}}}
-        })}};
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{
+                       {"tools", Json::array({Json{{"name", "meta_tool"},
+                                                   {"description", "Tool with meta"},
+                                                   {"inputSchema", Json{{"type", "object"}}},
+                                                   {"_meta", Json{{"custom_field", "custom_value"},
+                                                                  {"version", 2}}}},
+                                              Json{{"name", "no_meta_tool"},
+                                                   {"description", "Tool without meta"},
+                                                   {"inputSchema", Json{{"type", "object"}}}}})}};
+               });
 
-    srv->route("tools/call", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
-        Json response = {
-            {"content", Json::array({Json{{"type", "text"}, {"text", "result"}}})},
-            {"isError", false}
-        };
-        // Echo back meta if present
-        if (in.contains("_meta")) {
-            response["_meta"] = in["_meta"];
-        }
-        return response;
-    });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   std::string name = in.at("name").get<std::string>();
+                   Json response = {
+                       {"content", Json::array({Json{{"type", "text"}, {"text", "result"}}})},
+                       {"isError", false}};
+                   // Echo back meta if present
+                   if (in.contains("_meta"))
+                       response["_meta"] = in["_meta"];
+                   return response;
+               });
 
-    srv->route("resources/list", [](const Json&) {
-        return Json{{"resources", Json::array({
-            Json{{"uri", "test://resource"}, {"name", "test"},
-                 {"_meta", Json{{"source", "test"}, {"priority", 1}}}}
-        })}};
-    });
+    srv->route("resources/list",
+               [](const Json&)
+               {
+                   return Json{
+                       {"resources",
+                        Json::array({Json{{"uri", "test://resource"},
+                                          {"name", "test"},
+                                          {"_meta", Json{{"source", "test"}, {"priority", 1}}}}})}};
+               });
 
-    srv->route("prompts/list", [](const Json&) {
-        return Json{{"prompts", Json::array({
-            Json{{"name", "meta_prompt"}, {"description", "Prompt with meta"},
-                 {"_meta", Json{{"category", "greeting"}}}}
-        })}};
-    });
+    srv->route("prompts/list",
+               [](const Json&)
+               {
+                   return Json{
+                       {"prompts", Json::array({Json{{"name", "meta_prompt"},
+                                                     {"description", "Prompt with meta"},
+                                                     {"_meta", Json{{"category", "greeting"}}}}})}};
+               });
 
     return srv;
 }
@@ -696,7 +788,8 @@ std::shared_ptr<server::Server> create_meta_server() {
 // TestMeta - Meta field handling
 // ============================================================================
 
-void test_tool_meta_present() {
+void test_tool_meta_present()
+{
     std::cout << "Test: tool has _meta field...\n";
 
     auto srv = create_meta_server();
@@ -704,8 +797,10 @@ void test_tool_meta_present() {
 
     auto tools = c.list_tools();
     bool found = false;
-    for (const auto& t : tools) {
-        if (t.name == "meta_tool") {
+    for (const auto& t : tools)
+    {
+        if (t.name == "meta_tool")
+        {
             // Note: meta field handling depends on client implementation
             found = true;
             break;
@@ -716,7 +811,8 @@ void test_tool_meta_present() {
     std::cout << "  [PASS] tool with meta found\n";
 }
 
-void test_call_tool_with_meta() {
+void test_call_tool_with_meta()
+{
     std::cout << "Test: call_tool with meta echoes it back...\n";
 
     auto srv = create_meta_server();
@@ -733,7 +829,8 @@ void test_call_tool_with_meta() {
     std::cout << "  [PASS] meta echoed back correctly\n";
 }
 
-void test_call_tool_without_meta() {
+void test_call_tool_without_meta()
+{
     std::cout << "Test: call_tool without meta works...\n";
 
     auto srv = create_meta_server();
@@ -749,57 +846,60 @@ void test_call_tool_without_meta() {
 // Output Schema Server Fixture
 // ============================================================================
 
-std::shared_ptr<server::Server> create_output_schema_server() {
+std::shared_ptr<server::Server> create_output_schema_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "typed_result"}, {"description", "Returns typed result"},
-                 {"inputSchema", Json{{"type", "object"}}},
-                 {"outputSchema", Json{
-                     {"type", "object"},
-                     {"properties", Json{
-                         {"value", {{"type", "integer"}}},
-                         {"label", {{"type", "string"}}}
-                     }},
-                     {"required", Json::array({"value"})}
-                 }}},
-            Json{{"name", "array_result"}, {"description", "Returns array"},
-                 {"inputSchema", Json{{"type", "object"}}},
-                 {"outputSchema", Json{
-                     {"type", "array"},
-                     {"items", {{"type", "string"}}}
-                 }}},
-            Json{{"name", "no_schema"}, {"description", "No output schema"},
-                 {"inputSchema", Json{{"type", "object"}}}}
-        })}};
-    });
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
+            return Json{
+                {"tools",
+                 Json::array({Json{{"name", "typed_result"},
+                                   {"description", "Returns typed result"},
+                                   {"inputSchema", Json{{"type", "object"}}},
+                                   {"outputSchema",
+                                    Json{{"type", "object"},
+                                         {"properties", Json{{"value", {{"type", "integer"}}},
+                                                             {"label", {{"type", "string"}}}}},
+                                         {"required", Json::array({"value"})}}}},
+                              Json{{"name", "array_result"},
+                                   {"description", "Returns array"},
+                                   {"inputSchema", Json{{"type", "object"}}},
+                                   {"outputSchema",
+                                    Json{{"type", "array"}, {"items", {{"type", "string"}}}}}},
+                              Json{{"name", "no_schema"},
+                                   {"description", "No output schema"},
+                                   {"inputSchema", Json{{"type", "object"}}}}})}};
+        });
 
-    srv->route("tools/call", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
+    srv->route(
+        "tools/call",
+        [](const Json& in)
+        {
+            std::string name = in.at("name").get<std::string>();
 
-        if (name == "typed_result") {
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", "42"}}})},
-                {"structuredContent", Json{{"value", 42}, {"label", "answer"}}},
-                {"isError", false}
-            };
-        }
-        if (name == "array_result") {
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", "[\"a\",\"b\",\"c\"]"}}})},
-                {"structuredContent", Json::array({"a", "b", "c"})},
-                {"isError", false}
-            };
-        }
-        if (name == "no_schema") {
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", "plain"}}})},
-                {"isError", false}
-            };
-        }
-        return Json{{"content", Json::array()}, {"isError", true}};
-    });
+            if (name == "typed_result")
+            {
+                return Json{{"content", Json::array({Json{{"type", "text"}, {"text", "42"}}})},
+                            {"structuredContent", Json{{"value", 42}, {"label", "answer"}}},
+                            {"isError", false}};
+            }
+            if (name == "array_result")
+            {
+                return Json{{"content", Json::array({Json{{"type", "text"},
+                                                          {"text", "[\"a\",\"b\",\"c\"]"}}})},
+                            {"structuredContent", Json::array({"a", "b", "c"})},
+                            {"isError", false}};
+            }
+            if (name == "no_schema")
+            {
+                return Json{{"content", Json::array({Json{{"type", "text"}, {"text", "plain"}}})},
+                            {"isError", false}};
+            }
+            return Json{{"content", Json::array()}, {"isError", true}};
+        });
 
     return srv;
 }
@@ -808,7 +908,8 @@ std::shared_ptr<server::Server> create_output_schema_server() {
 // TestOutputSchema - Output schema handling
 // ============================================================================
 
-void test_tool_has_output_schema() {
+void test_tool_has_output_schema()
+{
     std::cout << "Test: tool has outputSchema...\n";
 
     auto srv = create_output_schema_server();
@@ -816,8 +917,10 @@ void test_tool_has_output_schema() {
 
     auto tools = c.list_tools();
     bool found = false;
-    for (const auto& t : tools) {
-        if (t.name == "typed_result") {
+    for (const auto& t : tools)
+    {
+        if (t.name == "typed_result")
+        {
             assert(t.outputSchema.has_value());
             assert((*t.outputSchema)["type"] == "object");
             assert((*t.outputSchema)["properties"].contains("value"));
@@ -830,7 +933,8 @@ void test_tool_has_output_schema() {
     std::cout << "  [PASS] outputSchema present\n";
 }
 
-void test_structured_content_object() {
+void test_structured_content_object()
+{
     std::cout << "Test: structuredContent with object...\n";
 
     auto srv = create_output_schema_server();
@@ -845,7 +949,8 @@ void test_structured_content_object() {
     std::cout << "  [PASS] object structuredContent works\n";
 }
 
-void test_structured_content_array() {
+void test_structured_content_array()
+{
     std::cout << "Test: structuredContent with array...\n";
 
     auto srv = create_output_schema_server();
@@ -861,15 +966,18 @@ void test_structured_content_array() {
     std::cout << "  [PASS] array structuredContent works\n";
 }
 
-void test_tool_without_output_schema() {
+void test_tool_without_output_schema()
+{
     std::cout << "Test: tool without outputSchema...\n";
 
     auto srv = create_output_schema_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     auto tools = c.list_tools();
-    for (const auto& t : tools) {
-        if (t.name == "no_schema") {
+    for (const auto& t : tools)
+    {
+        if (t.name == "no_schema")
+        {
             assert(!t.outputSchema.has_value());
             break;
         }
@@ -886,55 +994,60 @@ void test_tool_without_output_schema() {
 // TestContentTypes - Various content types
 // ============================================================================
 
-std::shared_ptr<server::Server> create_content_type_server() {
+std::shared_ptr<server::Server> create_content_type_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "text_content"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "multi_content"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "embedded_resource"}, {"inputSchema", Json{{"type", "object"}}}}
-        })}};
-    });
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
+            return Json{
+                {"tools",
+                 Json::array(
+                     {Json{{"name", "text_content"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "multi_content"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "embedded_resource"},
+                           {"inputSchema", Json{{"type", "object"}}}}})}};
+        });
 
-    srv->route("tools/call", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
+    srv->route(
+        "tools/call",
+        [](const Json& in)
+        {
+            std::string name = in.at("name").get<std::string>();
 
-        if (name == "text_content") {
-            return Json{
-                {"content", Json::array({
-                    Json{{"type", "text"}, {"text", "Hello, World!"}}
-                })},
-                {"isError", false}
-            };
-        }
-        if (name == "multi_content") {
-            return Json{
-                {"content", Json::array({
-                    Json{{"type", "text"}, {"text", "First"}},
-                    Json{{"type", "text"}, {"text", "Second"}},
-                    Json{{"type", "text"}, {"text", "Third"}}
-                })},
-                {"isError", false}
-            };
-        }
-        if (name == "embedded_resource") {
-            return Json{
-                {"content", Json::array({
-                    Json{{"type", "text"}, {"text", "Before resource"}},
-                    Json{{"type", "resource"}, {"uri", "file:///data.txt"},
-                         {"mimeType", "text/plain"}, {"text", "Resource content"}}
-                })},
-                {"isError", false}
-            };
-        }
-        return Json{{"content", Json::array()}, {"isError", true}};
-    });
+            if (name == "text_content")
+            {
+                return Json{
+                    {"content", Json::array({Json{{"type", "text"}, {"text", "Hello, World!"}}})},
+                    {"isError", false}};
+            }
+            if (name == "multi_content")
+            {
+                return Json{{"content", Json::array({Json{{"type", "text"}, {"text", "First"}},
+                                                     Json{{"type", "text"}, {"text", "Second"}},
+                                                     Json{{"type", "text"}, {"text", "Third"}}})},
+                            {"isError", false}};
+            }
+            if (name == "embedded_resource")
+            {
+                return Json{
+                    {"content", Json::array({Json{{"type", "text"}, {"text", "Before resource"}},
+                                             Json{{"type", "resource"},
+                                                  {"uri", "file:///data.txt"},
+                                                  {"mimeType", "text/plain"},
+                                                  {"text", "Resource content"}}})},
+                    {"isError", false}};
+            }
+            return Json{{"content", Json::array()}, {"isError", true}};
+        });
 
     return srv;
 }
 
-void test_single_text_content() {
+void test_single_text_content()
+{
     std::cout << "Test: single text content...\n";
 
     auto srv = create_content_type_server();
@@ -951,7 +1064,8 @@ void test_single_text_content() {
     std::cout << "  [PASS] single text content works\n";
 }
 
-void test_multiple_text_content() {
+void test_multiple_text_content()
+{
     std::cout << "Test: multiple text content items...\n";
 
     auto srv = create_content_type_server();
@@ -972,7 +1086,8 @@ void test_multiple_text_content() {
     std::cout << "  [PASS] multiple content items work\n";
 }
 
-void test_mixed_content_types() {
+void test_mixed_content_types()
+{
     std::cout << "Test: mixed content types...\n";
 
     auto srv = create_content_type_server();
@@ -996,49 +1111,59 @@ void test_mixed_content_types() {
 // Error Handling Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_error_server() {
+std::shared_ptr<server::Server> create_error_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "throws_error"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "returns_error"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "missing_tool"}, {"inputSchema", Json{{"type", "object"}}}}
-        })}};
-    });
-
-    srv->route("tools/call", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
-
-        if (name == "throws_error") {
-            throw std::runtime_error("Tool execution failed");
-        }
-        if (name == "returns_error") {
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
             return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", "Error occurred"}}})},
-                {"isError", true}
-            };
-        }
-        // Any unknown tool returns an error
-        return Json{
-            {"content", Json::array({Json{{"type", "text"}, {"text", "Tool not found: " + name}}})},
-            {"isError", true}
-        };
-    });
+                {"tools",
+                 Json::array(
+                     {Json{{"name", "throws_error"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "returns_error"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "missing_tool"}, {"inputSchema", Json{{"type", "object"}}}}})}};
+        });
+
+    srv->route(
+        "tools/call",
+        [](const Json& in)
+        {
+            std::string name = in.at("name").get<std::string>();
+
+            if (name == "throws_error")
+                throw std::runtime_error("Tool execution failed");
+            if (name == "returns_error")
+            {
+                return Json{
+                    {"content", Json::array({Json{{"type", "text"}, {"text", "Error occurred"}}})},
+                    {"isError", true}};
+            }
+            // Any unknown tool returns an error
+            return Json{{"content", Json::array({Json{{"type", "text"},
+                                                      {"text", "Tool not found: " + name}}})},
+                        {"isError", true}};
+        });
 
     return srv;
 }
 
-void test_tool_returns_error_flag() {
+void test_tool_returns_error_flag()
+{
     std::cout << "Test: tool returns isError=true...\n";
 
     auto srv = create_error_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     bool threw = false;
-    try {
+    try
+    {
         c.call_tool("returns_error", Json::object());
-    } catch (const fastmcpp::Error&) {
+    }
+    catch (const fastmcpp::Error&)
+    {
         threw = true;
     }
     assert(threw);
@@ -1046,16 +1171,20 @@ void test_tool_returns_error_flag() {
     std::cout << "  [PASS] isError=true throws exception\n";
 }
 
-void test_tool_call_nonexistent() {
+void test_tool_call_nonexistent()
+{
     std::cout << "Test: calling nonexistent tool...\n";
 
     auto srv = create_error_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     bool threw = false;
-    try {
+    try
+    {
         c.call_tool("nonexistent_tool_xyz", Json::object());
-    } catch (...) {
+    }
+    catch (...)
+    {
         threw = true;
     }
     assert(threw);
@@ -1067,44 +1196,54 @@ void test_tool_call_nonexistent() {
 // Unicode and Special Characters Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_unicode_server() {
+std::shared_ptr<server::Server> create_unicode_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "echo"}, {"description", u8"Echo tool - 回声工具"},
-                 {"inputSchema", Json{{"type", "object"},
-                     {"properties", Json{{"text", {{"type", "string"}}}}}}}}
-        })}};
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{
+                       {"tools",
+                        Json::array(
+                            {Json{{"name", "echo"},
+                                  {"description", u8"Echo tool - 回声工具"},
+                                  {"inputSchema",
+                                   Json{{"type", "object"},
+                                        {"properties", Json{{"text", {{"type", "string"}}}}}}}}})}};
+               });
 
-    srv->route("tools/call", [](const Json& in) {
-        Json args = in.value("arguments", Json::object());
-        std::string text = args.value("text", "");
-        return Json{
-            {"content", Json::array({Json{{"type", "text"}, {"text", text}}})},
-            {"structuredContent", Json{{"echo", text}}},
-            {"isError", false}
-        };
-    });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   Json args = in.value("arguments", Json::object());
+                   std::string text = args.value("text", "");
+                   return Json{{"content", Json::array({Json{{"type", "text"}, {"text", text}}})},
+                               {"structuredContent", Json{{"echo", text}}},
+                               {"isError", false}};
+               });
 
-    srv->route("resources/list", [](const Json&) {
-        return Json{{"resources", Json::array({
-            Json{{"uri", u8"file:///文档/readme.txt"}, {"name", u8"中文文件"},
-                 {"mimeType", "text/plain"}}
-        })}};
-    });
+    srv->route("resources/list",
+               [](const Json&)
+               {
+                   return Json{{"resources", Json::array({Json{{"uri", u8"file:///文档/readme.txt"},
+                                                               {"name", u8"中文文件"},
+                                                               {"mimeType", "text/plain"}}})}};
+               });
 
-    srv->route("prompts/list", [](const Json&) {
-        return Json{{"prompts", Json::array({
-            Json{{"name", "greeting"}, {"description", u8"问候语 - Приветствие"}}
-        })}};
-    });
+    srv->route("prompts/list",
+               [](const Json&)
+               {
+                   return Json{
+                       {"prompts", Json::array({Json{{"name", "greeting"},
+                                                     {"description", u8"问候语 - Приветствие"}}})}};
+               });
 
     return srv;
 }
 
-void test_unicode_in_tool_description() {
+void test_unicode_in_tool_description()
+{
     std::cout << "Test: unicode in tool description...\n";
 
     auto srv = create_unicode_server();
@@ -1118,7 +1257,8 @@ void test_unicode_in_tool_description() {
     std::cout << "  [PASS] unicode in description preserved\n";
 }
 
-void test_unicode_echo_roundtrip() {
+void test_unicode_echo_roundtrip()
+{
     std::cout << "Test: unicode echo roundtrip...\n";
 
     auto srv = create_unicode_server();
@@ -1135,7 +1275,8 @@ void test_unicode_echo_roundtrip() {
     std::cout << "  [PASS] unicode roundtrip works\n";
 }
 
-void test_unicode_in_resource_uri() {
+void test_unicode_in_resource_uri()
+{
     std::cout << "Test: unicode in resource URI...\n";
 
     auto srv = create_unicode_server();
@@ -1149,7 +1290,8 @@ void test_unicode_in_resource_uri() {
     std::cout << "  [PASS] unicode in resource URI preserved\n";
 }
 
-void test_unicode_in_prompt_description() {
+void test_unicode_in_prompt_description()
+{
     std::cout << "Test: unicode in prompt description...\n";
 
     auto srv = create_unicode_server();
@@ -1167,49 +1309,64 @@ void test_unicode_in_prompt_description() {
 // Large Data Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_large_data_server() {
+std::shared_ptr<server::Server> create_large_data_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "large_response"}, {"inputSchema", Json{{"type", "object"},
-                 {"properties", Json{{"size", {{"type", "integer"}}}}}}}},
-            Json{{"name", "echo_large"}, {"inputSchema", Json{{"type", "object"},
-                 {"properties", Json{{"data", {{"type", "array"}}}}}}}}
-        })}};
-    });
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
+            return Json{
+                {"tools",
+                 Json::array({Json{{"name", "large_response"},
+                                   {"inputSchema",
+                                    Json{{"type", "object"},
+                                         {"properties", Json{{"size", {{"type", "integer"}}}}}}}},
+                              Json{{"name", "echo_large"},
+                                   {"inputSchema",
+                                    Json{{"type", "object"},
+                                         {"properties", Json{{"data", {{"type", "array"}}}}}}}}})}};
+        });
 
-    srv->route("tools/call", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
-        Json args = in.value("arguments", Json::object());
+    srv->route(
+        "tools/call",
+        [](const Json& in)
+        {
+            std::string name = in.at("name").get<std::string>();
+            Json args = in.value("arguments", Json::object());
 
-        if (name == "large_response") {
-            int size = args.value("size", 100);
-            Json arr = Json::array();
-            for (int i = 0; i < size; ++i) {
-                arr.push_back(Json{{"index", i}, {"value", "item_" + std::to_string(i)}});
+            if (name == "large_response")
+            {
+                int size = args.value("size", 100);
+                Json arr = Json::array();
+                for (int i = 0; i < size; ++i)
+                    arr.push_back(Json{{"index", i}, {"value", "item_" + std::to_string(i)}});
+                return Json{
+                    {"content",
+                     Json::array({Json{{"type", "text"},
+                                       {"text", "Generated " + std::to_string(size) + " items"}}})},
+                    {"structuredContent", Json{{"items", arr}, {"count", size}}},
+                    {"isError", false}};
             }
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", "Generated " + std::to_string(size) + " items"}}})},
-                {"structuredContent", Json{{"items", arr}, {"count", size}}},
-                {"isError", false}
-            };
-        }
-        if (name == "echo_large") {
-            Json data = args.value("data", Json::array());
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", "Echoed " + std::to_string(data.size()) + " items"}}})},
-                {"structuredContent", Json{{"data", data}, {"count", data.size()}}},
-                {"isError", false}
-            };
-        }
-        return Json{{"content", Json::array()}, {"isError", true}};
-    });
+            if (name == "echo_large")
+            {
+                Json data = args.value("data", Json::array());
+                return Json{{"content",
+                             Json::array({Json{
+                                 {"type", "text"},
+                                 {"text", "Echoed " + std::to_string(data.size()) + " items"}}})},
+                            {"structuredContent", Json{{"data", data}, {"count", data.size()}}},
+                            {"isError", false}};
+            }
+            return Json{{"content", Json::array()}, {"isError", true}};
+        });
 
     return srv;
 }
 
-void test_large_response() {
+void test_large_response()
+{
     std::cout << "Test: large response handling...\n";
 
     auto srv = create_large_data_server();
@@ -1224,16 +1381,16 @@ void test_large_response() {
     std::cout << "  [PASS] large response (1000 items) works\n";
 }
 
-void test_large_request() {
+void test_large_request()
+{
     std::cout << "Test: large request handling...\n";
 
     auto srv = create_large_data_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     Json large_array = Json::array();
-    for (int i = 0; i < 500; ++i) {
+    for (int i = 0; i < 500; ++i)
         large_array.push_back(Json{{"id", i}, {"name", "item_" + std::to_string(i)}});
-    }
 
     auto result = c.call_tool("echo_large", {{"data", large_array}});
     assert(!result.isError);
@@ -1246,48 +1403,59 @@ void test_large_request() {
 // Special Cases Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_special_cases_server() {
+std::shared_ptr<server::Server> create_special_cases_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "empty_response"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "null_values"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "special_chars"}, {"inputSchema", Json{{"type", "object"}}}}
-        })}};
-    });
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
+            return Json{
+                {"tools",
+                 Json::array(
+                     {Json{{"name", "empty_response"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "null_values"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "special_chars"},
+                           {"inputSchema", Json{{"type", "object"}}}}})}};
+        });
 
-    srv->route("tools/call", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
+    srv->route(
+        "tools/call",
+        [](const Json& in)
+        {
+            std::string name = in.at("name").get<std::string>();
 
-        if (name == "empty_response") {
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", ""}}})},
-                {"structuredContent", Json{{"result", ""}}},
-                {"isError", false}
-            };
-        }
-        if (name == "null_values") {
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", "null test"}}})},
-                {"structuredContent", Json{{"value", nullptr}, {"nested", Json{{"inner", nullptr}}}}},
-                {"isError", false}
-            };
-        }
-        if (name == "special_chars") {
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", "Line1\nLine2\tTabbed\"Quoted\\"}}})},
-                {"structuredContent", Json{{"text", "Line1\nLine2\tTabbed\"Quoted\\"}}},
-                {"isError", false}
-            };
-        }
-        return Json{{"content", Json::array()}, {"isError", true}};
-    });
+            if (name == "empty_response")
+            {
+                return Json{{"content", Json::array({Json{{"type", "text"}, {"text", ""}}})},
+                            {"structuredContent", Json{{"result", ""}}},
+                            {"isError", false}};
+            }
+            if (name == "null_values")
+            {
+                return Json{
+                    {"content", Json::array({Json{{"type", "text"}, {"text", "null test"}}})},
+                    {"structuredContent",
+                     Json{{"value", nullptr}, {"nested", Json{{"inner", nullptr}}}}},
+                    {"isError", false}};
+            }
+            if (name == "special_chars")
+            {
+                return Json{
+                    {"content", Json::array({Json{{"type", "text"},
+                                                  {"text", "Line1\nLine2\tTabbed\"Quoted\\"}}})},
+                    {"structuredContent", Json{{"text", "Line1\nLine2\tTabbed\"Quoted\\"}}},
+                    {"isError", false}};
+            }
+            return Json{{"content", Json::array()}, {"isError", true}};
+        });
 
     return srv;
 }
 
-void test_empty_string_response() {
+void test_empty_string_response()
+{
     std::cout << "Test: empty string response...\n";
 
     auto srv = create_special_cases_server();
@@ -1302,7 +1470,8 @@ void test_empty_string_response() {
     std::cout << "  [PASS] empty string handled\n";
 }
 
-void test_null_values_in_response() {
+void test_null_values_in_response()
+{
     std::cout << "Test: null values in response...\n";
 
     auto srv = create_special_cases_server();
@@ -1316,7 +1485,8 @@ void test_null_values_in_response() {
     std::cout << "  [PASS] null values preserved\n";
 }
 
-void test_special_characters() {
+void test_special_characters()
+{
     std::cout << "Test: special characters (newline, tab, quotes)...\n";
 
     auto srv = create_special_cases_server();
@@ -1336,69 +1506,71 @@ void test_special_characters() {
 // Pagination Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_pagination_server() {
+std::shared_ptr<server::Server> create_pagination_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json& in) {
-        std::string cursor = in.value("cursor", "");
-        if (cursor.empty()) {
-            return Json{
-                {"tools", Json::array({
-                    Json{{"name", "tool1"}, {"inputSchema", Json{{"type", "object"}}}},
-                    Json{{"name", "tool2"}, {"inputSchema", Json{{"type", "object"}}}}
-                })},
-                {"nextCursor", "page2"}
-            };
-        } else if (cursor == "page2") {
-            return Json{
-                {"tools", Json::array({
-                    Json{{"name", "tool3"}, {"inputSchema", Json{{"type", "object"}}}},
-                    Json{{"name", "tool4"}, {"inputSchema", Json{{"type", "object"}}}}
-                })}
-                // No nextCursor = last page
-            };
-        }
-        return Json{{"tools", Json::array()}};
-    });
+    srv->route(
+        "tools/list",
+        [](const Json& in)
+        {
+            std::string cursor = in.value("cursor", "");
+            if (cursor.empty())
+            {
+                return Json{
+                    {"tools",
+                     Json::array(
+                         {Json{{"name", "tool1"}, {"inputSchema", Json{{"type", "object"}}}},
+                          Json{{"name", "tool2"}, {"inputSchema", Json{{"type", "object"}}}}})},
+                    {"nextCursor", "page2"}};
+            }
+            else if (cursor == "page2")
+            {
+                return Json{
+                    {"tools",
+                     Json::array(
+                         {Json{{"name", "tool3"}, {"inputSchema", Json{{"type", "object"}}}},
+                          Json{{"name", "tool4"}, {"inputSchema", Json{{"type", "object"}}}}})}
+                    // No nextCursor = last page
+                };
+            }
+            return Json{{"tools", Json::array()}};
+        });
 
-    srv->route("resources/list", [](const Json& in) {
-        std::string cursor = in.value("cursor", "");
-        if (cursor.empty()) {
-            return Json{
-                {"resources", Json::array({
-                    Json{{"uri", "file:///a.txt"}, {"name", "a.txt"}}
-                })},
-                {"nextCursor", "next"}
-            };
-        }
-        return Json{
-            {"resources", Json::array({
-                Json{{"uri", "file:///b.txt"}, {"name", "b.txt"}}
-            })}
-        };
-    });
+    srv->route("resources/list",
+               [](const Json& in)
+               {
+                   std::string cursor = in.value("cursor", "");
+                   if (cursor.empty())
+                   {
+                       return Json{{"resources", Json::array({Json{{"uri", "file:///a.txt"},
+                                                                   {"name", "a.txt"}}})},
+                                   {"nextCursor", "next"}};
+                   }
+                   return Json{{"resources",
+                                Json::array({Json{{"uri", "file:///b.txt"}, {"name", "b.txt"}}})}};
+               });
 
-    srv->route("prompts/list", [](const Json& in) {
-        std::string cursor = in.value("cursor", "");
-        if (cursor.empty()) {
+    srv->route(
+        "prompts/list",
+        [](const Json& in)
+        {
+            std::string cursor = in.value("cursor", "");
+            if (cursor.empty())
+            {
+                return Json{
+                    {"prompts", Json::array({Json{{"name", "prompt1"}, {"description", "First"}}})},
+                    {"nextCursor", "more"}};
+            }
             return Json{
-                {"prompts", Json::array({
-                    Json{{"name", "prompt1"}, {"description", "First"}}
-                })},
-                {"nextCursor", "more"}
-            };
-        }
-        return Json{
-            {"prompts", Json::array({
-                Json{{"name", "prompt2"}, {"description", "Second"}}
-            })}
-        };
-    });
+                {"prompts", Json::array({Json{{"name", "prompt2"}, {"description", "Second"}}})}};
+        });
 
     return srv;
 }
 
-void test_tools_pagination_first_page() {
+void test_tools_pagination_first_page()
+{
     std::cout << "Test: tools pagination first page...\n";
 
     auto srv = create_pagination_server();
@@ -1413,7 +1585,8 @@ void test_tools_pagination_first_page() {
     std::cout << "  [PASS] first page with nextCursor\n";
 }
 
-void test_tools_pagination_second_page() {
+void test_tools_pagination_second_page()
+{
     std::cout << "Test: tools pagination second page (via raw call)...\n";
 
     auto srv = create_pagination_server();
@@ -1429,7 +1602,8 @@ void test_tools_pagination_second_page() {
     std::cout << "  [PASS] second page without nextCursor\n";
 }
 
-void test_resources_pagination() {
+void test_resources_pagination()
+{
     std::cout << "Test: resources pagination...\n";
 
     auto srv = create_pagination_server();
@@ -1448,7 +1622,8 @@ void test_resources_pagination() {
     std::cout << "  [PASS] resources pagination works\n";
 }
 
-void test_prompts_pagination() {
+void test_prompts_pagination()
+{
     std::cout << "Test: prompts pagination...\n";
 
     auto srv = create_pagination_server();
@@ -1471,34 +1646,33 @@ void test_prompts_pagination() {
 // Completion Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_completion_server() {
+std::shared_ptr<server::Server> create_completion_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("completion/complete", [](const Json& in) {
-        Json ref = in.at("ref");
-        std::string type = ref.value("type", "");
-        std::string name = ref.value("name", "");
+    srv->route("completion/complete",
+               [](const Json& in)
+               {
+                   Json ref = in.at("ref");
+                   std::string type = ref.value("type", "");
+                   std::string name = ref.value("name", "");
 
-        Json values = Json::array();
-        if (type == "ref/prompt" && name == "greeting") {
-            values = Json::array({"formal", "casual", "friendly"});
-        } else if (type == "ref/resource") {
-            values = Json::array({"file:///a.txt", "file:///b.txt"});
-        }
+                   Json values = Json::array();
+                   if (type == "ref/prompt" && name == "greeting")
+                       values = Json::array({"formal", "casual", "friendly"});
+                   else if (type == "ref/resource")
+                       values = Json::array({"file:///a.txt", "file:///b.txt"});
 
-        return Json{
-            {"completion", Json{
-                {"values", values},
-                {"total", values.size()},
-                {"hasMore", false}
-            }}
-        };
-    });
+                   return Json{
+                       {"completion",
+                        Json{{"values", values}, {"total", values.size()}, {"hasMore", false}}}};
+               });
 
     return srv;
 }
 
-void test_completion_for_prompt() {
+void test_completion_for_prompt()
+{
     std::cout << "Test: completion for prompt argument...\n";
 
     auto srv = create_completion_server();
@@ -1514,7 +1688,8 @@ void test_completion_for_prompt() {
     std::cout << "  [PASS] prompt completion works\n";
 }
 
-void test_completion_for_resource() {
+void test_completion_for_resource()
+{
     std::cout << "Test: completion for resource...\n";
 
     auto srv = create_completion_server();
@@ -1533,45 +1708,61 @@ void test_completion_for_resource() {
 // Multiple Content Items Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_multi_content_server() {
+std::shared_ptr<server::Server> create_multi_content_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("resources/list", [](const Json&) {
-        return Json{{"resources", Json::array({
-            Json{{"uri", "file:///multi.txt"}, {"name", "multi"}}
-        })}};
-    });
+    srv->route("resources/list",
+               [](const Json&)
+               {
+                   return Json{{"resources", Json::array({Json{{"uri", "file:///multi.txt"},
+                                                               {"name", "multi"}}})}};
+               });
 
-    srv->route("resources/read", [](const Json&) {
-        // Return multiple content items for a single resource
-        return Json{{"contents", Json::array({
-            Json{{"uri", "file:///multi.txt"}, {"mimeType", "text/plain"}, {"text", "Part 1"}},
-            Json{{"uri", "file:///multi.txt"}, {"mimeType", "text/plain"}, {"text", "Part 2"}},
-            Json{{"uri", "file:///multi.txt"}, {"mimeType", "text/plain"}, {"text", "Part 3"}}
-        })}};
-    });
+    srv->route("resources/read",
+               [](const Json&)
+               {
+                   // Return multiple content items for a single resource
+                   return Json{{"contents", Json::array({Json{{"uri", "file:///multi.txt"},
+                                                              {"mimeType", "text/plain"},
+                                                              {"text", "Part 1"}},
+                                                         Json{{"uri", "file:///multi.txt"},
+                                                              {"mimeType", "text/plain"},
+                                                              {"text", "Part 2"}},
+                                                         Json{{"uri", "file:///multi.txt"},
+                                                              {"mimeType", "text/plain"},
+                                                              {"text", "Part 3"}}})}};
+               });
 
-    srv->route("prompts/list", [](const Json&) {
-        return Json{{"prompts", Json::array({
-            Json{{"name", "multi_message"}, {"description", "Multi-message prompt"}}
-        })}};
-    });
+    srv->route("prompts/list",
+               [](const Json&)
+               {
+                   return Json{
+                       {"prompts", Json::array({Json{{"name", "multi_message"},
+                                                     {"description", "Multi-message prompt"}}})}};
+               });
 
-    srv->route("prompts/get", [](const Json&) {
-        return Json{
-            {"description", "A conversation"},
-            {"messages", Json::array({
-                Json{{"role", "user"}, {"content", Json{{"type", "text"}, {"text", "Hello"}}}},
-                Json{{"role", "assistant"}, {"content", Json{{"type", "text"}, {"text", "Hi there!"}}}},
-                Json{{"role", "user"}, {"content", Json{{"type", "text"}, {"text", "How are you?"}}}}
-            })}
-        };
-    });
+    srv->route(
+        "prompts/get",
+        [](const Json&)
+        {
+            return Json{
+                {"description", "A conversation"},
+                {"messages",
+                 Json::array(
+                     {Json{{"role", "user"},
+                           {"content", Json{{"type", "text"}, {"text", "Hello"}}}},
+                      Json{{"role", "assistant"},
+                           {"content", Json{{"type", "text"}, {"text", "Hi there!"}}}},
+                      Json{{"role", "user"},
+                           {"content", Json{{"type", "text"}, {"text", "How are you?"}}}}})}};
+        });
 
     return srv;
 }
 
-void test_resource_multiple_contents() {
+void test_resource_multiple_contents()
+{
     std::cout << "Test: resource with multiple content items...\n";
 
     auto srv = create_multi_content_server();
@@ -1591,7 +1782,8 @@ void test_resource_multiple_contents() {
     std::cout << "  [PASS] multiple content items returned\n";
 }
 
-void test_prompt_multiple_messages() {
+void test_prompt_multiple_messages()
+{
     std::cout << "Test: prompt with multiple messages...\n";
 
     auto srv = create_multi_content_server();
@@ -1610,34 +1802,37 @@ void test_prompt_multiple_messages() {
 // Numeric Types Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_numeric_server() {
+std::shared_ptr<server::Server> create_numeric_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "numbers"}, {"inputSchema", Json{{"type", "object"}}}}
-        })}};
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{
+                       {"tools", Json::array({Json{{"name", "numbers"},
+                                                   {"inputSchema", Json{{"type", "object"}}}}})}};
+               });
 
-    srv->route("tools/call", [](const Json&) {
-        return Json{
-            {"content", Json::array({Json{{"type", "text"}, {"text", "numbers"}}})},
-            {"structuredContent", Json{
-                {"integer", 42},
-                {"negative", -17},
-                {"float", 3.14159},
-                {"zero", 0},
-                {"large", 9223372036854775807LL},
-                {"small_float", 0.000001}
-            }},
-            {"isError", false}
-        };
-    });
+    srv->route("tools/call",
+               [](const Json&)
+               {
+                   return Json{
+                       {"content", Json::array({Json{{"type", "text"}, {"text", "numbers"}}})},
+                       {"structuredContent", Json{{"integer", 42},
+                                                  {"negative", -17},
+                                                  {"float", 3.14159},
+                                                  {"zero", 0},
+                                                  {"large", 9223372036854775807LL},
+                                                  {"small_float", 0.000001}}},
+                       {"isError", false}};
+               });
 
     return srv;
 }
 
-void test_integer_values() {
+void test_integer_values()
+{
     std::cout << "Test: integer values in response...\n";
 
     auto srv = create_numeric_server();
@@ -1654,7 +1849,8 @@ void test_integer_values() {
     std::cout << "  [PASS] integer values preserved\n";
 }
 
-void test_float_values() {
+void test_float_values()
+{
     std::cout << "Test: float values in response...\n";
 
     auto srv = create_numeric_server();
@@ -1673,7 +1869,8 @@ void test_float_values() {
     std::cout << "  [PASS] float values preserved\n";
 }
 
-void test_large_integer() {
+void test_large_integer()
+{
     std::cout << "Test: large integer value...\n";
 
     auto srv = create_numeric_server();
@@ -1692,37 +1889,38 @@ void test_large_integer() {
 // Boolean and Array Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_bool_array_server() {
+std::shared_ptr<server::Server> create_bool_array_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "bools_arrays"}, {"inputSchema", Json{{"type", "object"}}}}
-        })}};
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{
+                       {"tools", Json::array({Json{{"name", "bools_arrays"},
+                                                   {"inputSchema", Json{{"type", "object"}}}}})}};
+               });
 
-    srv->route("tools/call", [](const Json&) {
-        return Json{
-            {"content", Json::array({Json{{"type", "text"}, {"text", "data"}}})},
-            {"structuredContent", Json{
-                {"true_val", true},
-                {"false_val", false},
-                {"empty_array", Json::array()},
-                {"int_array", Json::array({1, 2, 3, 4, 5})},
-                {"mixed_array", Json::array({1, "two", true, nullptr})},
-                {"nested_array", Json::array({
-                    Json::array({1, 2}),
-                    Json::array({3, 4})
-                })}
-            }},
-            {"isError", false}
-        };
-    });
+    srv->route("tools/call",
+               [](const Json&)
+               {
+                   return Json{{"content", Json::array({Json{{"type", "text"}, {"text", "data"}}})},
+                               {"structuredContent",
+                                Json{{"true_val", true},
+                                     {"false_val", false},
+                                     {"empty_array", Json::array()},
+                                     {"int_array", Json::array({1, 2, 3, 4, 5})},
+                                     {"mixed_array", Json::array({1, "two", true, nullptr})},
+                                     {"nested_array",
+                                      Json::array({Json::array({1, 2}), Json::array({3, 4})})}}},
+                               {"isError", false}};
+               });
 
     return srv;
 }
 
-void test_boolean_values() {
+void test_boolean_values()
+{
     std::cout << "Test: boolean values in response...\n";
 
     auto srv = create_bool_array_server();
@@ -1738,7 +1936,8 @@ void test_boolean_values() {
     std::cout << "  [PASS] boolean values preserved\n";
 }
 
-void test_array_types() {
+void test_array_types()
+{
     std::cout << "Test: various array types...\n";
 
     auto srv = create_bool_array_server();
@@ -1757,7 +1956,8 @@ void test_array_types() {
     std::cout << "  [PASS] array types preserved\n";
 }
 
-void test_nested_arrays() {
+void test_nested_arrays()
+{
     std::cout << "Test: nested arrays...\n";
 
     auto srv = create_bool_array_server();
@@ -1778,31 +1978,36 @@ void test_nested_arrays() {
 // Concurrent Requests Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_concurrent_server() {
+std::shared_ptr<server::Server> create_concurrent_server()
+{
     auto srv = std::make_shared<server::Server>();
 
     // Use shared_ptr for the counter so it survives after function returns
     auto call_count = std::make_shared<std::atomic<int>>(0);
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "counter"}, {"inputSchema", Json{{"type", "object"}}}}
-        })}};
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{
+                       {"tools", Json::array({Json{{"name", "counter"},
+                                                   {"inputSchema", Json{{"type", "object"}}}}})}};
+               });
 
-    srv->route("tools/call", [call_count](const Json&) {
-        int count = ++(*call_count);
-        return Json{
-            {"content", Json::array({Json{{"type", "text"}, {"text", std::to_string(count)}}})},
-            {"structuredContent", Json{{"count", count}}},
-            {"isError", false}
-        };
-    });
+    srv->route("tools/call",
+               [call_count](const Json&)
+               {
+                   int count = ++(*call_count);
+                   return Json{{"content", Json::array({Json{{"type", "text"},
+                                                             {"text", std::to_string(count)}}})},
+                               {"structuredContent", Json{{"count", count}}},
+                               {"isError", false}};
+               });
 
     return srv;
 }
 
-void test_multiple_clients_same_server() {
+void test_multiple_clients_same_server()
+{
     std::cout << "Test: multiple clients with same server...\n";
 
     auto srv = create_concurrent_server();
@@ -1823,14 +2028,16 @@ void test_multiple_clients_same_server() {
     std::cout << "  [PASS] multiple clients work with same server\n";
 }
 
-void test_client_reuse() {
+void test_client_reuse()
+{
     std::cout << "Test: client reuse across many calls...\n";
 
     auto srv = create_interaction_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     // Make many calls with the same client
-    for (int i = 0; i < 50; ++i) {
+    for (int i = 0; i < 50; ++i)
+    {
         auto result = c.call_tool("add", {{"x", i}, {"y", 1}});
         assert(!result.isError);
     }
@@ -1842,39 +2049,82 @@ void test_client_reuse() {
 // Resource MIME Type Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_mime_server() {
+std::shared_ptr<server::Server> create_mime_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("resources/list", [](const Json&) {
-        return Json{{"resources", Json::array({
-            Json{{"uri", "file:///doc.txt"}, {"name", "doc.txt"}, {"mimeType", "text/plain"}},
-            Json{{"uri", "file:///doc.html"}, {"name", "doc.html"}, {"mimeType", "text/html"}},
-            Json{{"uri", "file:///doc.json"}, {"name", "doc.json"}, {"mimeType", "application/json"}},
-            Json{{"uri", "file:///doc.xml"}, {"name", "doc.xml"}, {"mimeType", "application/xml"}},
-            Json{{"uri", "file:///image.png"}, {"name", "image.png"}, {"mimeType", "image/png"}},
-            Json{{"uri", "file:///no_mime"}, {"name", "no_mime"}}
-        })}};
-    });
+    srv->route("resources/list",
+               [](const Json&)
+               {
+                   return Json{{"resources", Json::array({Json{{"uri", "file:///doc.txt"},
+                                                               {"name", "doc.txt"},
+                                                               {"mimeType", "text/plain"}},
+                                                          Json{{"uri", "file:///doc.html"},
+                                                               {"name", "doc.html"},
+                                                               {"mimeType", "text/html"}},
+                                                          Json{{"uri", "file:///doc.json"},
+                                                               {"name", "doc.json"},
+                                                               {"mimeType", "application/json"}},
+                                                          Json{{"uri", "file:///doc.xml"},
+                                                               {"name", "doc.xml"},
+                                                               {"mimeType", "application/xml"}},
+                                                          Json{{"uri", "file:///image.png"},
+                                                               {"name", "image.png"},
+                                                               {"mimeType", "image/png"}},
+                                                          Json{{"uri", "file:///no_mime"},
+                                                               {"name", "no_mime"}}})}};
+               });
 
-    srv->route("resources/read", [](const Json& in) {
-        std::string uri = in.at("uri").get<std::string>();
-        std::string mime;
-        std::string text;
+    srv->route(
+        "resources/read",
+        [](const Json& in)
+        {
+            std::string uri = in.at("uri").get<std::string>();
+            std::string mime;
+            std::string text;
 
-        if (uri == "file:///doc.txt") { mime = "text/plain"; text = "Plain text"; }
-        else if (uri == "file:///doc.html") { mime = "text/html"; text = "<html>HTML</html>"; }
-        else if (uri == "file:///doc.json") { mime = "application/json"; text = "{\"key\":\"value\"}"; }
-        else if (uri == "file:///doc.xml") { mime = "application/xml"; text = "<root/>"; }
-        else if (uri == "file:///image.png") { mime = "image/png"; return Json{{"contents", Json::array({Json{{"uri", uri}, {"mimeType", mime}, {"blob", "iVBORw=="}}})}}; }
-        else { text = "No MIME type"; return Json{{"contents", Json::array({Json{{"uri", uri}, {"text", text}}})}}; }
+            if (uri == "file:///doc.txt")
+            {
+                mime = "text/plain";
+                text = "Plain text";
+            }
+            else if (uri == "file:///doc.html")
+            {
+                mime = "text/html";
+                text = "<html>HTML</html>";
+            }
+            else if (uri == "file:///doc.json")
+            {
+                mime = "application/json";
+                text = "{\"key\":\"value\"}";
+            }
+            else if (uri == "file:///doc.xml")
+            {
+                mime = "application/xml";
+                text = "<root/>";
+            }
+            else if (uri == "file:///image.png")
+            {
+                mime = "image/png";
+                return Json{
+                    {"contents",
+                     Json::array({Json{{"uri", uri}, {"mimeType", mime}, {"blob", "iVBORw=="}}})}};
+            }
+            else
+            {
+                text = "No MIME type";
+                return Json{{"contents", Json::array({Json{{"uri", uri}, {"text", text}}})}};
+            }
 
-        return Json{{"contents", Json::array({Json{{"uri", uri}, {"mimeType", mime}, {"text", text}}})}};
-    });
+            return Json{{"contents",
+                         Json::array({Json{{"uri", uri}, {"mimeType", mime}, {"text", text}}})}};
+        });
 
     return srv;
 }
 
-void test_various_mime_types() {
+void test_various_mime_types()
+{
     std::cout << "Test: various MIME types in resources...\n";
 
     auto srv = create_mime_server();
@@ -1885,11 +2135,16 @@ void test_various_mime_types() {
 
     // Check MIME types
     int text_count = 0, html_count = 0, json_count = 0;
-    for (const auto& r : resources) {
-        if (r.mimeType.has_value()) {
-            if (*r.mimeType == "text/plain") ++text_count;
-            else if (*r.mimeType == "text/html") ++html_count;
-            else if (*r.mimeType == "application/json") ++json_count;
+    for (const auto& r : resources)
+    {
+        if (r.mimeType.has_value())
+        {
+            if (*r.mimeType == "text/plain")
+                ++text_count;
+            else if (*r.mimeType == "text/html")
+                ++html_count;
+            else if (*r.mimeType == "application/json")
+                ++json_count;
         }
     }
     assert(text_count == 1);
@@ -1899,7 +2154,8 @@ void test_various_mime_types() {
     std::cout << "  [PASS] various MIME types handled\n";
 }
 
-void test_resource_without_mime() {
+void test_resource_without_mime()
+{
     std::cout << "Test: resource without MIME type...\n";
 
     auto srv = create_mime_server();
@@ -1907,8 +2163,10 @@ void test_resource_without_mime() {
 
     auto resources = c.list_resources();
     bool found_no_mime = false;
-    for (const auto& r : resources) {
-        if (r.name == "no_mime") {
+    for (const auto& r : resources)
+    {
+        if (r.name == "no_mime")
+        {
             assert(!r.mimeType.has_value());
             found_no_mime = true;
             break;
@@ -1919,7 +2177,8 @@ void test_resource_without_mime() {
     std::cout << "  [PASS] resource without MIME type handled\n";
 }
 
-void test_image_resource_blob() {
+void test_image_resource_blob()
+{
     std::cout << "Test: image resource returns blob...\n";
 
     auto srv = create_mime_server();
@@ -1939,29 +2198,24 @@ void test_image_resource_blob() {
 // Empty Collections Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_empty_server() {
+std::shared_ptr<server::Server> create_empty_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array()}};
-    });
+    srv->route("tools/list", [](const Json&) { return Json{{"tools", Json::array()}}; });
 
-    srv->route("resources/list", [](const Json&) {
-        return Json{{"resources", Json::array()}};
-    });
+    srv->route("resources/list", [](const Json&) { return Json{{"resources", Json::array()}}; });
 
-    srv->route("prompts/list", [](const Json&) {
-        return Json{{"prompts", Json::array()}};
-    });
+    srv->route("prompts/list", [](const Json&) { return Json{{"prompts", Json::array()}}; });
 
-    srv->route("resources/templates/list", [](const Json&) {
-        return Json{{"resourceTemplates", Json::array()}};
-    });
+    srv->route("resources/templates/list",
+               [](const Json&) { return Json{{"resourceTemplates", Json::array()}}; });
 
     return srv;
 }
 
-void test_empty_tools_list() {
+void test_empty_tools_list()
+{
     std::cout << "Test: empty tools list...\n";
 
     auto srv = create_empty_server();
@@ -1973,7 +2227,8 @@ void test_empty_tools_list() {
     std::cout << "  [PASS] empty tools list handled\n";
 }
 
-void test_empty_resources_list() {
+void test_empty_resources_list()
+{
     std::cout << "Test: empty resources list...\n";
 
     auto srv = create_empty_server();
@@ -1985,7 +2240,8 @@ void test_empty_resources_list() {
     std::cout << "  [PASS] empty resources list handled\n";
 }
 
-void test_empty_prompts_list() {
+void test_empty_prompts_list()
+{
     std::cout << "Test: empty prompts list...\n";
 
     auto srv = create_empty_server();
@@ -1997,7 +2253,8 @@ void test_empty_prompts_list() {
     std::cout << "  [PASS] empty prompts list handled\n";
 }
 
-void test_empty_templates_list() {
+void test_empty_templates_list()
+{
     std::cout << "Test: empty resource templates list...\n";
 
     auto srv = create_empty_server();
@@ -2013,49 +2270,57 @@ void test_empty_templates_list() {
 // Schema Edge Cases Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_schema_edge_server() {
+std::shared_ptr<server::Server> create_schema_edge_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            // Tool with minimal schema
-            Json{{"name", "minimal"}, {"inputSchema", Json{{"type", "object"}}}},
-            // Tool with empty properties
-            Json{{"name", "empty_props"}, {"inputSchema", Json{{"type", "object"}, {"properties", Json::object()}}}},
-            // Tool with additionalProperties
-            Json{{"name", "additional"}, {"inputSchema", Json{{"type", "object"}, {"additionalProperties", true}}}},
-            // Tool with deeply nested schema
-            Json{{"name", "nested_schema"}, {"inputSchema", Json{
-                {"type", "object"},
-                {"properties", Json{
-                    {"level1", Json{
-                        {"type", "object"},
-                        {"properties", Json{
-                            {"level2", Json{
-                                {"type", "object"},
-                                {"properties", Json{
-                                    {"value", {{"type", "string"}}}
-                                }}
-                            }}
-                        }}
-                    }}
-                }}
-            }}}
-        })}};
-    });
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
+            return Json{
+                {"tools",
+                 Json::array(
+                     {// Tool with minimal schema
+                      Json{{"name", "minimal"}, {"inputSchema", Json{{"type", "object"}}}},
+                      // Tool with empty properties
+                      Json{{"name", "empty_props"},
+                           {"inputSchema",
+                            Json{{"type", "object"}, {"properties", Json::object()}}}},
+                      // Tool with additionalProperties
+                      Json{{"name", "additional"},
+                           {"inputSchema",
+                            Json{{"type", "object"}, {"additionalProperties", true}}}},
+                      // Tool with deeply nested schema
+                      Json{{"name", "nested_schema"},
+                           {"inputSchema",
+                            Json{{"type", "object"},
+                                 {"properties",
+                                  Json{{"level1",
+                                        Json{{"type", "object"},
+                                             {"properties",
+                                              Json{{"level2",
+                                                    Json{{"type", "object"},
+                                                         {"properties",
+                                                          Json{{"value",
+                                                                {{"type",
+                                                                  "string"}}}}}}}}}}}}}}}}})}};
+        });
 
-    srv->route("tools/call", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
-        return Json{
-            {"content", Json::array({Json{{"type", "text"}, {"text", "called: " + name}}})},
-            {"isError", false}
-        };
-    });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   std::string name = in.at("name").get<std::string>();
+                   return Json{{"content",
+                                Json::array({Json{{"type", "text"}, {"text", "called: " + name}}})},
+                               {"isError", false}};
+               });
 
     return srv;
 }
 
-void test_minimal_schema() {
+void test_minimal_schema()
+{
     std::cout << "Test: tool with minimal schema...\n";
 
     auto srv = create_schema_edge_server();
@@ -2063,8 +2328,10 @@ void test_minimal_schema() {
 
     auto tools = c.list_tools();
     bool found = false;
-    for (const auto& t : tools) {
-        if (t.name == "minimal") {
+    for (const auto& t : tools)
+    {
+        if (t.name == "minimal")
+        {
             assert(t.inputSchema["type"] == "object");
             assert(!t.inputSchema.contains("properties"));
             found = true;
@@ -2076,7 +2343,8 @@ void test_minimal_schema() {
     std::cout << "  [PASS] minimal schema handled\n";
 }
 
-void test_empty_properties_schema() {
+void test_empty_properties_schema()
+{
     std::cout << "Test: tool with empty properties schema...\n";
 
     auto srv = create_schema_edge_server();
@@ -2084,8 +2352,10 @@ void test_empty_properties_schema() {
 
     auto tools = c.list_tools();
     bool found = false;
-    for (const auto& t : tools) {
-        if (t.name == "empty_props") {
+    for (const auto& t : tools)
+    {
+        if (t.name == "empty_props")
+        {
             assert(t.inputSchema.contains("properties"));
             assert(t.inputSchema["properties"].empty());
             found = true;
@@ -2097,7 +2367,8 @@ void test_empty_properties_schema() {
     std::cout << "  [PASS] empty properties schema handled\n";
 }
 
-void test_deeply_nested_schema() {
+void test_deeply_nested_schema()
+{
     std::cout << "Test: tool with deeply nested schema...\n";
 
     auto srv = create_schema_edge_server();
@@ -2105,11 +2376,14 @@ void test_deeply_nested_schema() {
 
     auto tools = c.list_tools();
     bool found = false;
-    for (const auto& t : tools) {
-        if (t.name == "nested_schema") {
+    for (const auto& t : tools)
+    {
+        if (t.name == "nested_schema")
+        {
             assert(t.inputSchema.contains("properties"));
             assert(t.inputSchema["properties"].contains("level1"));
-            assert(t.inputSchema["properties"]["level1"]["properties"]["level2"]["properties"]["value"]["type"] == "string");
+            assert(t.inputSchema["properties"]["level1"]["properties"]["level2"]["properties"]
+                                ["value"]["type"] == "string");
             found = true;
             break;
         }
@@ -2123,29 +2397,37 @@ void test_deeply_nested_schema() {
 // Tool Argument Variations Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_arg_variations_server() {
+std::shared_ptr<server::Server> create_arg_variations_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "echo"}, {"inputSchema", Json{{"type", "object"},
-                {"properties", Json{{"value", {{"type", "any"}}}}}}}}
-        })}};
-    });
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
+            return Json{
+                {"tools",
+                 Json::array({Json{
+                     {"name", "echo"},
+                     {"inputSchema", Json{{"type", "object"},
+                                          {"properties", Json{{"value", {{"type", "any"}}}}}}}}})}};
+        });
 
-    srv->route("tools/call", [](const Json& in) {
-        Json args = in.value("arguments", Json::object());
-        return Json{
-            {"content", Json::array({Json{{"type", "text"}, {"text", args.dump()}}})},
-            {"structuredContent", args},
-            {"isError", false}
-        };
-    });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   Json args = in.value("arguments", Json::object());
+                   return Json{
+                       {"content", Json::array({Json{{"type", "text"}, {"text", args.dump()}}})},
+                       {"structuredContent", args},
+                       {"isError", false}};
+               });
 
     return srv;
 }
 
-void test_empty_arguments() {
+void test_empty_arguments()
+{
     std::cout << "Test: call tool with empty arguments...\n";
 
     auto srv = create_arg_variations_server();
@@ -2159,21 +2441,14 @@ void test_empty_arguments() {
     std::cout << "  [PASS] empty arguments handled\n";
 }
 
-void test_deeply_nested_arguments() {
+void test_deeply_nested_arguments()
+{
     std::cout << "Test: call tool with deeply nested arguments...\n";
 
     auto srv = create_arg_variations_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
-    Json nested_args = {
-        {"level1", {
-            {"level2", {
-                {"level3", {
-                    {"value", "deep"}
-                }}
-            }}
-        }}
-    };
+    Json nested_args = {{"level1", {{"level2", {{"level3", {{"value", "deep"}}}}}}}};
 
     auto result = c.call_tool("echo", nested_args);
     assert(!result.isError);
@@ -2182,7 +2457,8 @@ void test_deeply_nested_arguments() {
     std::cout << "  [PASS] deeply nested arguments preserved\n";
 }
 
-void test_array_as_argument() {
+void test_array_as_argument()
+{
     std::cout << "Test: call tool with array argument...\n";
 
     auto srv = create_arg_variations_server();
@@ -2197,21 +2473,20 @@ void test_array_as_argument() {
     std::cout << "  [PASS] array argument handled\n";
 }
 
-void test_mixed_type_arguments() {
+void test_mixed_type_arguments()
+{
     std::cout << "Test: call tool with mixed type arguments...\n";
 
     auto srv = create_arg_variations_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
-    Json mixed_args = {
-        {"string", "text"},
-        {"number", 42},
-        {"float", 3.14},
-        {"bool", true},
-        {"null", nullptr},
-        {"array", Json::array({1, "two", true})},
-        {"object", Json{{"nested", "value"}}}
-    };
+    Json mixed_args = {{"string", "text"},
+                       {"number", 42},
+                       {"float", 3.14},
+                       {"bool", true},
+                       {"null", nullptr},
+                       {"array", Json::array({1, "two", true})},
+                       {"object", Json{{"nested", "value"}}}};
 
     auto result = c.call_tool("echo", mixed_args);
     assert(!result.isError);
@@ -2231,29 +2506,42 @@ void test_mixed_type_arguments() {
 // Resource Annotations Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_annotations_server() {
+std::shared_ptr<server::Server> create_annotations_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("resources/list", [](const Json&) {
-        return Json{{"resources", Json::array({
-            Json{{"uri", "file:///annotated.txt"}, {"name", "annotated.txt"},
-                 {"annotations", Json{{"audience", Json::array({"user"})}}}},
-            Json{{"uri", "file:///priority.txt"}, {"name", "priority.txt"},
-                 {"annotations", Json{{"priority", 0.9}}}},
-            Json{{"uri", "file:///multi.txt"}, {"name", "multi.txt"},
-                 {"annotations", Json{{"audience", Json::array({"user", "assistant"})}, {"priority", 0.5}}}}
-        })}};
-    });
+    srv->route(
+        "resources/list",
+        [](const Json&)
+        {
+            return Json{
+                {"resources",
+                 Json::array(
+                     {Json{{"uri", "file:///annotated.txt"},
+                           {"name", "annotated.txt"},
+                           {"annotations", Json{{"audience", Json::array({"user"})}}}},
+                      Json{{"uri", "file:///priority.txt"},
+                           {"name", "priority.txt"},
+                           {"annotations", Json{{"priority", 0.9}}}},
+                      Json{{"uri", "file:///multi.txt"},
+                           {"name", "multi.txt"},
+                           {"annotations", Json{{"audience", Json::array({"user", "assistant"})},
+                                                {"priority", 0.5}}}}})}};
+        });
 
-    srv->route("resources/read", [](const Json& in) {
-        std::string uri = in.at("uri").get<std::string>();
-        return Json{{"contents", Json::array({Json{{"uri", uri}, {"text", "content"}}})}};
-    });
+    srv->route("resources/read",
+               [](const Json& in)
+               {
+                   std::string uri = in.at("uri").get<std::string>();
+                   return Json{
+                       {"contents", Json::array({Json{{"uri", uri}, {"text", "content"}}})}};
+               });
 
     return srv;
 }
 
-void test_resource_with_annotations() {
+void test_resource_with_annotations()
+{
     std::cout << "Test: resource with annotations...\n";
 
     auto srv = create_annotations_server();
@@ -2263,8 +2551,10 @@ void test_resource_with_annotations() {
     assert(resources.size() == 3);
 
     bool found = false;
-    for (const auto& r : resources) {
-        if (r.name == "annotated.txt") {
+    for (const auto& r : resources)
+    {
+        if (r.name == "annotated.txt")
+        {
             assert(r.annotations.has_value());
             assert((*r.annotations)["audience"].size() == 1);
             assert((*r.annotations)["audience"][0] == "user");
@@ -2277,7 +2567,8 @@ void test_resource_with_annotations() {
     std::cout << "  [PASS] resource annotations present\n";
 }
 
-void test_resource_priority_annotation() {
+void test_resource_priority_annotation()
+{
     std::cout << "Test: resource with priority annotation...\n";
 
     auto srv = create_annotations_server();
@@ -2285,8 +2576,10 @@ void test_resource_priority_annotation() {
 
     auto resources = c.list_resources();
     bool found = false;
-    for (const auto& r : resources) {
-        if (r.name == "priority.txt") {
+    for (const auto& r : resources)
+    {
+        if (r.name == "priority.txt")
+        {
             assert(r.annotations.has_value());
             assert((*r.annotations)["priority"].get<double>() == 0.9);
             found = true;
@@ -2298,7 +2591,8 @@ void test_resource_priority_annotation() {
     std::cout << "  [PASS] priority annotation value preserved\n";
 }
 
-void test_resource_multiple_annotations() {
+void test_resource_multiple_annotations()
+{
     std::cout << "Test: resource with multiple annotations...\n";
 
     auto srv = create_annotations_server();
@@ -2306,8 +2600,10 @@ void test_resource_multiple_annotations() {
 
     auto resources = c.list_resources();
     bool found = false;
-    for (const auto& r : resources) {
-        if (r.name == "multi.txt") {
+    for (const auto& r : resources)
+    {
+        if (r.name == "multi.txt")
+        {
             assert(r.annotations.has_value());
             assert((*r.annotations).contains("audience"));
             assert((*r.annotations).contains("priority"));
@@ -2325,28 +2621,33 @@ void test_resource_multiple_annotations() {
 // String Escape Sequence Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_escape_server() {
+std::shared_ptr<server::Server> create_escape_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "echo"}, {"inputSchema", Json{{"type", "object"}}}}
-        })}};
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{
+                       {"tools", Json::array({Json{{"name", "echo"},
+                                                   {"inputSchema", Json{{"type", "object"}}}}})}};
+               });
 
-    srv->route("tools/call", [](const Json& in) {
-        Json args = in.value("arguments", Json::object());
-        return Json{
-            {"content", Json::array({Json{{"type", "text"}, {"text", args.value("text", "")}}})},
-            {"structuredContent", args},
-            {"isError", false}
-        };
-    });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   Json args = in.value("arguments", Json::object());
+                   return Json{{"content", Json::array({Json{{"type", "text"},
+                                                             {"text", args.value("text", "")}}})},
+                               {"structuredContent", args},
+                               {"isError", false}};
+               });
 
     return srv;
 }
 
-void test_backslash_escape() {
+void test_backslash_escape()
+{
     std::cout << "Test: backslash escape sequences...\n";
 
     auto srv = create_escape_server();
@@ -2360,13 +2661,14 @@ void test_backslash_escape() {
     std::cout << "  [PASS] backslash preserved\n";
 }
 
-void test_unicode_escape() {
+void test_unicode_escape()
+{
     std::cout << "Test: unicode escape sequences...\n";
 
     auto srv = create_escape_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
-    std::string input = "Hello \xE2\x9C\x93 World";  // UTF-8 checkmark
+    std::string input = "Hello \xE2\x9C\x93 World"; // UTF-8 checkmark
     auto result = c.call_tool("echo", {{"text", input}});
 
     assert((*result.structuredContent)["text"] == input);
@@ -2374,7 +2676,8 @@ void test_unicode_escape() {
     std::cout << "  [PASS] unicode escape preserved\n";
 }
 
-void test_control_characters() {
+void test_control_characters()
+{
     std::cout << "Test: control characters in string...\n";
 
     auto srv = create_escape_server();
@@ -2388,7 +2691,8 @@ void test_control_characters() {
     std::cout << "  [PASS] control characters preserved\n";
 }
 
-void test_empty_and_whitespace_strings() {
+void test_empty_and_whitespace_strings()
+{
     std::cout << "Test: empty and whitespace strings...\n";
 
     auto srv = create_escape_server();
@@ -2413,37 +2717,40 @@ void test_empty_and_whitespace_strings() {
 // Type Coercion Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_coercion_server() {
+std::shared_ptr<server::Server> create_coercion_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "types"}, {"inputSchema", Json{{"type", "object"}}}}
-        })}};
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{
+                       {"tools", Json::array({Json{{"name", "types"},
+                                                   {"inputSchema", Json{{"type", "object"}}}}})}};
+               });
 
-    srv->route("tools/call", [](const Json&) {
-        return Json{
-            {"content", Json::array({Json{{"type", "text"}, {"text", "types"}}})},
-            {"structuredContent", Json{
-                {"string_number", "123"},
-                {"string_float", "3.14"},
-                {"string_bool_true", "true"},
-                {"string_bool_false", "false"},
-                {"number_as_string", 456},
-                {"zero", 0},
-                {"negative", -42},
-                {"very_small", 0.000001},
-                {"very_large", 999999999999LL}
-            }},
-            {"isError", false}
-        };
-    });
+    srv->route("tools/call",
+               [](const Json&)
+               {
+                   return Json{
+                       {"content", Json::array({Json{{"type", "text"}, {"text", "types"}}})},
+                       {"structuredContent", Json{{"string_number", "123"},
+                                                  {"string_float", "3.14"},
+                                                  {"string_bool_true", "true"},
+                                                  {"string_bool_false", "false"},
+                                                  {"number_as_string", 456},
+                                                  {"zero", 0},
+                                                  {"negative", -42},
+                                                  {"very_small", 0.000001},
+                                                  {"very_large", 999999999999LL}}},
+                       {"isError", false}};
+               });
 
     return srv;
 }
 
-void test_numeric_string_values() {
+void test_numeric_string_values()
+{
     std::cout << "Test: numeric strings in structured content...\n";
 
     auto srv = create_coercion_server();
@@ -2460,7 +2767,8 @@ void test_numeric_string_values() {
     std::cout << "  [PASS] numeric strings stay as strings\n";
 }
 
-void test_edge_numeric_values() {
+void test_edge_numeric_values()
+{
     std::cout << "Test: edge case numeric values...\n";
 
     auto srv = create_coercion_server();
@@ -2481,49 +2789,64 @@ void test_edge_numeric_values() {
 // Prompt Argument Types Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_prompt_args_server() {
+std::shared_ptr<server::Server> create_prompt_args_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("prompts/list", [](const Json&) {
-        return Json{{"prompts", Json::array({
-            Json{{"name", "required_args"}, {"description", "Has required args"},
-                 {"arguments", Json::array({
-                     Json{{"name", "required_str"}, {"required", true}},
-                     Json{{"name", "optional_str"}, {"required", false}}
-                 })}},
-            Json{{"name", "typed_args"}, {"description", "Has typed args"},
-                 {"arguments", Json::array({
-                     Json{{"name", "num"}, {"description", "A number"}},
-                     Json{{"name", "flag"}, {"description", "A boolean"}}
-                 })}},
-            Json{{"name", "no_args"}, {"description", "No arguments"}}
-        })}};
-    });
+    srv->route(
+        "prompts/list",
+        [](const Json&)
+        {
+            return Json{
+                {"prompts",
+                 Json::array(
+                     {Json{{"name", "required_args"},
+                           {"description", "Has required args"},
+                           {"arguments",
+                            Json::array({Json{{"name", "required_str"}, {"required", true}},
+                                         Json{{"name", "optional_str"}, {"required", false}}})}},
+                      Json{{"name", "typed_args"},
+                           {"description", "Has typed args"},
+                           {"arguments",
+                            Json::array({Json{{"name", "num"}, {"description", "A number"}},
+                                         Json{{"name", "flag"}, {"description", "A boolean"}}})}},
+                      Json{{"name", "no_args"}, {"description", "No arguments"}}})}};
+        });
 
-    srv->route("prompts/get", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
-        Json args = in.value("arguments", Json::object());
+    srv->route("prompts/get",
+               [](const Json& in)
+               {
+                   std::string name = in.at("name").get<std::string>();
+                   Json args = in.value("arguments", Json::object());
 
-        std::string msg;
-        if (name == "required_args") {
-            msg = "Required: " + args.value("required_str", "") +
-                  ", Optional: " + args.value("optional_str", "default");
-        } else if (name == "typed_args") {
-            msg = "Num: " + std::to_string(args.value("num", 0)) +
-                  ", Flag: " + (args.value("flag", false) ? "true" : "false");
-        } else {
-            msg = "No args prompt";
-        }
+                   std::string msg;
+                   if (name == "required_args")
+                   {
+                       msg = "Required: " + args.value("required_str", "") +
+                             ", Optional: " + args.value("optional_str", "default");
+                   }
+                   else if (name == "typed_args")
+                   {
+                       msg = "Num: " + std::to_string(args.value("num", 0)) +
+                             ", Flag: " + (args.value("flag", false) ? "true" : "false");
+                   }
+                   else
+                   {
+                       msg = "No args prompt";
+                   }
 
-        return Json{{"messages", Json::array({
-            Json{{"role", "user"}, {"content", Json::array({Json{{"type", "text"}, {"text", msg}}})}}
-        })}};
-    });
+                   return Json{
+                       {"messages",
+                        Json::array({Json{
+                            {"role", "user"},
+                            {"content", Json::array({Json{{"type", "text"}, {"text", msg}}})}}})}};
+               });
 
     return srv;
 }
 
-void test_prompt_required_args() {
+void test_prompt_required_args()
+{
     std::cout << "Test: prompt with required arguments...\n";
 
     auto srv = create_prompt_args_server();
@@ -2531,8 +2854,10 @@ void test_prompt_required_args() {
 
     auto prompts = c.list_prompts();
     bool found = false;
-    for (const auto& p : prompts) {
-        if (p.name == "required_args") {
+    for (const auto& p : prompts)
+    {
+        if (p.name == "required_args")
+        {
             assert(p.arguments.has_value());
             assert(p.arguments->size() == 2);
             // Check that required flag is present
@@ -2545,7 +2870,8 @@ void test_prompt_required_args() {
     std::cout << "  [PASS] required args metadata present\n";
 }
 
-void test_prompt_get_with_typed_args() {
+void test_prompt_get_with_typed_args()
+{
     std::cout << "Test: get_prompt with typed arguments...\n";
 
     auto srv = create_prompt_args_server();
@@ -2569,53 +2895,59 @@ void test_prompt_get_with_typed_args() {
 // Server Response Variations Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_response_variations_server() {
+std::shared_ptr<server::Server> create_response_variations_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "minimal_response"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "full_response"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "extra_fields"}, {"inputSchema", Json{{"type", "object"}}}}
-        })}};
-    });
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
+            return Json{
+                {"tools",
+                 Json::array(
+                     {Json{{"name", "minimal_response"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "full_response"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "extra_fields"}, {"inputSchema", Json{{"type", "object"}}}}})}};
+        });
 
-    srv->route("tools/call", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
+    srv->route(
+        "tools/call",
+        [](const Json& in)
+        {
+            std::string name = in.at("name").get<std::string>();
 
-        if (name == "minimal_response") {
-            // Absolute minimum valid response
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", "min"}}})},
-                {"isError", false}
-            };
-        }
-        if (name == "full_response") {
-            // Response with all optional fields
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", "full"}}})},
-                {"structuredContent", Json{{"key", "value"}}},
-                {"isError", false},
-                {"_meta", Json{{"custom", "meta"}}}
-            };
-        }
-        if (name == "extra_fields") {
-            // Response with extra unknown fields (should be ignored)
-            return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", "extra"}}})},
-                {"isError", false},
-                {"unknownField1", "ignored"},
-                {"unknownField2", 12345},
-                {"_meta", Json{{"known", true}}}
-            };
-        }
-        return Json{{"content", Json::array()}, {"isError", true}};
-    });
+            if (name == "minimal_response")
+            {
+                // Absolute minimum valid response
+                return Json{{"content", Json::array({Json{{"type", "text"}, {"text", "min"}}})},
+                            {"isError", false}};
+            }
+            if (name == "full_response")
+            {
+                // Response with all optional fields
+                return Json{{"content", Json::array({Json{{"type", "text"}, {"text", "full"}}})},
+                            {"structuredContent", Json{{"key", "value"}}},
+                            {"isError", false},
+                            {"_meta", Json{{"custom", "meta"}}}};
+            }
+            if (name == "extra_fields")
+            {
+                // Response with extra unknown fields (should be ignored)
+                return Json{{"content", Json::array({Json{{"type", "text"}, {"text", "extra"}}})},
+                            {"isError", false},
+                            {"unknownField1", "ignored"},
+                            {"unknownField2", 12345},
+                            {"_meta", Json{{"known", true}}}};
+            }
+            return Json{{"content", Json::array()}, {"isError", true}};
+        });
 
     return srv;
 }
 
-void test_minimal_tool_response() {
+void test_minimal_tool_response()
+{
     std::cout << "Test: minimal valid tool response...\n";
 
     auto srv = create_response_variations_server();
@@ -2629,7 +2961,8 @@ void test_minimal_tool_response() {
     std::cout << "  [PASS] minimal response handled\n";
 }
 
-void test_full_tool_response() {
+void test_full_tool_response()
+{
     std::cout << "Test: full tool response with all fields...\n";
 
     auto srv = create_response_variations_server();
@@ -2645,7 +2978,8 @@ void test_full_tool_response() {
     std::cout << "  [PASS] full response with all fields\n";
 }
 
-void test_response_with_extra_fields() {
+void test_response_with_extra_fields()
+{
     std::cout << "Test: response with extra unknown fields...\n";
 
     auto srv = create_response_variations_server();
@@ -2664,59 +2998,101 @@ void test_response_with_extra_fields() {
 // Tool Return Types Tests (matching Python TestToolReturnTypes)
 // ============================================================================
 
-std::shared_ptr<server::Server> create_return_types_server() {
+std::shared_ptr<server::Server> create_return_types_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "return_string"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "return_number"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "return_bool"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "return_null"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "return_array"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "return_object"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "return_uuid"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "return_datetime"}, {"inputSchema", Json{{"type", "object"}}}}
-        })}};
-    });
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
+            return Json{
+                {"tools",
+                 Json::array(
+                     {Json{{"name", "return_string"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "return_number"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "return_bool"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "return_null"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "return_array"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "return_object"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "return_uuid"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "return_datetime"},
+                           {"inputSchema", Json{{"type", "object"}}}}})}};
+        });
 
-    srv->route("tools/call", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
+    srv->route(
+        "tools/call",
+        [](const Json& in)
+        {
+            std::string name = in.at("name").get<std::string>();
 
-        Json result;
-        if (name == "return_string") {
-            result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "hello world"}}})}, {"isError", false}};
-        } else if (name == "return_number") {
-            result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "42"}}})},
-                         {"structuredContent", Json{{"value", 42}}}, {"isError", false}};
-        } else if (name == "return_bool") {
-            result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "true"}}})},
-                         {"structuredContent", Json{{"value", true}}}, {"isError", false}};
-        } else if (name == "return_null") {
-            result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "null"}}})},
-                         {"structuredContent", Json{{"value", nullptr}}}, {"isError", false}};
-        } else if (name == "return_array") {
-            result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "[1,2,3]"}}})},
-                         {"structuredContent", Json{{"value", Json::array({1, 2, 3})}}}, {"isError", false}};
-        } else if (name == "return_object") {
-            result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "{...}"}}})},
-                         {"structuredContent", Json{{"value", Json{{"nested", "object"}}}}}, {"isError", false}};
-        } else if (name == "return_uuid") {
-            result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "550e8400-e29b-41d4-a716-446655440000"}}})},
-                         {"structuredContent", Json{{"uuid", "550e8400-e29b-41d4-a716-446655440000"}}}, {"isError", false}};
-        } else if (name == "return_datetime") {
-            result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "2024-01-15T10:30:00Z"}}})},
-                         {"structuredContent", Json{{"datetime", "2024-01-15T10:30:00Z"}}}, {"isError", false}};
-        } else {
-            result = Json{{"content", Json::array()}, {"isError", true}};
-        }
-        return result;
-    });
+            Json result;
+            if (name == "return_string")
+            {
+                result = Json{
+                    {"content", Json::array({Json{{"type", "text"}, {"text", "hello world"}}})},
+                    {"isError", false}};
+            }
+            else if (name == "return_number")
+            {
+                result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "42"}}})},
+                              {"structuredContent", Json{{"value", 42}}},
+                              {"isError", false}};
+            }
+            else if (name == "return_bool")
+            {
+                result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "true"}}})},
+                              {"structuredContent", Json{{"value", true}}},
+                              {"isError", false}};
+            }
+            else if (name == "return_null")
+            {
+                result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "null"}}})},
+                              {"structuredContent", Json{{"value", nullptr}}},
+                              {"isError", false}};
+            }
+            else if (name == "return_array")
+            {
+                result =
+                    Json{{"content", Json::array({Json{{"type", "text"}, {"text", "[1,2,3]"}}})},
+                         {"structuredContent", Json{{"value", Json::array({1, 2, 3})}}},
+                         {"isError", false}};
+            }
+            else if (name == "return_object")
+            {
+                result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "{...}"}}})},
+                              {"structuredContent", Json{{"value", Json{{"nested", "object"}}}}},
+                              {"isError", false}};
+            }
+            else if (name == "return_uuid")
+            {
+                result = Json{
+                    {"content",
+                     Json::array({Json{{"type", "text"},
+                                       {"text", "550e8400-e29b-41d4-a716-446655440000"}}})},
+                    {"structuredContent", Json{{"uuid", "550e8400-e29b-41d4-a716-446655440000"}}},
+                    {"isError", false}};
+            }
+            else if (name == "return_datetime")
+            {
+                result =
+                    Json{{"content",
+                          Json::array({Json{{"type", "text"}, {"text", "2024-01-15T10:30:00Z"}}})},
+                         {"structuredContent", Json{{"datetime", "2024-01-15T10:30:00Z"}}},
+                         {"isError", false}};
+            }
+            else
+            {
+                result = Json{{"content", Json::array()}, {"isError", true}};
+            }
+            return result;
+        });
 
     return srv;
 }
 
-void test_return_type_string() {
+void test_return_type_string()
+{
     std::cout << "Test: tool returns string...\n";
 
     auto srv = create_return_types_server();
@@ -2733,7 +3109,8 @@ void test_return_type_string() {
     std::cout << "  [PASS] string return type\n";
 }
 
-void test_return_type_number() {
+void test_return_type_number()
+{
     std::cout << "Test: tool returns number...\n";
 
     auto srv = create_return_types_server();
@@ -2747,7 +3124,8 @@ void test_return_type_number() {
     std::cout << "  [PASS] number return type\n";
 }
 
-void test_return_type_bool() {
+void test_return_type_bool()
+{
     std::cout << "Test: tool returns boolean...\n";
 
     auto srv = create_return_types_server();
@@ -2761,7 +3139,8 @@ void test_return_type_bool() {
     std::cout << "  [PASS] boolean return type\n";
 }
 
-void test_return_type_null() {
+void test_return_type_null()
+{
     std::cout << "Test: tool returns null...\n";
 
     auto srv = create_return_types_server();
@@ -2775,7 +3154,8 @@ void test_return_type_null() {
     std::cout << "  [PASS] null return type\n";
 }
 
-void test_return_type_array() {
+void test_return_type_array()
+{
     std::cout << "Test: tool returns array...\n";
 
     auto srv = create_return_types_server();
@@ -2790,7 +3170,8 @@ void test_return_type_array() {
     std::cout << "  [PASS] array return type\n";
 }
 
-void test_return_type_object() {
+void test_return_type_object()
+{
     std::cout << "Test: tool returns object...\n";
 
     auto srv = create_return_types_server();
@@ -2805,7 +3186,8 @@ void test_return_type_object() {
     std::cout << "  [PASS] object return type\n";
 }
 
-void test_return_type_uuid() {
+void test_return_type_uuid()
+{
     std::cout << "Test: tool returns UUID string...\n";
 
     auto srv = create_return_types_server();
@@ -2815,13 +3197,14 @@ void test_return_type_uuid() {
     assert(!result.isError);
     assert(result.structuredContent.has_value());
     std::string uuid = (*result.structuredContent)["uuid"].get<std::string>();
-    assert(uuid.length() == 36);  // UUID format
+    assert(uuid.length() == 36); // UUID format
     assert(uuid[8] == '-' && uuid[13] == '-');
 
     std::cout << "  [PASS] UUID string return type\n";
 }
 
-void test_return_type_datetime() {
+void test_return_type_datetime()
+{
     std::cout << "Test: tool returns datetime string...\n";
 
     auto srv = create_return_types_server();
@@ -2841,41 +3224,48 @@ void test_return_type_datetime() {
 // Resource Template Tests (matching Python TestResourceTemplates)
 // ============================================================================
 
-std::shared_ptr<server::Server> create_resource_template_server() {
+std::shared_ptr<server::Server> create_resource_template_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("resources/templates/list", [](const Json&) {
-        return Json{{"resourceTemplates", Json::array({
-            Json{{"uriTemplate", "file:///{path}"}, {"name", "File Template"},
-                 {"description", "Access any file by path"}},
-            Json{{"uriTemplate", "db://{table}/{id}"}, {"name", "Database Record"},
-                 {"description", "Access database records"}},
-            Json{{"uriTemplate", "api://{version}/users/{userId}"}, {"name", "API User"},
-                 {"description", "Access user data via API"}}
-        })}};
-    });
+    srv->route("resources/templates/list",
+               [](const Json&)
+               {
+                   return Json{{"resourceTemplates",
+                                Json::array({Json{{"uriTemplate", "file:///{path}"},
+                                                  {"name", "File Template"},
+                                                  {"description", "Access any file by path"}},
+                                             Json{{"uriTemplate", "db://{table}/{id}"},
+                                                  {"name", "Database Record"},
+                                                  {"description", "Access database records"}},
+                                             Json{{"uriTemplate", "api://{version}/users/{userId}"},
+                                                  {"name", "API User"},
+                                                  {"description", "Access user data via API"}}})}};
+               });
 
-    srv->route("resources/read", [](const Json& in) {
-        std::string uri = in.at("uri").get<std::string>();
-        std::string text;
+    srv->route("resources/read",
+               [](const Json& in)
+               {
+                   std::string uri = in.at("uri").get<std::string>();
+                   std::string text;
 
-        if (uri.find("file://") == 0) {
-            text = "File content for: " + uri.substr(8);
-        } else if (uri.find("db://") == 0) {
-            text = "Database record: " + uri.substr(5);
-        } else if (uri.find("api://") == 0) {
-            text = "API response for: " + uri.substr(6);
-        } else {
-            text = "Unknown resource: " + uri;
-        }
+                   if (uri.find("file://") == 0)
+                       text = "File content for: " + uri.substr(8);
+                   else if (uri.find("db://") == 0)
+                       text = "Database record: " + uri.substr(5);
+                   else if (uri.find("api://") == 0)
+                       text = "API response for: " + uri.substr(6);
+                   else
+                       text = "Unknown resource: " + uri;
 
-        return Json{{"contents", Json::array({Json{{"uri", uri}, {"text", text}}})}};
-    });
+                   return Json{{"contents", Json::array({Json{{"uri", uri}, {"text", text}}})}};
+               });
 
     return srv;
 }
 
-void test_list_resource_templates_count() {
+void test_list_resource_templates_count()
+{
     std::cout << "Test: list_resource_templates count...\n";
 
     auto srv = create_resource_template_server();
@@ -2887,7 +3277,8 @@ void test_list_resource_templates_count() {
     std::cout << "  [PASS] 3 resource templates listed\n";
 }
 
-void test_resource_template_uri_pattern() {
+void test_resource_template_uri_pattern()
+{
     std::cout << "Test: resource template URI pattern...\n";
 
     auto srv = create_resource_template_server();
@@ -2895,8 +3286,10 @@ void test_resource_template_uri_pattern() {
 
     auto templates = c.list_resource_templates();
     bool found_file = false;
-    for (const auto& t : templates) {
-        if (t.name == "File Template") {
+    for (const auto& t : templates)
+    {
+        if (t.name == "File Template")
+        {
             assert(t.uriTemplate.find("{path}") != std::string::npos);
             found_file = true;
             break;
@@ -2907,7 +3300,8 @@ void test_resource_template_uri_pattern() {
     std::cout << "  [PASS] URI template pattern present\n";
 }
 
-void test_resource_template_with_multiple_params() {
+void test_resource_template_with_multiple_params()
+{
     std::cout << "Test: resource template with multiple params...\n";
 
     auto srv = create_resource_template_server();
@@ -2915,8 +3309,10 @@ void test_resource_template_with_multiple_params() {
 
     auto templates = c.list_resource_templates();
     bool found = false;
-    for (const auto& t : templates) {
-        if (t.name == "API User") {
+    for (const auto& t : templates)
+    {
+        if (t.name == "API User")
+        {
             assert(t.uriTemplate.find("{version}") != std::string::npos);
             assert(t.uriTemplate.find("{userId}") != std::string::npos);
             found = true;
@@ -2928,7 +3324,8 @@ void test_resource_template_with_multiple_params() {
     std::cout << "  [PASS] multiple template params\n";
 }
 
-void test_read_templated_resource() {
+void test_read_templated_resource()
+{
     std::cout << "Test: read resource via template...\n";
 
     auto srv = create_resource_template_server();
@@ -2948,39 +3345,45 @@ void test_read_templated_resource() {
 // Tool Parameter Coercion Tests (matching Python TestToolParameters)
 // ============================================================================
 
-std::shared_ptr<server::Server> create_coercion_params_server() {
+std::shared_ptr<server::Server> create_coercion_params_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "typed_params"}, {"inputSchema", Json{
-                {"type", "object"},
-                {"properties", Json{
-                    {"int_val", Json{{"type", "integer"}}},
-                    {"float_val", Json{{"type", "number"}}},
-                    {"bool_val", Json{{"type", "boolean"}}},
-                    {"str_val", Json{{"type", "string"}}},
-                    {"array_val", Json{{"type", "array"}, {"items", Json{{"type", "integer"}}}}},
-                    {"object_val", Json{{"type", "object"}}}
-                }},
-                {"required", Json::array({"int_val"})}
-            }}}
-        })}};
-    });
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
+            return Json{
+                {"tools", Json::array({Json{
+                              {"name", "typed_params"},
+                              {"inputSchema",
+                               Json{{"type", "object"},
+                                    {"properties",
+                                     Json{{"int_val", Json{{"type", "integer"}}},
+                                          {"float_val", Json{{"type", "number"}}},
+                                          {"bool_val", Json{{"type", "boolean"}}},
+                                          {"str_val", Json{{"type", "string"}}},
+                                          {"array_val", Json{{"type", "array"},
+                                                             {"items", Json{{"type", "integer"}}}}},
+                                          {"object_val", Json{{"type", "object"}}}}},
+                                    {"required", Json::array({"int_val"})}}}}})}};
+        });
 
-    srv->route("tools/call", [](const Json& in) {
-        Json args = in.value("arguments", Json::object());
-        return Json{
-            {"content", Json::array({Json{{"type", "text"}, {"text", args.dump()}}})},
-            {"structuredContent", args},
-            {"isError", false}
-        };
-    });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   Json args = in.value("arguments", Json::object());
+                   return Json{
+                       {"content", Json::array({Json{{"type", "text"}, {"text", args.dump()}}})},
+                       {"structuredContent", args},
+                       {"isError", false}};
+               });
 
     return srv;
 }
 
-void test_integer_parameter() {
+void test_integer_parameter()
+{
     std::cout << "Test: integer parameter handling...\n";
 
     auto srv = create_coercion_params_server();
@@ -2993,7 +3396,8 @@ void test_integer_parameter() {
     std::cout << "  [PASS] integer parameter\n";
 }
 
-void test_float_parameter() {
+void test_float_parameter()
+{
     std::cout << "Test: float parameter handling...\n";
 
     auto srv = create_coercion_params_server();
@@ -3007,7 +3411,8 @@ void test_float_parameter() {
     std::cout << "  [PASS] float parameter\n";
 }
 
-void test_boolean_parameter() {
+void test_boolean_parameter()
+{
     std::cout << "Test: boolean parameter handling...\n";
 
     auto srv = create_coercion_params_server();
@@ -3020,7 +3425,8 @@ void test_boolean_parameter() {
     std::cout << "  [PASS] boolean parameter\n";
 }
 
-void test_string_parameter() {
+void test_string_parameter()
+{
     std::cout << "Test: string parameter handling...\n";
 
     auto srv = create_coercion_params_server();
@@ -3033,26 +3439,30 @@ void test_string_parameter() {
     std::cout << "  [PASS] string parameter\n";
 }
 
-void test_array_parameter() {
+void test_array_parameter()
+{
     std::cout << "Test: array parameter handling...\n";
 
     auto srv = create_coercion_params_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
-    auto result = c.call_tool("typed_params", {{"int_val", 1}, {"array_val", Json::array({1, 2, 3})}});
+    auto result =
+        c.call_tool("typed_params", {{"int_val", 1}, {"array_val", Json::array({1, 2, 3})}});
     assert(!result.isError);
     assert((*result.structuredContent)["array_val"].size() == 3);
 
     std::cout << "  [PASS] array parameter\n";
 }
 
-void test_object_parameter() {
+void test_object_parameter()
+{
     std::cout << "Test: object parameter handling...\n";
 
     auto srv = create_coercion_params_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
-    auto result = c.call_tool("typed_params", {{"int_val", 1}, {"object_val", Json{{"key", "value"}}}});
+    auto result =
+        c.call_tool("typed_params", {{"int_val", 1}, {"object_val", Json{{"key", "value"}}}});
     assert(!result.isError);
     assert((*result.structuredContent)["object_val"]["key"] == "value");
 
@@ -3063,55 +3473,80 @@ void test_object_parameter() {
 // Prompt Variations Tests (matching Python TestPrompts)
 // ============================================================================
 
-std::shared_ptr<server::Server> create_prompt_variations_server() {
+std::shared_ptr<server::Server> create_prompt_variations_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("prompts/list", [](const Json&) {
-        return Json{{"prompts", Json::array({
-            Json{{"name", "simple"}, {"description", "Simple prompt"}},
-            Json{{"name", "with_description"}, {"description", "A prompt that has a detailed description for users"}},
-            Json{{"name", "multi_message"}, {"description", "Returns multiple messages"}},
-            Json{{"name", "system_prompt"}, {"description", "Has system message"}}
-        })}};
-    });
-
-    srv->route("prompts/get", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
-
-        if (name == "simple") {
-            return Json{{"messages", Json::array({
-                Json{{"role", "user"}, {"content", Json::array({Json{{"type", "text"}, {"text", "Hello"}}})}}
-            })}};
-        }
-        if (name == "with_description") {
+    srv->route(
+        "prompts/list",
+        [](const Json&)
+        {
             return Json{
-                {"description", "This is a detailed description"},
-                {"messages", Json::array({
-                    Json{{"role", "user"}, {"content", Json::array({Json{{"type", "text"}, {"text", "Described prompt"}}})}}
-                })}
-            };
-        }
-        if (name == "multi_message") {
-            return Json{{"messages", Json::array({
-                Json{{"role", "user"}, {"content", Json::array({Json{{"type", "text"}, {"text", "First message"}}})}}
-,
-                Json{{"role", "assistant"}, {"content", Json::array({Json{{"type", "text"}, {"text", "Response"}}})}}
-,
-                Json{{"role", "user"}, {"content", Json::array({Json{{"type", "text"}, {"text", "Follow up"}}})}}
-            })}};
-        }
-        if (name == "system_prompt") {
-            return Json{{"messages", Json::array({
-                Json{{"role", "user"}, {"content", Json::array({Json{{"type", "text"}, {"text", "System message here"}}})}}
-            })}};
-        }
-        return Json{{"messages", Json::array()}};
-    });
+                {"prompts",
+                 Json::array(
+                     {Json{{"name", "simple"}, {"description", "Simple prompt"}},
+                      Json{{"name", "with_description"},
+                           {"description", "A prompt that has a detailed description for users"}},
+                      Json{{"name", "multi_message"}, {"description", "Returns multiple messages"}},
+                      Json{{"name", "system_prompt"}, {"description", "Has system message"}}})}};
+        });
+
+    srv->route(
+        "prompts/get",
+        [](const Json& in)
+        {
+            std::string name = in.at("name").get<std::string>();
+
+            if (name == "simple")
+            {
+                return Json{
+                    {"messages",
+                     Json::array({Json{
+                         {"role", "user"},
+                         {"content", Json::array({Json{{"type", "text"}, {"text", "Hello"}}})}}})}};
+            }
+            if (name == "with_description")
+            {
+                return Json{
+                    {"description", "This is a detailed description"},
+                    {"messages",
+                     Json::array({Json{
+                         {"role", "user"},
+                         {"content",
+                          Json::array({Json{{"type", "text"}, {"text", "Described prompt"}}})}}})}};
+            }
+            if (name == "multi_message")
+            {
+                return Json{
+                    {"messages",
+                     Json::array(
+                         {Json{{"role", "user"},
+                               {"content",
+                                Json::array({Json{{"type", "text"}, {"text", "First message"}}})}},
+                          Json{{"role", "assistant"},
+                               {"content",
+                                Json::array({Json{{"type", "text"}, {"text", "Response"}}})}},
+                          Json{{"role", "user"},
+                               {"content",
+                                Json::array({Json{{"type", "text"}, {"text", "Follow up"}}})}}})}};
+            }
+            if (name == "system_prompt")
+            {
+                return Json{
+                    {"messages",
+                     Json::array({Json{
+                         {"role", "user"},
+                         {"content", Json::array({Json{{"type", "text"},
+                                                       {"text", "System message here"}}})}}})}};
+            }
+            return Json{{"messages", Json::array()}};
+        });
 
     return srv;
 }
 
-void test_simple_prompt() {
+void test_simple_prompt()
+{
     std::cout << "Test: simple prompt...\n";
 
     auto srv = create_prompt_variations_server();
@@ -3124,7 +3559,8 @@ void test_simple_prompt() {
     std::cout << "  [PASS] simple prompt\n";
 }
 
-void test_prompt_with_description() {
+void test_prompt_with_description()
+{
     std::cout << "Test: prompt with description...\n";
 
     auto srv = create_prompt_variations_server();
@@ -3137,7 +3573,8 @@ void test_prompt_with_description() {
     std::cout << "  [PASS] prompt description present\n";
 }
 
-void test_multi_message_prompt() {
+void test_multi_message_prompt()
+{
     std::cout << "Test: multi-message prompt...\n";
 
     auto srv = create_prompt_variations_server();
@@ -3152,7 +3589,8 @@ void test_multi_message_prompt() {
     std::cout << "  [PASS] multi-message prompt\n";
 }
 
-void test_prompt_message_content() {
+void test_prompt_message_content()
+{
     std::cout << "Test: prompt message content...\n";
 
     auto srv = create_prompt_variations_server();
@@ -3173,48 +3611,60 @@ void test_prompt_message_content() {
 // Meta in Tools/Resources/Prompts Tests (TestMeta parity)
 // ============================================================================
 
-std::shared_ptr<server::Server> create_meta_variations_server() {
+std::shared_ptr<server::Server> create_meta_variations_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "tool_with_meta"}, {"inputSchema", Json{{"type", "object"}}},
-                 {"_meta", Json{{"custom_key", "custom_value"}, {"count", 42}}}},
-            Json{{"name", "tool_without_meta"}, {"inputSchema", Json{{"type", "object"}}}}
-        })}};
-    });
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
+            return Json{
+                {"tools",
+                 Json::array({Json{{"name", "tool_with_meta"},
+                                   {"inputSchema", Json{{"type", "object"}}},
+                                   {"_meta", Json{{"custom_key", "custom_value"}, {"count", 42}}}},
+                              Json{{"name", "tool_without_meta"},
+                                   {"inputSchema", Json{{"type", "object"}}}}})}};
+        });
 
-    srv->route("tools/call", [](const Json& in) {
-        Json meta;
-        if (in.contains("_meta")) {
-            meta = in["_meta"];
-        }
-        return Json{
-            {"content", Json::array({Json{{"type", "text"}, {"text", "ok"}}})},
-            {"_meta", Json{{"request_meta", meta}, {"response_meta", "added"}}},
-            {"isError", false}
-        };
-    });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   Json meta;
+                   if (in.contains("_meta"))
+                       meta = in["_meta"];
+                   return Json{{"content", Json::array({Json{{"type", "text"}, {"text", "ok"}}})},
+                               {"_meta", Json{{"request_meta", meta}, {"response_meta", "added"}}},
+                               {"isError", false}};
+               });
 
-    srv->route("resources/list", [](const Json&) {
-        return Json{{"resources", Json::array({
-            Json{{"uri", "res://with_meta"}, {"name", "with_meta"},
-                 {"_meta", Json{{"resource_key", "resource_value"}}}},
-            Json{{"uri", "res://no_meta"}, {"name", "no_meta"}}
-        })}};
-    });
+    srv->route("resources/list",
+               [](const Json&)
+               {
+                   return Json{
+                       {"resources",
+                        Json::array({Json{{"uri", "res://with_meta"},
+                                          {"name", "with_meta"},
+                                          {"_meta", Json{{"resource_key", "resource_value"}}}},
+                                     Json{{"uri", "res://no_meta"}, {"name", "no_meta"}}})}};
+               });
 
-    srv->route("prompts/list", [](const Json&) {
-        return Json{{"prompts", Json::array({
-            Json{{"name", "prompt_meta"}, {"description", "Has meta"},
-                 {"_meta", Json{{"prompt_key", "prompt_value"}}}}
-        })}};
-    });
+    srv->route(
+        "prompts/list",
+        [](const Json&)
+        {
+            return Json{
+                {"prompts", Json::array({Json{{"name", "prompt_meta"},
+                                              {"description", "Has meta"},
+                                              {"_meta", Json{{"prompt_key", "prompt_value"}}}}})}};
+        });
 
     return srv;
 }
 
-void test_tool_meta_custom_fields() {
+void test_tool_meta_custom_fields()
+{
     std::cout << "Test: tool list with meta fields...\n";
 
     auto srv = create_meta_variations_server();
@@ -3226,16 +3676,20 @@ void test_tool_meta_custom_fields() {
 
     // Verify tool names are present
     bool found_with = false, found_without = false;
-    for (const auto& t : result.tools) {
-        if (t.name == "tool_with_meta") found_with = true;
-        if (t.name == "tool_without_meta") found_without = true;
+    for (const auto& t : result.tools)
+    {
+        if (t.name == "tool_with_meta")
+            found_with = true;
+        if (t.name == "tool_without_meta")
+            found_without = true;
     }
     assert(found_with && found_without);
 
     std::cout << "  [PASS] tool list with meta parsed\n";
 }
 
-void test_tool_meta_absent() {
+void test_tool_meta_absent()
+{
     std::cout << "Test: tools listed correctly...\n";
 
     auto srv = create_meta_variations_server();
@@ -3246,8 +3700,10 @@ void test_tool_meta_absent() {
 
     // Both tools should have their names
     bool found = false;
-    for (const auto& t : tools) {
-        if (t.name == "tool_without_meta") {
+    for (const auto& t : tools)
+    {
+        if (t.name == "tool_without_meta")
+        {
             found = true;
             break;
         }
@@ -3257,7 +3713,8 @@ void test_tool_meta_absent() {
     std::cout << "  [PASS] tools without meta handled\n";
 }
 
-void test_resource_meta_fields() {
+void test_resource_meta_fields()
+{
     std::cout << "Test: resource with meta fields...\n";
 
     auto srv = create_meta_variations_server();
@@ -3265,8 +3722,10 @@ void test_resource_meta_fields() {
 
     auto resources = c.list_resources();
     bool found = false;
-    for (const auto& r : resources) {
-        if (r.name == "with_meta") {
+    for (const auto& r : resources)
+    {
+        if (r.name == "with_meta")
+        {
             // ResourceInfo might not have meta exposed - check if it's in raw response
             // For now just verify resource is listed
             found = true;
@@ -3278,7 +3737,8 @@ void test_resource_meta_fields() {
     std::cout << "  [PASS] resource with meta listed\n";
 }
 
-void test_call_tool_meta_roundtrip() {
+void test_call_tool_meta_roundtrip()
+{
     std::cout << "Test: tool call meta roundtrip...\n";
 
     auto srv = create_meta_variations_server();
@@ -3299,48 +3759,58 @@ void test_call_tool_meta_roundtrip() {
 // Error Edge Cases Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_error_edge_server() {
+std::shared_ptr<server::Server> create_error_edge_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "throw_exception"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "empty_content"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "error_with_content"}, {"inputSchema", Json{{"type", "object"}}}}
-        })}};
-    });
-
-    srv->route("tools/call", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
-
-        if (name == "throw_exception") {
-            throw std::runtime_error("Intentional test exception");
-        }
-        if (name == "empty_content") {
-            return Json{{"content", Json::array()}, {"isError", false}};
-        }
-        if (name == "error_with_content") {
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
             return Json{
-                {"content", Json::array({Json{{"type", "text"}, {"text", "Error details here"}}})},
-                {"isError", true}
-            };
-        }
-        return Json{{"content", Json::array()}, {"isError", true}};
-    });
+                {"tools",
+                 Json::array(
+                     {Json{{"name", "throw_exception"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "empty_content"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "error_with_content"},
+                           {"inputSchema", Json{{"type", "object"}}}}})}};
+        });
+
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   std::string name = in.at("name").get<std::string>();
+
+                   if (name == "throw_exception")
+                       throw std::runtime_error("Intentional test exception");
+                   if (name == "empty_content")
+                       return Json{{"content", Json::array()}, {"isError", false}};
+                   if (name == "error_with_content")
+                   {
+                       return Json{{"content", Json::array({Json{{"type", "text"},
+                                                                 {"text", "Error details here"}}})},
+                                   {"isError", true}};
+                   }
+                   return Json{{"content", Json::array()}, {"isError", true}};
+               });
 
     return srv;
 }
 
-void test_server_throws_exception() {
+void test_server_throws_exception()
+{
     std::cout << "Test: server handler throws exception...\n";
 
     auto srv = create_error_edge_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     bool threw = false;
-    try {
+    try
+    {
         c.call_tool("throw_exception", Json::object());
-    } catch (...) {
+    }
+    catch (...)
+    {
         threw = true;
     }
     assert(threw);
@@ -3348,7 +3818,8 @@ void test_server_throws_exception() {
     std::cout << "  [PASS] server exception propagates\n";
 }
 
-void test_empty_content_response() {
+void test_empty_content_response()
+{
     std::cout << "Test: tool returns empty content...\n";
 
     auto srv = create_error_edge_server();
@@ -3361,16 +3832,20 @@ void test_empty_content_response() {
     std::cout << "  [PASS] empty content handled\n";
 }
 
-void test_error_with_content() {
+void test_error_with_content()
+{
     std::cout << "Test: error response has content...\n";
 
     auto srv = create_error_edge_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     bool threw = false;
-    try {
+    try
+    {
         c.call_tool("error_with_content", Json::object());
-    } catch (const fastmcpp::Error& e) {
+    }
+    catch (const fastmcpp::Error& e)
+    {
         threw = true;
         // The error should contain some context
         std::string what = e.what();
@@ -3385,44 +3860,55 @@ void test_error_with_content() {
 // Resource Read Edge Cases Tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_resource_edge_server() {
+std::shared_ptr<server::Server> create_resource_edge_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("resources/list", [](const Json&) {
-        return Json{{"resources", Json::array({
-            Json{{"uri", "file:///empty.txt"}, {"name", "empty.txt"}},
-            Json{{"uri", "file:///large.txt"}, {"name", "large.txt"}},
-            Json{{"uri", "file:///binary.bin"}, {"name", "binary.bin"}, {"mimeType", "application/octet-stream"}},
-            Json{{"uri", "file:///multi.txt"}, {"name", "multi.txt"}}
-        })}};
-    });
+    srv->route("resources/list",
+               [](const Json&)
+               {
+                   return Json{
+                       {"resources",
+                        Json::array({Json{{"uri", "file:///empty.txt"}, {"name", "empty.txt"}},
+                                     Json{{"uri", "file:///large.txt"}, {"name", "large.txt"}},
+                                     Json{{"uri", "file:///binary.bin"},
+                                          {"name", "binary.bin"},
+                                          {"mimeType", "application/octet-stream"}},
+                                     Json{{"uri", "file:///multi.txt"}, {"name", "multi.txt"}}})}};
+               });
 
-    srv->route("resources/read", [](const Json& in) {
-        std::string uri = in.at("uri").get<std::string>();
+    srv->route(
+        "resources/read",
+        [](const Json& in)
+        {
+            std::string uri = in.at("uri").get<std::string>();
 
-        if (uri == "file:///empty.txt") {
-            return Json{{"contents", Json::array({Json{{"uri", uri}, {"text", ""}}})}};
-        }
-        if (uri == "file:///large.txt") {
-            std::string large(10000, 'x');
-            return Json{{"contents", Json::array({Json{{"uri", uri}, {"text", large}}})}};
-        }
-        if (uri == "file:///binary.bin") {
-            return Json{{"contents", Json::array({Json{{"uri", uri}, {"blob", "SGVsbG8gV29ybGQ="}}})}};
-        }
-        if (uri == "file:///multi.txt") {
-            return Json{{"contents", Json::array({
-                Json{{"uri", uri + "#part1"}, {"text", "Part 1"}},
-                Json{{"uri", uri + "#part2"}, {"text", "Part 2"}}
-            })}};
-        }
-        return Json{{"contents", Json::array()}};
-    });
+            if (uri == "file:///empty.txt")
+                return Json{{"contents", Json::array({Json{{"uri", uri}, {"text", ""}}})}};
+            if (uri == "file:///large.txt")
+            {
+                std::string large(10000, 'x');
+                return Json{{"contents", Json::array({Json{{"uri", uri}, {"text", large}}})}};
+            }
+            if (uri == "file:///binary.bin")
+            {
+                return Json{
+                    {"contents", Json::array({Json{{"uri", uri}, {"blob", "SGVsbG8gV29ybGQ="}}})}};
+            }
+            if (uri == "file:///multi.txt")
+            {
+                return Json{
+                    {"contents", Json::array({Json{{"uri", uri + "#part1"}, {"text", "Part 1"}},
+                                              Json{{"uri", uri + "#part2"}, {"text", "Part 2"}}})}};
+            }
+            return Json{{"contents", Json::array()}};
+        });
 
     return srv;
 }
 
-void test_read_empty_resource() {
+void test_read_empty_resource()
+{
     std::cout << "Test: read empty resource...\n";
 
     auto srv = create_resource_edge_server();
@@ -3438,7 +3924,8 @@ void test_read_empty_resource() {
     std::cout << "  [PASS] empty resource handled\n";
 }
 
-void test_read_large_resource() {
+void test_read_large_resource()
+{
     std::cout << "Test: read large resource...\n";
 
     auto srv = create_resource_edge_server();
@@ -3454,7 +3941,8 @@ void test_read_large_resource() {
     std::cout << "  [PASS] large resource handled\n";
 }
 
-void test_read_binary_resource() {
+void test_read_binary_resource()
+{
     std::cout << "Test: read binary resource...\n";
 
     auto srv = create_resource_edge_server();
@@ -3470,7 +3958,8 @@ void test_read_binary_resource() {
     std::cout << "  [PASS] binary resource handled\n";
 }
 
-void test_read_multi_part_resource() {
+void test_read_multi_part_resource()
+{
     std::cout << "Test: read multi-part resource...\n";
 
     auto srv = create_resource_edge_server();
@@ -3486,43 +3975,55 @@ void test_read_multi_part_resource() {
 // Tool Description and Schema Edge Cases
 // ============================================================================
 
-std::shared_ptr<server::Server> create_schema_description_server() {
+std::shared_ptr<server::Server> create_schema_description_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            Json{{"name", "no_description"}, {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "long_description"}, {"description", std::string(500, 'x')},
-                 {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "unicode_description"}, {"description", u8"工具描述 🔧"},
-                 {"inputSchema", Json{{"type", "object"}}}},
-            Json{{"name", "complex_schema"}, {"description", "Has complex schema"},
-                 {"inputSchema", Json{
-                     {"type", "object"},
-                     {"properties", Json{
-                         {"nested", Json{
-                             {"type", "object"},
-                             {"properties", Json{
-                                 {"deep", Json{{"type", "string"}, {"enum", Json::array({"a", "b", "c"})}}}
-                             }},
-                             {"required", Json::array({"deep"})}
-                         }},
-                         {"optional", Json{{"type", "integer"}, {"minimum", 0}, {"maximum", 100}}}
-                     }},
-                     {"required", Json::array({"nested"})},
-                     {"additionalProperties", false}
-                 }}}
-        })}};
-    });
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
+            return Json{
+                {"tools",
+                 Json::array(
+                     {Json{{"name", "no_description"}, {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "long_description"},
+                           {"description", std::string(500, 'x')},
+                           {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "unicode_description"},
+                           {"description", u8"工具描述 🔧"},
+                           {"inputSchema", Json{{"type", "object"}}}},
+                      Json{{"name", "complex_schema"},
+                           {"description", "Has complex schema"},
+                           {"inputSchema",
+                            Json{{"type", "object"},
+                                 {"properties",
+                                  Json{{"nested",
+                                        Json{{"type", "object"},
+                                             {"properties",
+                                              Json{{"deep",
+                                                    Json{{"type", "string"},
+                                                         {"enum", Json::array({"a", "b", "c"})}}}}},
+                                             {"required", Json::array({"deep"})}}},
+                                       {"optional", Json{{"type", "integer"},
+                                                         {"minimum", 0},
+                                                         {"maximum", 100}}}}},
+                                 {"required", Json::array({"nested"})},
+                                 {"additionalProperties", false}}}}})}};
+        });
 
-    srv->route("tools/call", [](const Json&) {
-        return Json{{"content", Json::array({Json{{"type", "text"}, {"text", "ok"}}})}, {"isError", false}};
-    });
+    srv->route("tools/call",
+               [](const Json&)
+               {
+                   return Json{{"content", Json::array({Json{{"type", "text"}, {"text", "ok"}}})},
+                               {"isError", false}};
+               });
 
     return srv;
 }
 
-void test_tool_no_description() {
+void test_tool_no_description()
+{
     std::cout << "Test: tool without description...\n";
 
     auto srv = create_schema_description_server();
@@ -3530,8 +4031,10 @@ void test_tool_no_description() {
 
     auto tools = c.list_tools();
     bool found = false;
-    for (const auto& t : tools) {
-        if (t.name == "no_description") {
+    for (const auto& t : tools)
+    {
+        if (t.name == "no_description")
+        {
             assert(!t.description.has_value() || t.description->empty());
             found = true;
             break;
@@ -3542,7 +4045,8 @@ void test_tool_no_description() {
     std::cout << "  [PASS] no description handled\n";
 }
 
-void test_tool_long_description() {
+void test_tool_long_description()
+{
     std::cout << "Test: tool with long description...\n";
 
     auto srv = create_schema_description_server();
@@ -3550,8 +4054,10 @@ void test_tool_long_description() {
 
     auto tools = c.list_tools();
     bool found = false;
-    for (const auto& t : tools) {
-        if (t.name == "long_description") {
+    for (const auto& t : tools)
+    {
+        if (t.name == "long_description")
+        {
             assert(t.description.has_value());
             assert(t.description->length() == 500);
             found = true;
@@ -3563,7 +4069,8 @@ void test_tool_long_description() {
     std::cout << "  [PASS] long description preserved\n";
 }
 
-void test_tool_unicode_description() {
+void test_tool_unicode_description()
+{
     std::cout << "Test: tool with unicode description...\n";
 
     auto srv = create_schema_description_server();
@@ -3571,8 +4078,10 @@ void test_tool_unicode_description() {
 
     auto tools = c.list_tools();
     bool found = false;
-    for (const auto& t : tools) {
-        if (t.name == "unicode_description") {
+    for (const auto& t : tools)
+    {
+        if (t.name == "unicode_description")
+        {
             assert(t.description.has_value());
             assert(t.description->find(u8"工具") != std::string::npos);
             found = true;
@@ -3584,7 +4093,8 @@ void test_tool_unicode_description() {
     std::cout << "  [PASS] unicode description preserved\n";
 }
 
-void test_tool_complex_schema() {
+void test_tool_complex_schema()
+{
     std::cout << "Test: tool with complex schema...\n";
 
     auto srv = create_schema_description_server();
@@ -3592,8 +4102,10 @@ void test_tool_complex_schema() {
 
     auto tools = c.list_tools();
     bool found = false;
-    for (const auto& t : tools) {
-        if (t.name == "complex_schema") {
+    for (const auto& t : tools)
+    {
+        if (t.name == "complex_schema")
+        {
             assert(t.inputSchema.contains("properties"));
             assert(t.inputSchema["properties"].contains("nested"));
             assert(t.inputSchema["properties"]["nested"]["properties"]["deep"].contains("enum"));
@@ -3612,31 +4124,30 @@ void test_tool_complex_schema() {
 // TestCapabilities - Server capabilities tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_capabilities_server() {
+std::shared_ptr<server::Server> create_capabilities_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("initialize", [](const Json&) {
-        return Json{
-            {"protocolVersion", "2024-11-05"},
-            {"serverInfo", {{"name", "test_server"}, {"version", "1.0.0"}}},
-            {"capabilities", {
-                {"tools", {{"listChanged", true}}},
-                {"resources", {{"subscribe", true}, {"listChanged", true}}},
-                {"prompts", {{"listChanged", true}}},
-                {"logging", Json::object()}
-            }},
-            {"instructions", "Server with full capabilities"}
-        };
-    });
+    srv->route("initialize",
+               [](const Json&)
+               {
+                   return Json{{"protocolVersion", "2024-11-05"},
+                               {"serverInfo", {{"name", "test_server"}, {"version", "1.0.0"}}},
+                               {"capabilities",
+                                {{"tools", {{"listChanged", true}}},
+                                 {"resources", {{"subscribe", true}, {"listChanged", true}}},
+                                 {"prompts", {{"listChanged", true}}},
+                                 {"logging", Json::object()}}},
+                               {"instructions", "Server with full capabilities"}};
+               });
 
-    srv->route("ping", [](const Json&) {
-        return Json::object();
-    });
+    srv->route("ping", [](const Json&) { return Json::object(); });
 
     return srv;
 }
 
-void test_server_protocol_version() {
+void test_server_protocol_version()
+{
     std::cout << "Test: server protocol version...\n";
 
     auto srv = create_capabilities_server();
@@ -3649,7 +4160,8 @@ void test_server_protocol_version() {
     std::cout << "  [PASS] protocol version returned\n";
 }
 
-void test_server_info() {
+void test_server_info()
+{
     std::cout << "Test: server info...\n";
 
     auto srv = create_capabilities_server();
@@ -3662,7 +4174,8 @@ void test_server_info() {
     std::cout << "  [PASS] server info returned\n";
 }
 
-void test_server_capabilities() {
+void test_server_capabilities()
+{
     std::cout << "Test: server capabilities...\n";
 
     auto srv = create_capabilities_server();
@@ -3676,7 +4189,8 @@ void test_server_capabilities() {
     std::cout << "  [PASS] capabilities returned\n";
 }
 
-void test_server_instructions() {
+void test_server_instructions()
+{
     std::cout << "Test: server instructions...\n";
 
     auto srv = create_capabilities_server();
@@ -3689,7 +4203,8 @@ void test_server_instructions() {
     std::cout << "  [PASS] instructions returned\n";
 }
 
-void test_ping_response() {
+void test_ping_response()
+{
     std::cout << "Test: ping response...\n";
 
     auto srv = create_capabilities_server();
@@ -3705,40 +4220,43 @@ void test_ping_response() {
 // TestProgressAndNotifications - Progress and notification handling
 // ============================================================================
 
-std::shared_ptr<server::Server> create_progress_server() {
+std::shared_ptr<server::Server> create_progress_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            {{"name", "slow_op"}, {"description", "Slow operation"}, {"inputSchema", {{"type", "object"}}}}
-        })}};
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{{"tools", Json::array({{{"name", "slow_op"},
+                                                       {"description", "Slow operation"},
+                                                       {"inputSchema", {{"type", "object"}}}}})}};
+               });
 
-    srv->route("tools/call", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
-        if (name == "slow_op") {
-            Json progress = Json::array({
-                {{"progress", 0}, {"total", 100}},
-                {{"progress", 50}, {"total", 100}},
-                {{"progress", 100}, {"total", 100}}
-            });
-            return Json{
-                {"content", Json::array({{{"type", "text"}, {"text", "done"}}})},
-                {"isError", false},
-                {"_meta", {{"progressEvents", progress}}}
-            };
-        }
-        return Json{{"content", Json::array()}, {"isError", true}};
-    });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   std::string name = in.at("name").get<std::string>();
+                   if (name == "slow_op")
+                   {
+                       Json progress = Json::array({{{"progress", 0}, {"total", 100}},
+                                                    {{"progress", 50}, {"total", 100}},
+                                                    {{"progress", 100}, {"total", 100}}});
+                       return Json{{"content", Json::array({{{"type", "text"}, {"text", "done"}}})},
+                                   {"isError", false},
+                                   {"_meta", {{"progressEvents", progress}}}};
+                   }
+                   return Json{{"content", Json::array()}, {"isError", true}};
+               });
 
-    srv->route("notifications/progress", [](const Json& in) {
-        return Json{{"received", true}, {"progressToken", in.value("progressToken", "")}};
-    });
+    srv->route(
+        "notifications/progress", [](const Json& in)
+        { return Json{{"received", true}, {"progressToken", in.value("progressToken", "")}}; });
 
     return srv;
 }
 
-void test_progress_in_meta() {
+void test_progress_in_meta()
+{
     std::cout << "Test: progress events in meta...\n";
 
     auto srv = create_progress_server();
@@ -3751,18 +4269,16 @@ void test_progress_in_meta() {
     std::cout << "  [PASS] tool call with progress completed\n";
 }
 
-void test_progress_notification_route() {
+void test_progress_notification_route()
+{
     std::cout << "Test: progress notification route...\n";
 
     auto srv = create_progress_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     // Send progress notification directly via call
-    auto resp = c.call("notifications/progress", Json{
-        {"progressToken", "token123"},
-        {"progress", 50},
-        {"total", 100}
-    });
+    auto resp = c.call("notifications/progress",
+                       Json{{"progressToken", "token123"}, {"progress", 50}, {"total", 100}});
 
     assert(resp.contains("received"));
     assert(resp["received"] == true);
@@ -3770,27 +4286,27 @@ void test_progress_notification_route() {
     std::cout << "  [PASS] progress notification handled\n";
 }
 
-void test_progress_with_message() {
+void test_progress_with_message()
+{
     std::cout << "Test: progress with message...\n";
 
     auto srv = std::make_shared<server::Server>();
     std::string received_message;
 
-    srv->route("notifications/progress", [&received_message](const Json& in) {
-        if (in.contains("message")) {
-            received_message = in["message"].get<std::string>();
-        }
-        return Json::object();
-    });
+    srv->route("notifications/progress",
+               [&received_message](const Json& in)
+               {
+                   if (in.contains("message"))
+                       received_message = in["message"].get<std::string>();
+                   return Json::object();
+               });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
-    c.call("notifications/progress", Json{
-        {"progressToken", "tok"},
-        {"progress", 75},
-        {"total", 100},
-        {"message", "Processing..."}
-    });
+    c.call("notifications/progress", Json{{"progressToken", "tok"},
+                                          {"progress", 75},
+                                          {"total", 100},
+                                          {"message", "Processing..."}});
 
     assert(received_message == "Processing...");
 
@@ -3801,30 +4317,34 @@ void test_progress_with_message() {
 // TestRootsNotification - Roots list changed notifications
 // ============================================================================
 
-std::shared_ptr<server::Server> create_roots_server() {
+std::shared_ptr<server::Server> create_roots_server()
+{
     auto srv = std::make_shared<server::Server>();
     static int roots_changed_count = 0;
 
-    srv->route("roots/list", [](const Json&) {
-        return Json{{"roots", Json::array({
-            {{"uri", "file:///project"}, {"name", "Project Root"}},
-            {{"uri", "file:///home"}, {"name", "Home"}}
-        })}};
-    });
+    srv->route("roots/list",
+               [](const Json&)
+               {
+                   return Json{{"roots",
+                                Json::array({{{"uri", "file:///project"}, {"name", "Project Root"}},
+                                             {{"uri", "file:///home"}, {"name", "Home"}}})}};
+               });
 
-    srv->route("notifications/roots/list_changed", [](const Json&) {
-        roots_changed_count++;
-        return Json{{"acknowledged", true}};
-    });
+    srv->route("notifications/roots/list_changed",
+               [](const Json&)
+               {
+                   roots_changed_count++;
+                   return Json{{"acknowledged", true}};
+               });
 
-    srv->route("roots/list_changed_count", [](const Json&) {
-        return Json{{"count", roots_changed_count}};
-    });
+    srv->route("roots/list_changed_count",
+               [](const Json&) { return Json{{"count", roots_changed_count}}; });
 
     return srv;
 }
 
-void test_roots_list() {
+void test_roots_list()
+{
     std::cout << "Test: roots list...\n";
 
     auto srv = create_roots_server();
@@ -3838,7 +4358,8 @@ void test_roots_list() {
     std::cout << "  [PASS] roots list returned\n";
 }
 
-void test_roots_notification() {
+void test_roots_notification()
+{
     std::cout << "Test: roots list changed notification...\n";
 
     auto srv = create_roots_server();
@@ -3851,16 +4372,19 @@ void test_roots_notification() {
     std::cout << "  [PASS] roots notification acknowledged\n";
 }
 
-void test_multiple_roots_notifications() {
+void test_multiple_roots_notifications()
+{
     std::cout << "Test: multiple roots notifications...\n";
 
     auto srv = std::make_shared<server::Server>();
     int count = 0;
 
-    srv->route("notifications/roots/list_changed", [&count](const Json&) {
-        count++;
-        return Json::object();
-    });
+    srv->route("notifications/roots/list_changed",
+               [&count](const Json&)
+               {
+                   count++;
+                   return Json::object();
+               });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
@@ -3877,23 +4401,26 @@ void test_multiple_roots_notifications() {
 // TestCancelledNotification - Cancellation handling
 // ============================================================================
 
-std::shared_ptr<server::Server> create_cancel_server() {
+std::shared_ptr<server::Server> create_cancel_server()
+{
     auto srv = std::make_shared<server::Server>();
     static std::string cancelled_request_id;
 
-    srv->route("notifications/cancelled", [](const Json& in) {
-        cancelled_request_id = in.value("requestId", "");
-        return Json{{"cancelled", true}};
-    });
+    srv->route("notifications/cancelled",
+               [](const Json& in)
+               {
+                   cancelled_request_id = in.value("requestId", "");
+                   return Json{{"cancelled", true}};
+               });
 
-    srv->route("check_cancelled", [](const Json&) {
-        return Json{{"lastCancelled", cancelled_request_id}};
-    });
+    srv->route("check_cancelled",
+               [](const Json&) { return Json{{"lastCancelled", cancelled_request_id}}; });
 
     return srv;
 }
 
-void test_cancel_notification() {
+void test_cancel_notification()
+{
     std::cout << "Test: cancel notification...\n";
 
     auto srv = create_cancel_server();
@@ -3906,23 +4433,23 @@ void test_cancel_notification() {
     std::cout << "  [PASS] cancel notification handled\n";
 }
 
-void test_cancel_with_reason() {
+void test_cancel_with_reason()
+{
     std::cout << "Test: cancel with reason...\n";
 
     auto srv = std::make_shared<server::Server>();
     std::string received_reason;
 
-    srv->route("notifications/cancelled", [&received_reason](const Json& in) {
-        received_reason = in.value("reason", "");
-        return Json::object();
-    });
+    srv->route("notifications/cancelled",
+               [&received_reason](const Json& in)
+               {
+                   received_reason = in.value("reason", "");
+                   return Json::object();
+               });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
-    c.call("notifications/cancelled", Json{
-        {"requestId", "req-456"},
-        {"reason", "User cancelled"}
-    });
+    c.call("notifications/cancelled", Json{{"requestId", "req-456"}, {"reason", "User cancelled"}});
 
     assert(received_reason == "User cancelled");
 
@@ -3933,27 +4460,28 @@ void test_cancel_with_reason() {
 // TestLogging - Logging notification handling
 // ============================================================================
 
-std::shared_ptr<server::Server> create_logging_server() {
+std::shared_ptr<server::Server> create_logging_server()
+{
     auto srv = std::make_shared<server::Server>();
     static std::vector<Json> log_entries;
 
-    srv->route("logging/setLevel", [](const Json& in) {
-        return Json{{"level", in.value("level", "info")}};
-    });
+    srv->route("logging/setLevel",
+               [](const Json& in) { return Json{{"level", in.value("level", "info")}}; });
 
-    srv->route("notifications/message", [](const Json& in) {
-        log_entries.push_back(in);
-        return Json::object();
-    });
+    srv->route("notifications/message",
+               [](const Json& in)
+               {
+                   log_entries.push_back(in);
+                   return Json::object();
+               });
 
-    srv->route("get_logs", [](const Json&) {
-        return Json{{"logs", log_entries}};
-    });
+    srv->route("get_logs", [](const Json&) { return Json{{"logs", log_entries}}; });
 
     return srv;
 }
 
-void test_set_log_level() {
+void test_set_log_level()
+{
     std::cout << "Test: set log level...\n";
 
     auto srv = create_logging_server();
@@ -3965,26 +4493,26 @@ void test_set_log_level() {
     std::cout << "  [PASS] log level set\n";
 }
 
-void test_log_message_notification() {
+void test_log_message_notification()
+{
     std::cout << "Test: log message notification...\n";
 
     auto srv = std::make_shared<server::Server>();
     std::string received_message;
     std::string received_level;
 
-    srv->route("notifications/message", [&](const Json& in) {
-        received_message = in.value("data", "");
-        received_level = in.value("level", "");
-        return Json::object();
-    });
+    srv->route("notifications/message",
+               [&](const Json& in)
+               {
+                   received_message = in.value("data", "");
+                   received_level = in.value("level", "");
+                   return Json::object();
+               });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
-    c.call("notifications/message", Json{
-        {"level", "warning"},
-        {"data", "Something happened"},
-        {"logger", "test"}
-    });
+    c.call("notifications/message",
+           Json{{"level", "warning"}, {"data", "Something happened"}, {"logger", "test"}});
 
     assert(received_level == "warning");
     assert(received_message == "Something happened");
@@ -3996,32 +4524,37 @@ void test_log_message_notification() {
 // TestImageContent - Image content handling
 // ============================================================================
 
-std::shared_ptr<server::Server> create_image_server() {
+std::shared_ptr<server::Server> create_image_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            {{"name", "get_image"}, {"description", "Get an image"}, {"inputSchema", {{"type", "object"}}}}
-        })}};
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{{"tools", Json::array({{{"name", "get_image"},
+                                                       {"description", "Get an image"},
+                                                       {"inputSchema", {{"type", "object"}}}}})}};
+               });
 
-    srv->route("tools/call", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
-        if (name == "get_image") {
-            return Json{
-                {"content", Json::array({
-                    {{"type", "image"}, {"data", "iVBORw0KGgo="}, {"mimeType", "image/png"}}
-                })},
-                {"isError", false}
-            };
-        }
-        return Json{{"content", Json::array()}, {"isError", true}};
-    });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   std::string name = in.at("name").get<std::string>();
+                   if (name == "get_image")
+                   {
+                       return Json{{"content", Json::array({{{"type", "image"},
+                                                             {"data", "iVBORw0KGgo="},
+                                                             {"mimeType", "image/png"}}})},
+                                   {"isError", false}};
+                   }
+                   return Json{{"content", Json::array()}, {"isError", true}};
+               });
 
     return srv;
 }
 
-void test_image_content_type() {
+void test_image_content_type()
+{
     std::cout << "Test: image content type...\n";
 
     auto srv = create_image_server();
@@ -4041,7 +4574,8 @@ void test_image_content_type() {
     std::cout << "  [PASS] image content type preserved\n";
 }
 
-void test_image_data_base64() {
+void test_image_data_base64()
+{
     std::cout << "Test: image data base64...\n";
 
     auto srv = create_image_server();
@@ -4061,37 +4595,42 @@ void test_image_data_base64() {
 // TestEmbeddedResource - Embedded resource content
 // ============================================================================
 
-std::shared_ptr<server::Server> create_embedded_resource_server() {
+std::shared_ptr<server::Server> create_embedded_resource_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            {{"name", "with_resource"}, {"description", "Returns embedded resource"}, {"inputSchema", {{"type", "object"}}}}
-        })}};
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{{"tools", Json::array({{{"name", "with_resource"},
+                                                       {"description", "Returns embedded resource"},
+                                                       {"inputSchema", {{"type", "object"}}}}})}};
+               });
 
-    srv->route("tools/call", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
-        if (name == "with_resource") {
-            return Json{
-                {"content", Json::array({
-                    {{"type", "text"}, {"text", "Here is a resource:"}},
-                    {{"type", "resource"}, {"resource", {
-                        {"uri", "file:///data.txt"},
-                        {"mimeType", "text/plain"},
-                        {"text", "Resource content here"}
-                    }}}
-                })},
-                {"isError", false}
-            };
-        }
-        return Json{{"content", Json::array()}, {"isError", true}};
-    });
+    srv->route(
+        "tools/call",
+        [](const Json& in)
+        {
+            std::string name = in.at("name").get<std::string>();
+            if (name == "with_resource")
+            {
+                return Json{
+                    {"content", Json::array({{{"type", "text"}, {"text", "Here is a resource:"}},
+                                             {{"type", "resource"},
+                                              {"resource",
+                                               {{"uri", "file:///data.txt"},
+                                                {"mimeType", "text/plain"},
+                                                {"text", "Resource content here"}}}}})},
+                    {"isError", false}};
+            }
+            return Json{{"content", Json::array()}, {"isError", true}};
+        });
 
     return srv;
 }
 
-void test_embedded_resource_content() {
+void test_embedded_resource_content()
+{
     std::cout << "Test: embedded resource content...\n";
 
     auto srv = create_embedded_resource_server();
@@ -4106,7 +4645,8 @@ void test_embedded_resource_content() {
     std::cout << "  [PASS] embedded resource in content\n";
 }
 
-void test_embedded_resource_uri() {
+void test_embedded_resource_uri()
+{
     std::cout << "Test: embedded resource uri...\n";
 
     auto srv = create_embedded_resource_server();
@@ -4121,27 +4661,27 @@ void test_embedded_resource_uri() {
     std::cout << "  [PASS] embedded resource uri and text\n";
 }
 
-void test_embedded_resource_blob() {
+void test_embedded_resource_blob()
+{
     std::cout << "Test: embedded resource blob...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            {{"name", "blob_resource"}, {"inputSchema", {{"type", "object"}}}}
-        })}};
-    });
-    srv->route("tools/call", [](const Json& in) {
-        return Json{
-            {"content", Json::array({
-                {{"type", "resource"}, {"resource", {
-                    {"uri", "file:///binary.dat"},
-                    {"mimeType", "application/octet-stream"},
-                    {"blob", "SGVsbG8gV29ybGQ="}
-                }}}
-            })},
-            {"isError", false}
-        };
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{{"tools", Json::array({{{"name", "blob_resource"},
+                                                       {"inputSchema", {{"type", "object"}}}}})}};
+               });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   return Json{{"content", Json::array({{{"type", "resource"},
+                                                         {"resource",
+                                                          {{"uri", "file:///binary.dat"},
+                                                           {"mimeType", "application/octet-stream"},
+                                                           {"blob", "SGVsbG8gV29ybGQ="}}}}})},
+                               {"isError", false}};
+               });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
     auto raw = c.call("tools/call", Json{{"name", "blob_resource"}, {"arguments", Json::object()}});
@@ -4156,58 +4696,68 @@ void test_embedded_resource_blob() {
 // TestToolInputValidation - Input validation tests
 // ============================================================================
 
-std::shared_ptr<server::Server> create_validation_server() {
+std::shared_ptr<server::Server> create_validation_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            {{"name", "require_string"}, {"inputSchema", {
-                {"type", "object"},
-                {"properties", {{"value", {{"type", "string"}}}}},
-                {"required", Json::array({"value"})}
-            }}},
-            {{"name", "require_number"}, {"inputSchema", {
-                {"type", "object"},
-                {"properties", {{"num", {{"type", "number"}, {"minimum", 0}, {"maximum", 100}}}}},
-                {"required", Json::array({"num"})}
-            }}},
-            {{"name", "require_enum"}, {"inputSchema", {
-                {"type", "object"},
-                {"properties", {{"choice", {{"enum", Json::array({"a", "b", "c"})}}}}},
-                {"required", Json::array({"choice"})}
-            }}}
-        })}};
-    });
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
+            return Json{
+                {"tools",
+                 Json::array(
+                     {{{"name", "require_string"},
+                       {"inputSchema",
+                        {{"type", "object"},
+                         {"properties", {{"value", {{"type", "string"}}}}},
+                         {"required", Json::array({"value"})}}}},
+                      {{"name", "require_number"},
+                       {"inputSchema",
+                        {{"type", "object"},
+                         {"properties",
+                          {{"num", {{"type", "number"}, {"minimum", 0}, {"maximum", 100}}}}},
+                         {"required", Json::array({"num"})}}}},
+                      {{"name", "require_enum"},
+                       {"inputSchema",
+                        {{"type", "object"},
+                         {"properties", {{"choice", {{"enum", Json::array({"a", "b", "c"})}}}}},
+                         {"required", Json::array({"choice"})}}}}})}};
+        });
 
-    srv->route("tools/call", [](const Json& in) {
-        std::string name = in.at("name").get<std::string>();
-        Json args = in.value("arguments", Json::object());
+    srv->route(
+        "tools/call",
+        [](const Json& in)
+        {
+            std::string name = in.at("name").get<std::string>();
+            Json args = in.value("arguments", Json::object());
 
-        if (name == "require_string") {
-            return Json{
-                {"content", Json::array({{{"type", "text"}, {"text", args["value"]}}})},
-                {"isError", false}
-            };
-        }
-        if (name == "require_number") {
-            return Json{
-                {"content", Json::array({{{"type", "text"}, {"text", std::to_string(args["num"].get<int>())}}})},
-                {"isError", false}
-            };
-        }
-        if (name == "require_enum") {
-            return Json{
-                {"content", Json::array({{{"type", "text"}, {"text", args["choice"]}}})},
-                {"isError", false}
-            };
-        }
-        return Json{{"content", Json::array()}, {"isError", true}};
-    });
+            if (name == "require_string")
+            {
+                return Json{{"content", Json::array({{{"type", "text"}, {"text", args["value"]}}})},
+                            {"isError", false}};
+            }
+            if (name == "require_number")
+            {
+                return Json{
+                    {"content", Json::array({{{"type", "text"},
+                                              {"text", std::to_string(args["num"].get<int>())}}})},
+                    {"isError", false}};
+            }
+            if (name == "require_enum")
+            {
+                return Json{
+                    {"content", Json::array({{{"type", "text"}, {"text", args["choice"]}}})},
+                    {"isError", false}};
+            }
+            return Json{{"content", Json::array()}, {"isError", true}};
+        });
 
     return srv;
 }
 
-void test_valid_string_input() {
+void test_valid_string_input()
+{
     std::cout << "Test: valid string input...\n";
 
     auto srv = create_validation_server();
@@ -4220,7 +4770,8 @@ void test_valid_string_input() {
     std::cout << "  [PASS] valid string accepted\n";
 }
 
-void test_valid_number_input() {
+void test_valid_number_input()
+{
     std::cout << "Test: valid number input...\n";
 
     auto srv = create_validation_server();
@@ -4233,7 +4784,8 @@ void test_valid_number_input() {
     std::cout << "  [PASS] valid number accepted\n";
 }
 
-void test_valid_enum_input() {
+void test_valid_enum_input()
+{
     std::cout << "Test: valid enum input...\n";
 
     auto srv = create_validation_server();
@@ -4250,36 +4802,42 @@ void test_valid_enum_input() {
 // TestResourceSubscribe - Resource subscription
 // ============================================================================
 
-std::shared_ptr<server::Server> create_subscribe_server() {
+std::shared_ptr<server::Server> create_subscribe_server()
+{
     auto srv = std::make_shared<server::Server>();
     static std::vector<std::string> subscribed_uris;
 
-    srv->route("resources/subscribe", [](const Json& in) {
-        subscribed_uris.push_back(in["uri"].get<std::string>());
-        return Json{{"subscribed", true}};
-    });
+    srv->route("resources/subscribe",
+               [](const Json& in)
+               {
+                   subscribed_uris.push_back(in["uri"].get<std::string>());
+                   return Json{{"subscribed", true}};
+               });
 
-    srv->route("resources/unsubscribe", [](const Json& in) {
-        std::string uri = in["uri"].get<std::string>();
-        subscribed_uris.erase(
-            std::remove(subscribed_uris.begin(), subscribed_uris.end(), uri),
-            subscribed_uris.end()
-        );
-        return Json{{"unsubscribed", true}};
-    });
+    srv->route("resources/unsubscribe",
+               [](const Json& in)
+               {
+                   std::string uri = in["uri"].get<std::string>();
+                   subscribed_uris.erase(
+                       std::remove(subscribed_uris.begin(), subscribed_uris.end(), uri),
+                       subscribed_uris.end());
+                   return Json{{"unsubscribed", true}};
+               });
 
-    srv->route("get_subscriptions", [](const Json&) {
-        Json uris = Json::array();
-        for (const auto& u : subscribed_uris) {
-            uris.push_back(u);
-        }
-        return Json{{"subscriptions", uris}};
-    });
+    srv->route("get_subscriptions",
+               [](const Json&)
+               {
+                   Json uris = Json::array();
+                   for (const auto& u : subscribed_uris)
+                       uris.push_back(u);
+                   return Json{{"subscriptions", uris}};
+               });
 
     return srv;
 }
 
-void test_resource_subscribe() {
+void test_resource_subscribe()
+{
     std::cout << "Test: resource subscribe...\n";
 
     auto srv = create_subscribe_server();
@@ -4291,7 +4849,8 @@ void test_resource_subscribe() {
     std::cout << "  [PASS] resource subscribed\n";
 }
 
-void test_resource_unsubscribe() {
+void test_resource_unsubscribe()
+{
     std::cout << "Test: resource unsubscribe...\n";
 
     auto srv = create_subscribe_server();
@@ -4308,16 +4867,19 @@ void test_resource_unsubscribe() {
 // TestResourceListChanged - Resource list changed notification
 // ============================================================================
 
-void test_resource_list_changed() {
+void test_resource_list_changed()
+{
     std::cout << "Test: resource list changed notification...\n";
 
     auto srv = std::make_shared<server::Server>();
     bool notified = false;
 
-    srv->route("notifications/resources/list_changed", [&notified](const Json&) {
-        notified = true;
-        return Json::object();
-    });
+    srv->route("notifications/resources/list_changed",
+               [&notified](const Json&)
+               {
+                   notified = true;
+                   return Json::object();
+               });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
     c.call("notifications/resources/list_changed", Json::object());
@@ -4327,16 +4889,19 @@ void test_resource_list_changed() {
     std::cout << "  [PASS] resource list changed notified\n";
 }
 
-void test_tool_list_changed() {
+void test_tool_list_changed()
+{
     std::cout << "Test: tool list changed notification...\n";
 
     auto srv = std::make_shared<server::Server>();
     bool notified = false;
 
-    srv->route("notifications/tools/list_changed", [&notified](const Json&) {
-        notified = true;
-        return Json::object();
-    });
+    srv->route("notifications/tools/list_changed",
+               [&notified](const Json&)
+               {
+                   notified = true;
+                   return Json::object();
+               });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
     c.call("notifications/tools/list_changed", Json::object());
@@ -4346,16 +4911,19 @@ void test_tool_list_changed() {
     std::cout << "  [PASS] tool list changed notified\n";
 }
 
-void test_prompt_list_changed() {
+void test_prompt_list_changed()
+{
     std::cout << "Test: prompt list changed notification...\n";
 
     auto srv = std::make_shared<server::Server>();
     bool notified = false;
 
-    srv->route("notifications/prompts/list_changed", [&notified](const Json&) {
-        notified = true;
-        return Json::object();
-    });
+    srv->route("notifications/prompts/list_changed",
+               [&notified](const Json&)
+               {
+                   notified = true;
+                   return Json::object();
+               });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
     c.call("notifications/prompts/list_changed", Json::object());
@@ -4369,45 +4937,45 @@ void test_prompt_list_changed() {
 // TestCompletionEdgeCases - Completion edge cases
 // ============================================================================
 
-std::shared_ptr<server::Server> create_completion_edge_server() {
+std::shared_ptr<server::Server> create_completion_edge_server()
+{
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("completion/complete", [](const Json& in) {
-        Json ref = in.at("ref");
-        std::string refType = ref.value("type", "");
+    srv->route("completion/complete",
+               [](const Json& in)
+               {
+                   Json ref = in.at("ref");
+                   std::string refType = ref.value("type", "");
 
-        if (refType == "ref/prompt") {
-            return Json{
-                {"completion", {
-                    {"values", Json::array({"prompt1", "prompt2"})},
-                    {"hasMore", false}
-                }}
-            };
-        } else if (refType == "ref/resource") {
-            return Json{
-                {"completion", {
-                    {"values", Json::array({"file:///a.txt", "file:///b.txt"})},
-                    {"hasMore", true},
-                    {"total", 10}
-                }}
-            };
-        }
-        return Json{{"completion", {{"values", Json::array()}, {"hasMore", false}}}};
-    });
+                   if (refType == "ref/prompt")
+                   {
+                       return Json{
+                           {"completion",
+                            {{"values", Json::array({"prompt1", "prompt2"})}, {"hasMore", false}}}};
+                   }
+                   else if (refType == "ref/resource")
+                   {
+                       return Json{{"completion",
+                                    {{"values", Json::array({"file:///a.txt", "file:///b.txt"})},
+                                     {"hasMore", true},
+                                     {"total", 10}}}};
+                   }
+                   return Json{{"completion", {{"values", Json::array()}, {"hasMore", false}}}};
+               });
 
     return srv;
 }
 
-void test_completion_has_more() {
+void test_completion_has_more()
+{
     std::cout << "Test: completion hasMore...\n";
 
     auto srv = create_completion_edge_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
-    auto resp = c.call("completion/complete", Json{
-        {"ref", {{"type", "ref/resource"}, {"uri", "file:///"}}},
-        {"argument", {{"name", "uri"}, {"value", "file:///"}}}
-    });
+    auto resp =
+        c.call("completion/complete", Json{{"ref", {{"type", "ref/resource"}, {"uri", "file:///"}}},
+                                           {"argument", {{"name", "uri"}, {"value", "file:///"}}}});
 
     assert(resp["completion"]["hasMore"] == true);
     assert(resp["completion"]["total"] == 10);
@@ -4415,16 +4983,15 @@ void test_completion_has_more() {
     std::cout << "  [PASS] completion hasMore and total\n";
 }
 
-void test_completion_empty() {
+void test_completion_empty()
+{
     std::cout << "Test: completion empty...\n";
 
     auto srv = create_completion_edge_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
-    auto resp = c.call("completion/complete", Json{
-        {"ref", {{"type", "ref/unknown"}}},
-        {"argument", {{"name", "x"}, {"value", "y"}}}
-    });
+    auto resp = c.call("completion/complete", Json{{"ref", {{"type", "ref/unknown"}}},
+                                                   {"argument", {{"name", "x"}, {"value", "y"}}}});
 
     assert(resp["completion"]["values"].empty());
     assert(resp["completion"]["hasMore"] == false);
@@ -4436,7 +5003,8 @@ void test_completion_empty() {
 // TestBatchOperations - Multiple operations in sequence
 // ============================================================================
 
-void test_batch_tool_calls() {
+void test_batch_tool_calls()
+{
     std::cout << "Test: batch tool calls...\n";
 
     auto srv = create_interaction_server();
@@ -4454,23 +5022,29 @@ void test_batch_tool_calls() {
     std::cout << "  [PASS] batch tool calls succeeded\n";
 }
 
-void test_mixed_operation_batch() {
+void test_mixed_operation_batch()
+{
     std::cout << "Test: mixed operation batch...\n";
 
     auto srv = std::make_shared<server::Server>();
 
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({{{"name", "echo"}, {"inputSchema", {{"type", "object"}}}}})}};
-    });
-    srv->route("tools/call", [](const Json& in) {
-        return Json{{"content", Json::array({{{"type", "text"}, {"text", "echoed"}}})}, {"isError", false}};
-    });
-    srv->route("resources/list", [](const Json&) {
-        return Json{{"resources", Json::array({{{"uri", "test://a"}, {"name", "a"}}})}};
-    });
-    srv->route("prompts/list", [](const Json&) {
-        return Json{{"prompts", Json::array({{{"name", "p1"}}})}};
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{{"tools", Json::array({{{"name", "echo"},
+                                                       {"inputSchema", {{"type", "object"}}}}})}};
+               });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   return Json{{"content", Json::array({{{"type", "text"}, {"text", "echoed"}}})},
+                               {"isError", false}};
+               });
+    srv->route(
+        "resources/list", [](const Json&)
+        { return Json{{"resources", Json::array({{{"uri", "test://a"}, {"name", "a"}}})}}; });
+    srv->route("prompts/list",
+               [](const Json&) { return Json{{"prompts", Json::array({{{"name", "p1"}}})}}; });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
@@ -4491,16 +5065,20 @@ void test_mixed_operation_batch() {
 // TestTransportEdgeCases - Transport-related edge cases
 // ============================================================================
 
-void test_empty_tool_name() {
+void test_empty_tool_name()
+{
     std::cout << "Test: empty tool name...\n";
 
     auto srv = create_interaction_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     bool threw = false;
-    try {
+    try
+    {
         c.call_tool("", Json::object());
-    } catch (...) {
+    }
+    catch (...)
+    {
         threw = true;
     }
     assert(threw);
@@ -4508,16 +5086,20 @@ void test_empty_tool_name() {
     std::cout << "  [PASS] empty tool name throws\n";
 }
 
-void test_whitespace_tool_name() {
+void test_whitespace_tool_name()
+{
     std::cout << "Test: whitespace tool name...\n";
 
     auto srv = create_interaction_server();
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     bool threw = false;
-    try {
+    try
+    {
         c.call_tool("   ", Json::object());
-    } catch (...) {
+    }
+    catch (...)
+    {
         threw = true;
     }
     assert(threw);
@@ -4525,20 +5107,28 @@ void test_whitespace_tool_name() {
     std::cout << "  [PASS] whitespace tool name throws\n";
 }
 
-void test_special_chars_tool_name() {
+void test_special_chars_tool_name()
+{
     std::cout << "Test: special chars in tool name...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({
-            {{"name", "tool-with-dashes"}, {"inputSchema", {{"type", "object"}}}},
-            {{"name", "tool_with_underscores"}, {"inputSchema", {{"type", "object"}}}},
-            {{"name", "tool.with.dots"}, {"inputSchema", {{"type", "object"}}}}
-        })}};
-    });
-    srv->route("tools/call", [](const Json& in) {
-        return Json{{"content", Json::array({{{"type", "text"}, {"text", in["name"]}}})}, {"isError", false}};
-    });
+    srv->route(
+        "tools/list",
+        [](const Json&)
+        {
+            return Json{
+                {"tools",
+                 Json::array(
+                     {{{"name", "tool-with-dashes"}, {"inputSchema", {{"type", "object"}}}},
+                      {{"name", "tool_with_underscores"}, {"inputSchema", {{"type", "object"}}}},
+                      {{"name", "tool.with.dots"}, {"inputSchema", {{"type", "object"}}}}})}};
+        });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   return Json{{"content", Json::array({{{"type", "text"}, {"text", in["name"]}}})},
+                               {"isError", false}};
+               });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
@@ -4553,18 +5143,25 @@ void test_special_chars_tool_name() {
     std::cout << "  [PASS] special chars in tool names work\n";
 }
 
-void test_five_level_nested_args() {
+void test_five_level_nested_args()
+{
     std::cout << "Test: five level nested arguments...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({{{"name", "deep"}, {"inputSchema", {{"type", "object"}}}}})}};
-    });
-    srv->route("tools/call", [](const Json& in) {
-        Json args = in["arguments"];
-        std::string val = args["a"]["b"]["c"]["d"]["e"].get<std::string>();
-        return Json{{"content", Json::array({{{"type", "text"}, {"text", val}}})}, {"isError", false}};
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{{"tools", Json::array({{{"name", "deep"},
+                                                       {"inputSchema", {{"type", "object"}}}}})}};
+               });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   Json args = in["arguments"];
+                   std::string val = args["a"]["b"]["c"]["d"]["e"].get<std::string>();
+                   return Json{{"content", Json::array({{{"type", "text"}, {"text", val}}})},
+                               {"isError", false}};
+               });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
@@ -4575,47 +5172,60 @@ void test_five_level_nested_args() {
     std::cout << "  [PASS] five level nested args handled\n";
 }
 
-void test_array_of_objects_argument() {
+void test_array_of_objects_argument()
+{
     std::cout << "Test: array of objects as argument...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({{{"name", "process_items"}, {"inputSchema", {{"type", "object"}}}}})}};
-    });
-    srv->route("tools/call", [](const Json& in) {
-        Json items = in["arguments"]["items"];
-        int sum = 0;
-        for (const auto& item : items) {
-            sum += item["value"].get<int>();
-        }
-        return Json{{"content", Json::array({{{"type", "text"}, {"text", std::to_string(sum)}}})}, {"isError", false}};
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{{"tools", Json::array({{{"name", "process_items"},
+                                                       {"inputSchema", {{"type", "object"}}}}})}};
+               });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   Json items = in["arguments"]["items"];
+                   int sum = 0;
+                   for (const auto& item : items)
+                       sum += item["value"].get<int>();
+                   return Json{{"content",
+                                Json::array({{{"type", "text"}, {"text", std::to_string(sum)}}})},
+                               {"isError", false}};
+               });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
-    Json items = Json::array({
-        {{"id", 1}, {"value", 10}},
-        {{"id", 2}, {"value", 20}},
-        {{"id", 3}, {"value", 30}}
-    });
+    Json items = Json::array(
+        {{{"id", 1}, {"value", 10}}, {{"id", 2}, {"value", 20}}, {{"id", 3}, {"value", 30}}});
     auto result = c.call_tool("process_items", {{"items", items}});
     assert(result.text() == "60");
 
     std::cout << "  [PASS] array of objects argument handled\n";
 }
 
-void test_null_argument() {
+void test_null_argument()
+{
     std::cout << "Test: null argument...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({{{"name", "nullable"}, {"inputSchema", {{"type", "object"}}}}})}};
-    });
-    srv->route("tools/call", [](const Json& in) {
-        Json args = in["arguments"];
-        bool is_null = args["value"].is_null();
-        return Json{{"content", Json::array({{{"type", "text"}, {"text", is_null ? "null" : "not null"}}})}, {"isError", false}};
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{{"tools", Json::array({{{"name", "nullable"},
+                                                       {"inputSchema", {{"type", "object"}}}}})}};
+               });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   Json args = in["arguments"];
+                   bool is_null = args["value"].is_null();
+                   return Json{
+                       {"content",
+                        Json::array({{{"type", "text"}, {"text", is_null ? "null" : "not null"}}})},
+                       {"isError", false}};
+               });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
@@ -4625,17 +5235,25 @@ void test_null_argument() {
     std::cout << "  [PASS] null argument handled\n";
 }
 
-void test_boolean_argument_coercion() {
+void test_boolean_argument_coercion()
+{
     std::cout << "Test: boolean argument coercion...\n";
 
     auto srv = std::make_shared<server::Server>();
-    srv->route("tools/list", [](const Json&) {
-        return Json{{"tools", Json::array({{{"name", "bool_tool"}, {"inputSchema", {{"type", "object"}}}}})}};
-    });
-    srv->route("tools/call", [](const Json& in) {
-        bool val = in["arguments"]["flag"].get<bool>();
-        return Json{{"content", Json::array({{{"type", "text"}, {"text", val ? "true" : "false"}}})}, {"isError", false}};
-    });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   return Json{{"tools", Json::array({{{"name", "bool_tool"},
+                                                       {"inputSchema", {{"type", "object"}}}}})}};
+               });
+    srv->route("tools/call",
+               [](const Json& in)
+               {
+                   bool val = in["arguments"]["flag"].get<bool>();
+                   return Json{{"content", Json::array({{{"type", "text"},
+                                                         {"text", val ? "true" : "false"}}})},
+                               {"isError", false}};
+               });
 
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
@@ -4652,10 +5270,12 @@ void test_boolean_argument_coercion() {
 // Main
 // ============================================================================
 
-int main() {
+int main()
+{
     std::cout << "Running server interaction tests...\n\n";
 
-    try {
+    try
+    {
         // TestTools (8)
         test_tool_exists();
         test_list_tools_count();
@@ -4918,7 +5538,9 @@ int main() {
 
         std::cout << "\n[OK] All server interaction tests passed! (165 tests)\n";
         return 0;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cerr << "\n[FAIL] Test failed: " << e.what() << "\n";
         return 1;
     }

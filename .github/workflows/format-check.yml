@@ -1,0 +1,44 @@
+name: Format Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  format-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          sudo add-apt-repository -y "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main"
+          sudo apt-get update
+          sudo apt-get install -y clang-format-19
+
+      - name: Check formatting
+        run: |
+          # Find all source files (excluding build dirs and deps)
+          FILES=$(find src include examples tests -name "*.cpp" -o -name "*.hpp" 2>/dev/null)
+
+          # Check if any files need formatting
+          UNFORMATTED=""
+          for f in $FILES; do
+            if ! clang-format-19 --dry-run --Werror "$f" 2>/dev/null; then
+              UNFORMATTED="$UNFORMATTED $f"
+            fi
+          done
+
+          if [ -n "$UNFORMATTED" ]; then
+            echo "::error::The following files need formatting:"
+            for f in $UNFORMATTED; do
+              echo "  - $f"
+            done
+            echo ""
+            echo "Run: find src include examples tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format -i"
+            exit 1
+          fi
+
+          echo "All files are properly formatted!"

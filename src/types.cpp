@@ -1,5 +1,6 @@
 #include "fastmcpp/types.hpp"
 
-namespace fastmcpp {
+namespace fastmcpp
+{
 // Implementation placeholders as needed
 }

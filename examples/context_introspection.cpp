@@ -4,15 +4,17 @@
 // available resources and prompts at runtime. This mirrors the Python fastmcp
 // Context API for introspection capabilities.
 
-#include "fastmcpp/server/context.hpp"
-#include "fastmcpp/resources/manager.hpp"
 #include "fastmcpp/prompts/manager.hpp"
+#include "fastmcpp/resources/manager.hpp"
+#include "fastmcpp/server/context.hpp"
 #include "fastmcpp/tools/manager.hpp"
 #include "fastmcpp/tools/tool.hpp"
-#include <iostream>
-#include <iomanip>
 
-int main() {
+#include <iomanip>
+#include <iostream>
+
+int main()
+{
     using namespace fastmcpp;
     using Json = nlohmann::json;
 
@@ -25,25 +27,16 @@ int main() {
     resources::ResourceManager resource_mgr;
 
     // Register some sample resources
-    resources::Resource doc1{
-        Id{"file://docs/readme.txt"},
-        resources::Kind::File,
-        Json{{"description", "Project README"}, {"size", 1024}}
-    };
+    resources::Resource doc1{Id{"file://docs/readme.txt"}, resources::Kind::File,
+                             Json{{"description", "Project README"}, {"size", 1024}}};
     resource_mgr.register_resource(doc1);
 
-    resources::Resource doc2{
-        Id{"file://docs/api.txt"},
-        resources::Kind::File,
-        Json{{"description", "API Documentation"}, {"size", 2048}}
-    };
+    resources::Resource doc2{Id{"file://docs/api.txt"}, resources::Kind::File,
+                             Json{{"description", "API Documentation"}, {"size", 2048}}};
     resource_mgr.register_resource(doc2);
 
-    resources::Resource config{
-        Id{"config://app.json"},
-        resources::Kind::Json,
-        Json{{"description", "Application config"}}
-    };
+    resources::Resource config{Id{"config://app.json"}, resources::Kind::Json,
+                               Json{{"description", "Application config"}}};
     resource_mgr.register_resource(config);
 
     // ============================================================================
@@ -68,7 +61,8 @@ int main() {
     std::cout << "1. Listing Resources:\n";
     std::cout << "   " << std::string(40, '-') << "\n";
     auto resources = ctx.list_resources();
-    for (const auto& res : resources) {
+    for (const auto& res : resources)
+    {
         std::cout << "   - URI: " << res.id.value << "\n";
         std::cout << "     Kind: " << resources::to_string(res.kind) << "\n";
         std::cout << "     Metadata: " << res.metadata.dump() << "\n\n";
@@ -77,39 +71,38 @@ int main() {
     std::cout << "\n2. Listing Prompts:\n";
     std::cout << "   " << std::string(40, '-') << "\n";
     auto prompts = ctx.list_prompts();
-    for (const auto& [name, prompt] : prompts) {
+    for (const auto& [name, prompt] : prompts)
+    {
         std::cout << "   - Name: " << name << "\n";
         std::cout << "     Template: " << prompt.template_string() << "\n\n";
     }
 
     std::cout << "\n3. Getting and Rendering Prompts:\n";
     std::cout << "   " << std::string(40, '-') << "\n";
-    try {
-        Json args = {
-            {"name", "Alice"},
-            {"app", "FastMCP"}
-        };
+    try
+    {
+        Json args = {{"name", "Alice"}, {"app", "FastMCP"}};
         std::string rendered = ctx.get_prompt("greeting", args);
         std::cout << "   Rendered greeting: " << rendered << "\n\n";
 
-        args = {
-            {"topic", "machine learning"},
-            {"length", "50"}
-        };
+        args = {{"topic", "machine learning"}, {"length", "50"}};
         rendered = ctx.get_prompt("summary_prompt", args);
         std::cout << "   Rendered summary: " << rendered << "\n\n";
     }
-    catch (const std::exception& e) {
+    catch (const std::exception& e)
+    {
         std::cerr << "   Error: " << e.what() << "\n\n";
     }
 
     std::cout << "\n4. Reading Resources:\n";
     std::cout << "   " << std::string(40, '-') << "\n";
-    try {
+    try
+    {
         std::string content = ctx.read_resource("file://docs/readme.txt");
         std::cout << "   " << content << "\n\n";
     }
-    catch (const std::exception& e) {
+    catch (const std::exception& e)
+    {
         std::cerr << "   Error: " << e.what() << "\n\n";
     }
 
@@ -125,14 +118,12 @@ int main() {
     // Define a tool that uses Context for introspection
     tools::Tool analyze_resources{
         "analyze_resources",
-        Json{
-            {"type", "object"},
-            {"properties", Json{
-                {"filter_kind", Json{{"type", "string"}, {"enum", Json::array({"file", "json", "text"})}}}
-            }}
-        },
-        Json{{"type", "object"}},
-        [&resource_mgr, &prompt_mgr](const Json& input) -> Json {
+        Json{{"type", "object"},
+             {"properties",
+              Json{{"filter_kind",
+                    Json{{"type", "string"}, {"enum", Json::array({"file", "json", "text"})}}}}}},
+        Json{{"type", "object"}}, [&resource_mgr, &prompt_mgr](const Json& input) -> Json
+        {
             // Create context for introspection
             server::Context ctx(resource_mgr, prompt_mgr);
 
@@ -144,32 +135,25 @@ int main() {
             int count = 0;
             Json results = Json::array();
 
-            for (const auto& res : all_resources) {
+            for (const auto& res : all_resources)
+            {
                 std::string kind_str = resources::to_string(res.kind);
-                if (filter.empty() || kind_str == filter) {
+                if (filter.empty() || kind_str == filter)
+                {
                     results.push_back(Json{
-                        {"uri", res.id.value},
-                        {"kind", kind_str},
-                        {"metadata", res.metadata}
-                    });
+                        {"uri", res.id.value}, {"kind", kind_str}, {"metadata", res.metadata}});
                     count++;
                 }
             }
 
             return Json{
-                {"content", Json::array({
-                    Json{
-                        {"type", "text"},
-                        {"text", std::string("Found ") + std::to_string(count) + " resources"},
-                    },
-                    Json{
-                        {"type", "text"},
-                        {"text", results.dump(2)}
-                    }
-                })}
-            };
-        }
-    };
+                {"content", Json::array({Json{
+                                             {"type", "text"},
+                                             {"text", std::string("Found ") +
+                                                          std::to_string(count) + " resources"},
+                                         },
+                                         Json{{"type", "text"}, {"text", results.dump(2)}}})}};
+        }};
 
     tool_mgr.register_tool(analyze_resources);
 
@@ -177,18 +161,19 @@ int main() {
     Json tool_input = {{"filter_kind", "file"}};
     std::cout << "   Invoking tool with input: " << tool_input.dump() << "\n";
 
-    try {
+    try
+    {
         Json result = tool_mgr.invoke("analyze_resources", tool_input);
         std::cout << "   Tool result:\n";
-        if (result.contains("content") && result["content"].is_array()) {
-            for (const auto& item : result["content"]) {
-                if (item.contains("text")) {
+        if (result.contains("content") && result["content"].is_array())
+        {
+            for (const auto& item : result["content"])
+                if (item.contains("text"))
                     std::cout << "     " << item["text"].get<std::string>() << "\n";
-                }
-            }
         }
     }
-    catch (const std::exception& e) {
+    catch (const std::exception& e)
+    {
         std::cerr << "   Error: " << e.what() << "\n";
     }
 

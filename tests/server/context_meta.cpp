@@ -1,11 +1,13 @@
-#include <cassert>
-#include "fastmcpp/resources/manager.hpp"
 #include "fastmcpp/prompts/manager.hpp"
+#include "fastmcpp/resources/manager.hpp"
 #include "fastmcpp/server/context.hpp"
+
+#include <cassert>
 
 using namespace fastmcpp;
 
-int main() {
+int main()
+{
     resources::ResourceManager rm;
     prompts::PromptManager pm;
     pm.add("hello", prompts::Prompt{"Hello"});
