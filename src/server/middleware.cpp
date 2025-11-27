@@ -22,16 +22,22 @@ void ToolInjectionMiddleware::add_prompt_tools(const prompts::PromptManager& pm)
 
             Json prompt_list = Json::array();
             for (const auto& [name, prompt] : prompts) {
-                prompt_list.push_back(Json{
+                Json prompt_obj = {
                     {"name", name},
-                    {"template", prompt.template_string()}
-                });
+                    {"description", prompt.template_string()},
+                    {"arguments", Json::array()},
+                    {"messages", Json::array({
+                        Json{{"role", "user"},
+                             {"content", Json::array({
+                                 Json{{"type", "text"}, {"text", prompt.template_string()}}
+                             })}}
+                    })}
+                };
+                prompt_list.push_back(prompt_obj);
             }
 
             return Json{
-                {"content", Json::array({
-                    Json{{"type", "text"}, {"text", prompt_list.dump(2)}}
-                })}
+                {"prompts", prompt_list}
             };
         }
     );
@@ -59,10 +65,18 @@ void ToolInjectionMiddleware::add_prompt_tools(const prompts::PromptManager& pm)
             Context ctx(resources::ResourceManager(), pm);
             std::string rendered = ctx.get_prompt(name, arguments);
 
+            Json messages = Json::array({
+                Json{{"role", "user"},
+                     {"content", Json::array({
+                         Json{{"type", "text"}, {"text", rendered}}
+                     })}}
+            });
+
             return Json{
-                {"content", Json::array({
-                    Json{{"type", "text"}, {"text", rendered}}
-                })}
+                {"name", name},
+                {"description", nullptr},
+                {"arguments", Json::array()},
+                {"messages", messages}
             };
         }
     );
@@ -79,6 +93,7 @@ void ToolInjectionMiddleware::add_resource_tools(const resources::ResourceManage
             {"required", Json::array()}
         },
         [&rm](const Json& /*args*/) -> Json {
+            // Preserve full metadata in MCP-like structure
             Context ctx(rm, prompts::PromptManager());
             auto resources = ctx.list_resources();
 
@@ -86,15 +101,16 @@ void ToolInjectionMiddleware::add_resource_tools(const resources::ResourceManage
             for (const auto& res : resources) {
                 resource_list.push_back(Json{
                     {"uri", res.id.value},
-                    {"kind", resources::to_string(res.kind)},
+                    {"name", res.id.value},
+                    {"description", nullptr},
+                    {"mimeType", res.metadata.value("mimeType", "text/plain")},
+                    {"annotations", res.metadata.value("annotations", Json::object())},
                     {"metadata", res.metadata}
                 });
             }
 
             return Json{
-                {"content", Json::array({
-                    Json{{"type", "text"}, {"text", resource_list.dump(2)}}
-                })}
+                {"resources", resource_list}
             };
         }
     );
@@ -116,10 +132,16 @@ void ToolInjectionMiddleware::add_resource_tools(const resources::ResourceManage
             Context ctx(rm, prompts::PromptManager());
             std::string content = ctx.read_resource(uri);
 
+            Json contents = Json::array({
+                Json{
+                    {"uri", uri},
+                    {"mimeType", "text/plain"},
+                    {"text", content}
+                }
+            });
+
             return Json{
-                {"content", Json::array({
-                    Json{{"type", "text"}, {"text", content}}
-                })}
+                {"contents", contents}
             };
         }
     );

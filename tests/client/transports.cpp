@@ -60,11 +60,11 @@ void test_http_transport_basic() {
         return Json{{"greeting", "Hello, " + in["name"].get<std::string>()}};
     });
 
-    server::HttpServerWrapper http(srv, "127.0.0.1", 18100);
+    server::HttpServerWrapper http(srv, "127.0.0.1", 18300);
     http.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    client::HttpTransport transport("127.0.0.1:18100");
+    client::HttpTransport transport("127.0.0.1:18300");
     auto result = transport.request("greet", Json{{"name", "Alice"}});
     assert(result["greeting"] == "Hello, Alice");
 
@@ -86,11 +86,11 @@ void test_http_transport_multiple_requests() {
         return Json{{"error", "unknown operation"}};
     });
 
-    server::HttpServerWrapper http(srv, "127.0.0.1", 18101);
+    server::HttpServerWrapper http(srv, "127.0.0.1", 18301);
     http.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    client::HttpTransport transport("127.0.0.1:18101");
+    client::HttpTransport transport("127.0.0.1:18301");
 
     auto add_result = transport.request("calculate", Json{{"op", "add"}, {"a", 10}, {"b", 5}});
     assert(add_result["result"] == 15);
@@ -309,14 +309,14 @@ void test_multiple_http_clients() {
     auto srv = std::make_shared<server::Server>();
     srv->route("ping", [](const Json&){ return Json{{"pong", true}}; });
 
-    server::HttpServerWrapper http(srv, "127.0.0.1", 18103);
+    server::HttpServerWrapper http(srv, "127.0.0.1", 18303);
     http.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // Multiple clients
-    client::HttpTransport client1("127.0.0.1:18103");
-    client::HttpTransport client2("127.0.0.1:18103");
-    client::HttpTransport client3("127.0.0.1:18103");
+    client::HttpTransport client1("127.0.0.1:18303");
+    client::HttpTransport client2("127.0.0.1:18303");
+    client::HttpTransport client3("127.0.0.1:18303");
 
     auto result1 = client1.request("ping", Json{});
     auto result2 = client2.request("ping", Json{});

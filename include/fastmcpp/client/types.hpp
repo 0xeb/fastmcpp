@@ -70,6 +70,16 @@ struct CallToolResult {
   std::optional<fastmcpp::Json> meta;  ///< Request metadata
   std::optional<fastmcpp::Json> data;  ///< Parsed structured data (if available)
   std::optional<fastmcpp::util::schema_type::SchemaValue> typedData;  ///< Schema-mapped value
+
+  /// Helper to get text from the first TextContent block
+  std::string text() const {
+    for (const auto& block : content) {
+      if (auto* tc = std::get_if<TextContent>(&block)) {
+        return tc->text;
+      }
+    }
+    return "";
+  }
 };
 
 /// Helper to parse structured data into a concrete type using nlohmann::json conversion

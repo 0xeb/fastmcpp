@@ -55,8 +55,14 @@ jobs:
           -DFASTMCPP_BUILD_TESTS=ON
           -DFASTMCPP_BUILD_EXAMPLES=ON
 
-      - name: Build
+      - name: Build (Unix)
+        if: runner.os != 'Windows'
         run: cmake --build build --config ${{ matrix.build_type }} --parallel
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        # Single-threaded build on Windows to avoid compiler heap space issues with large test files
+        run: cmake --build build --config ${{ matrix.build_type }} --parallel 1
 
       - name: Test
         run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure

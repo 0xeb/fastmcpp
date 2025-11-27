@@ -22,11 +22,11 @@ void test_multiple_routes() {
     srv->route("route3", [](const Json&){ return Json{{"id", 3}}; });
     srv->route("echo", [](const Json& in){ return in; });
 
-    server::HttpServerWrapper http{srv, "127.0.0.1", 18100};
+    server::HttpServerWrapper http{srv, "127.0.0.1", 18400};
     http.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    client::HttpTransport client{"127.0.0.1:18100"};
+    client::HttpTransport client{"127.0.0.1:18400"};
 
     assert(client.request("route1", Json::object())["id"] == 1);
     assert(client.request("route2", Json::object())["id"] == 2);
@@ -47,11 +47,11 @@ void test_route_override() {
     auto srv = std::make_shared<server::Server>();
     srv->route("test", [](const Json&){ return Json{{"version", 1}}; });
 
-    server::HttpServerWrapper http{srv, "127.0.0.1", 18101};
+    server::HttpServerWrapper http{srv, "127.0.0.1", 18401};
     http.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    client::HttpTransport client{"127.0.0.1:18101"};
+    client::HttpTransport client{"127.0.0.1:18401"};
     assert(client.request("test", Json::object())["version"] == 1);
 
     // Override the route
@@ -78,11 +78,11 @@ void test_large_response() {
         return Json{{"data", arr}};
     });
 
-    server::HttpServerWrapper http{srv, "127.0.0.1", 18102};
+    server::HttpServerWrapper http{srv, "127.0.0.1", 18402};
     http.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    client::HttpTransport client{"127.0.0.1:18102"};
+    client::HttpTransport client{"127.0.0.1:18402"};
 
     auto resp = client.request("large", Json{{"size", 5000}});
     assert(resp["data"].size() == 5000);
@@ -106,7 +106,7 @@ void test_large_request() {
         return Json{{"sum", sum}};
     });
 
-    server::HttpServerWrapper http{srv, "127.0.0.1", 18103};
+    server::HttpServerWrapper http{srv, "127.0.0.1", 18403};
     http.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
@@ -118,7 +118,7 @@ void test_large_request() {
         expected += i;
     }
 
-    client::HttpTransport client{"127.0.0.1:18103"};
+    client::HttpTransport client{"127.0.0.1:18403"};
     auto resp = client.request("sum", Json{{"values", values}});
     assert(resp["sum"] == expected);
 
@@ -147,11 +147,11 @@ void test_handler_with_state() {
         return Json{{"reset", true}};
     });
 
-    server::HttpServerWrapper http{srv, "127.0.0.1", 18104};
+    server::HttpServerWrapper http{srv, "127.0.0.1", 18404};
     http.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    client::HttpTransport client{"127.0.0.1:18104"};
+    client::HttpTransport client{"127.0.0.1:18404"};
 
     // Increment a few times
     client.request("increment", Json::object());
@@ -185,11 +185,11 @@ void test_various_return_types() {
     srv->route("return_array", [](const Json&){ return Json::array({1, 2, 3}); });
     srv->route("return_object", [](const Json&){ return Json{{"key", "value"}}; });
 
-    server::HttpServerWrapper http{srv, "127.0.0.1", 18105};
+    server::HttpServerWrapper http{srv, "127.0.0.1", 18405};
     http.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    client::HttpTransport client{"127.0.0.1:18105"};
+    client::HttpTransport client{"127.0.0.1:18405"};
 
     assert(client.request("return_string", Json::object()) == "hello");
     assert(client.request("return_number", Json::object()) == 42);
@@ -210,11 +210,11 @@ void test_unknown_route() {
     auto srv = std::make_shared<server::Server>();
     srv->route("known", [](const Json&){ return "ok"; });
 
-    server::HttpServerWrapper http{srv, "127.0.0.1", 18106};
+    server::HttpServerWrapper http{srv, "127.0.0.1", 18406};
     http.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    client::HttpTransport client{"127.0.0.1:18106"};
+    client::HttpTransport client{"127.0.0.1:18406"};
 
     // Known route works
     assert(client.request("known", Json::object()) == "ok");
@@ -245,11 +245,11 @@ void test_unicode_in_response() {
         };
     });
 
-    server::HttpServerWrapper http{srv, "127.0.0.1", 18107};
+    server::HttpServerWrapper http{srv, "127.0.0.1", 18407};
     http.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    client::HttpTransport client{"127.0.0.1:18107"};
+    client::HttpTransport client{"127.0.0.1:18407"};
 
     auto resp = client.request("unicode", Json{{"text", u8"こんにちは"}});
     assert(resp["greeting"] == u8"Hello 世界");
@@ -271,11 +271,11 @@ void test_nested_json_request() {
         return Json{{"extracted", val}, {"depth", 3}};
     });
 
-    server::HttpServerWrapper http{srv, "127.0.0.1", 18108};
+    server::HttpServerWrapper http{srv, "127.0.0.1", 18408};
     http.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    client::HttpTransport client{"127.0.0.1:18108"};
+    client::HttpTransport client{"127.0.0.1:18408"};
 
     Json nested = {
         {"level1", {
@@ -305,11 +305,11 @@ void test_sequential_requests() {
         return Json{{"count", counter++}};
     });
 
-    server::HttpServerWrapper http{srv, "127.0.0.1", 18109};
+    server::HttpServerWrapper http{srv, "127.0.0.1", 18409};
     http.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    client::HttpTransport client{"127.0.0.1:18109"};
+    client::HttpTransport client{"127.0.0.1:18409"};
 
     // Make many sequential requests on same client
     for (int i = 0; i < 20; ++i) {

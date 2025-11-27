@@ -1,6 +1,9 @@
 ﻿#include <cassert>
 #include <iostream>
 #include "fastmcpp/server/server.hpp"
+#include "fastmcpp/server/middleware.hpp"
+#include "fastmcpp/prompts/manager.hpp"
+#include "fastmcpp/resources/manager.hpp"
 
 using namespace fastmcpp;
 
@@ -39,6 +42,48 @@ int main() {
   assert(before_called);
   assert(!after_called); // after not called on short-circuit
   assert(r2["error"] == "denied");
+
+  // Tool injection middleware should emit MCP-shaped prompt/resource outputs
+  {
+    fastmcpp::prompts::PromptManager pm;
+    pm.add("hello", fastmcpp::prompts::Prompt{"Hello, {{name}}"});
+    fastmcpp::resources::ResourceManager rm;
+    rm.register_resource(fastmcpp::resources::Resource{
+        fastmcpp::Id{"file://test.txt"},
+        fastmcpp::resources::Kind::File,
+        Json{{"mimeType", "text/plain"}}
+    });
+
+    server::ToolInjectionMiddleware mw;
+    mw.add_prompt_tools(pm);
+    mw.add_resource_tools(rm);
+
+    auto after_hook = mw.create_tools_list_hook();
+    Json tools_list = Json{{"tools", Json::array()}};
+    after_hook("tools/list", Json::object(), tools_list);
+    assert(tools_list["tools"].size() >= 4); // injected tools appended
+
+    auto before_hook = mw.create_tools_call_hook();
+
+    auto prompts_json = before_hook("list_prompts", Json::object());
+    assert(prompts_json.has_value());
+    assert((*prompts_json)["prompts"].is_array());
+    assert((*prompts_json)["prompts"][0]["name"] == "hello");
+
+    auto prompt_resp = before_hook("get_prompt", Json{{"name", "hello"}});
+    assert(prompt_resp.has_value());
+    assert((*prompt_resp)["messages"].is_array());
+
+    auto resources_json = before_hook("list_resources", Json::object());
+    assert(resources_json.has_value());
+    assert((*resources_json)["resources"].is_array());
+    assert((*resources_json)["resources"][0]["uri"] == "file://test.txt");
+
+    auto read_resp = before_hook("read_resource", Json{{"uri", "file://test.txt"}});
+    assert(read_resp.has_value());
+    assert((*read_resp)["contents"].is_array());
+    assert((*read_resp)["contents"][0]["text"].is_string());
+  }
 
   std::cout << "\n[OK] server middleware tests passed\n";
   return 0;

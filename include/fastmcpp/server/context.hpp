@@ -48,6 +48,11 @@ class Context {
   /// Construct a Context with references to resource and prompt managers
   Context(const resources::ResourceManager& rm,
           const prompts::PromptManager& pm);
+  Context(const resources::ResourceManager& rm,
+          const prompts::PromptManager& pm,
+          std::optional<fastmcpp::Json> request_meta,
+          std::optional<std::string> request_id = std::nullopt,
+          std::optional<std::string> session_id = std::nullopt);
 
   /// List all available resources from the server
   /// @return Vector of Resource objects
@@ -71,9 +76,17 @@ class Context {
   /// @throws NotFoundError if resource doesn't exist
   std::string read_resource(const std::string& uri) const;
 
+  /// Request metadata accessors (may be unset before MCP session is ready)
+  const std::optional<fastmcpp::Json>& request_meta() const { return request_meta_; }
+  const std::optional<std::string>& request_id() const { return request_id_; }
+  const std::optional<std::string>& session_id() const { return session_id_; }
+
  private:
   const resources::ResourceManager* resource_mgr_;
   const prompts::PromptManager* prompt_mgr_;
+  std::optional<fastmcpp::Json> request_meta_;
+  std::optional<std::string> request_id_;
+  std::optional<std::string> session_id_;
 };
 
 } // namespace fastmcpp::server

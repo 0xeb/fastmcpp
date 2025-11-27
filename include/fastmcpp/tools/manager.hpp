@@ -23,7 +23,7 @@ class ToolManager {
     return names;
   }
 
-  const fastmcpp::Json& input_schema_for(const std::string& name) const {
+  fastmcpp::Json input_schema_for(const std::string& name) const {
     return get(name).input_schema();
   }
 
