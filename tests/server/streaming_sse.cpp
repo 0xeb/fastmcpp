@@ -13,11 +13,16 @@
 using fastmcpp::Json;
 using fastmcpp::server::SseServerWrapper;
 
+struct ParsedEndpoint
+{
+    std::string path;
+    bool seen = false;
+};
+
 int main()
 {
     // Echo handler: returns posted JSON unchanged
     auto handler = [](const Json& request) -> Json { return request; };
-
     // Choose port with fallback range
     int port = -1;
     std::unique_ptr<SseServerWrapper> server;
@@ -44,6 +49,7 @@ int main()
 
     // Start SSE receiver
     std::atomic<bool> sse_connected{false};
+    ParsedEndpoint endpoint;
     std::vector<int> seen;
     std::mutex seen_mutex;
 
@@ -58,29 +64,44 @@ int main()
             {
                 sse_connected = true;
                 std::string chunk(data, len);
-                // Parse "data: {json}\n\n" blocks
-                if (chunk.find("data: ") == 0)
+
+                // Parse endpoint event
+                auto evt_pos = chunk.find("event: endpoint");
+                if (evt_pos != std::string::npos)
                 {
-                    size_t start = 6;
-                    size_t end = chunk.find("\n\n");
-                    if (end != std::string::npos)
+                    auto data_pos = chunk.find("data: ", evt_pos);
+                    if (data_pos != std::string::npos)
                     {
-                        std::string json_str = chunk.substr(start, end - start);
-                        try
+                        auto end_line = chunk.find('\n', data_pos);
+                        endpoint.path = chunk.substr(data_pos + 6, end_line - (data_pos + 6));
+                        endpoint.seen = true;
+                    }
+                }
+
+                // Parse "data: {json}\n\n" blocks
+                auto data_only_pos = chunk.find("data: ");
+                while (data_only_pos != std::string::npos)
+                {
+                    size_t start = data_only_pos + 6;
+                    size_t end = chunk.find("\n\n", start);
+                    if (end == std::string::npos)
+                        break;
+                    std::string json_str = chunk.substr(start, end - start);
+                    try
+                    {
+                        Json j = Json::parse(json_str);
+                        if (j.contains("n"))
                         {
-                            Json j = Json::parse(json_str);
-                            if (j.contains("n"))
-                            {
-                                std::lock_guard<std::mutex> lock(seen_mutex);
-                                seen.push_back(j["n"].get<int>());
-                                if (seen.size() >= 3)
-                                    return false; // stop after 3
-                            }
-                        }
-                        catch (...)
-                        {
+                            std::lock_guard<std::mutex> lock(seen_mutex);
+                            seen.push_back(j["n"].get<int>());
+                            if (seen.size() >= 3)
+                                return false; // stop after 3
                         }
                     }
+                    catch (...)
+                    {
+                    }
+                    data_only_pos = chunk.find("data: ", end + 2);
                 }
                 return true;
             };
@@ -111,10 +132,11 @@ int main()
 
     // Post three messages
     httplib::Client post("127.0.0.1", port);
+    std::string target_path = endpoint.seen ? endpoint.path : "/messages";
     for (int i = 1; i <= 3; ++i)
     {
         Json j = Json{{"n", i}};
-        auto res = post.Post("/messages", j.dump(), "application/json");
+        auto res = post.Post(target_path.c_str(), j.dump(), "application/json");
         if (!res || res->status != 200)
         {
             server->stop();

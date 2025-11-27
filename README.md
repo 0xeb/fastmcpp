@@ -27,6 +27,8 @@ fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp
 - Middleware for request/response processing.
 - Integration with MCP‑compatible CLI tools.
 - Cross‑platform: Windows, Linux, macOS.
+- Server hardening knobs: optional auth tokens, CORS allowlist, payload/queue limits, and
+  per-connection SSE session binding.
 
 ## Requirements
 
@@ -154,6 +156,10 @@ int main() {
     return 0;
 }
 ```
+
+To enable hardening on HTTP/SSE servers, provide the optional auth token, allowed origin, and
+payload limit arguments. For SSE, POST requests must include the session_id provided by the initial
+`event: endpoint` message; connections without the bearer token (when set) are rejected.
 
 ### HTTP client
 

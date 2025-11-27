@@ -8,8 +8,12 @@
 namespace fastmcpp::server
 {
 
-HttpServerWrapper::HttpServerWrapper(std::shared_ptr<Server> core, std::string host, int port)
-    : core_(std::move(core)), host_(std::move(host)), port_(port)
+HttpServerWrapper::HttpServerWrapper(std::shared_ptr<Server> core, std::string host, int port,
+                                     std::string auth_token, std::string allowed_origin,
+                                     size_t payload_limit)
+    : core_(std::move(core)), host_(std::move(host)), port_(port),
+      auth_token_(std::move(auth_token)), allowed_origin_(std::move(allowed_origin)),
+      payload_limit_(payload_limit)
 {
 }
 
@@ -24,16 +28,36 @@ bool HttpServerWrapper::start()
     if (running_)
         return false;
     svr_ = std::make_unique<httplib::Server>();
+    if (payload_limit_ > 0)
+        svr_->set_payload_max_length(payload_limit_);
     // Generic POST: /<route>
     svr_->Post(R"(/(.*))",
                [this](const httplib::Request& req, httplib::Response& res)
                {
+                   if (!auth_token_.empty())
+                   {
+                       std::string auth = req.get_header_value("Authorization");
+                       if (auth.empty())
+                           auth = req.get_header_value("authorization");
+                       const std::string expected = "Bearer " + auth_token_;
+                       if (auth != expected)
+                       {
+                           res.status = 401;
+                           res.set_content("{\"error\":\"unauthorized\"}", "application/json");
+                           return;
+                       }
+                   }
                    try
                    {
                        auto route = req.matches[1].str();
                        auto payload = fastmcpp::util::json::parse(req.body);
                        auto out = core_->handle(route, payload);
                        res.set_content(out.dump(), "application/json");
+                       if (!allowed_origin_.empty())
+                       {
+                           res.set_header("Access-Control-Allow-Origin", allowed_origin_.c_str());
+                           res.set_header("Vary", "Origin");
+                       }
                        res.status = 200;
                    }
                    catch (const fastmcpp::NotFoundError& e)

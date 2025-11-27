@@ -151,6 +151,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_http_integration PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_http_integration COMMAND fastmcpp_http_integration)
 
+  add_executable(fastmcpp_http_auth tests/server/http_auth.cpp)
+  target_link_libraries(fastmcpp_http_auth PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_http_auth COMMAND fastmcpp_http_auth)
+
   add_executable(fastmcpp_json_schema tests/schema/json_schema.cpp)
   target_link_libraries(fastmcpp_json_schema PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_json_schema COMMAND fastmcpp_json_schema)
@@ -229,9 +233,18 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_server_patterns PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_patterns COMMAND fastmcpp_server_patterns)
 
-  add_executable(fastmcpp_server_interactions tests/server/interactions.cpp)
-  target_link_libraries(fastmcpp_server_interactions PRIVATE fastmcpp_core)
-  add_test(NAME fastmcpp_server_interactions COMMAND fastmcpp_server_interactions)
+  # Server interactions split into 3 parts to avoid MSVC heap exhaustion
+  add_executable(fastmcpp_server_interactions_p1 tests/server/interactions_p1.cpp)
+  target_link_libraries(fastmcpp_server_interactions_p1 PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_interactions_p1 COMMAND fastmcpp_server_interactions_p1)
+
+  add_executable(fastmcpp_server_interactions_p2 tests/server/interactions_p2.cpp)
+  target_link_libraries(fastmcpp_server_interactions_p2 PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_interactions_p2 COMMAND fastmcpp_server_interactions_p2)
+
+  add_executable(fastmcpp_server_interactions_p3 tests/server/interactions_p3.cpp)
+  target_link_libraries(fastmcpp_server_interactions_p3 PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_interactions_p3 COMMAND fastmcpp_server_interactions_p3)
 
   add_executable(fastmcpp_server_context_meta tests/server/context_meta.cpp)
   target_link_libraries(fastmcpp_server_context_meta PRIVATE fastmcpp_core)
