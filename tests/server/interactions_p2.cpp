@@ -1,51 +1,441 @@
-/// @file tests/server/interactions_p2.cpp
-/// @brief Server interaction tests - Part 2 (57 tests)
+// Auto-generated: interactions_p2.cpp
+// Tests 29 to 56 of 164
 
-#include "fastmcpp/client/client.hpp"
-#include "fastmcpp/client/transports.hpp"
-#include "fastmcpp/server/server.hpp"
-#include "fastmcpp/tools/manager.hpp"
-#include "fastmcpp/tools/tool.hpp"
 #include "interactions_fixture.hpp"
-
-#include <cassert>
-#include <iostream>
-#include <string>
-#include <vector>
+#include "interactions_helpers.hpp"
 
 using namespace fastmcpp;
 
-// ============================================================================
-// Numeric Types Tests
-// ============================================================================
-
-std::shared_ptr<server::Server> create_numeric_server()
+void test_structured_content_array()
 {
-    auto srv = std::make_shared<server::Server>();
+    std::cout << "Test: structuredContent with array...\n";
 
-    srv->route("tools/list",
-               [](const Json&)
-               {
-                   return Json{
-                       {"tools", Json::array({Json{{"name", "numbers"},
-                                                   {"inputSchema", Json{{"type", "object"}}}}})}};
-               });
+    auto srv = create_output_schema_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
-    srv->route("tools/call",
-               [](const Json&)
-               {
-                   return Json{
-                       {"content", Json::array({Json{{"type", "text"}, {"text", "numbers"}}})},
-                       {"structuredContent", Json{{"integer", 42},
-                                                  {"negative", -17},
-                                                  {"float", 3.14159},
-                                                  {"zero", 0},
-                                                  {"large", 9223372036854775807LL},
-                                                  {"small_float", 0.000001}}},
-                       {"isError", false}};
-               });
+    auto result = c.call_tool("array_result", Json::object());
+    assert(!result.isError);
+    assert(result.structuredContent.has_value());
+    assert(result.structuredContent->is_array());
+    assert(result.structuredContent->size() == 3);
+    assert((*result.structuredContent)[0] == "a");
 
-    return srv;
+    std::cout << "  [PASS] array structuredContent works\n";
+}
+
+void test_tool_without_output_schema()
+{
+    std::cout << "Test: tool without outputSchema...\n";
+
+    auto srv = create_output_schema_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto tools = c.list_tools();
+    for (const auto& t : tools)
+    {
+        if (t.name == "no_schema")
+        {
+            assert(!t.outputSchema.has_value());
+            break;
+        }
+    }
+
+    auto result = c.call_tool("no_schema", Json::object());
+    assert(!result.isError);
+    assert(!result.structuredContent.has_value());
+
+    std::cout << "  [PASS] tool without schema works\n";
+}
+
+void test_single_text_content()
+{
+    std::cout << "Test: single text content...\n";
+
+    auto srv = create_content_type_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto result = c.call_tool("text_content", Json::object());
+    assert(!result.isError);
+    assert(result.content.size() == 1);
+
+    auto* text = std::get_if<client::TextContent>(&result.content[0]);
+    assert(text != nullptr);
+    assert(text->text == "Hello, World!");
+
+    std::cout << "  [PASS] single text content works\n";
+}
+
+void test_multiple_text_content()
+{
+    std::cout << "Test: multiple text content items...\n";
+
+    auto srv = create_content_type_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto result = c.call_tool("multi_content", Json::object());
+    assert(!result.isError);
+    assert(result.content.size() == 3);
+
+    auto* t1 = std::get_if<client::TextContent>(&result.content[0]);
+    auto* t2 = std::get_if<client::TextContent>(&result.content[1]);
+    auto* t3 = std::get_if<client::TextContent>(&result.content[2]);
+
+    assert(t1 && t1->text == "First");
+    assert(t2 && t2->text == "Second");
+    assert(t3 && t3->text == "Third");
+
+    std::cout << "  [PASS] multiple content items work\n";
+}
+
+void test_mixed_content_types()
+{
+    std::cout << "Test: mixed content types...\n";
+
+    auto srv = create_content_type_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto result = c.call_tool("embedded_resource", Json::object());
+    assert(!result.isError);
+    assert(result.content.size() == 2);
+
+    auto* text = std::get_if<client::TextContent>(&result.content[0]);
+    assert(text && text->text == "Before resource");
+
+    auto* resource = std::get_if<client::EmbeddedResourceContent>(&result.content[1]);
+    assert(resource != nullptr);
+    assert(resource->text == "Resource content");
+
+    std::cout << "  [PASS] mixed content types work\n";
+}
+
+void test_tool_returns_error_flag()
+{
+    std::cout << "Test: tool returns isError=true...\n";
+
+    auto srv = create_error_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    bool threw = false;
+    try
+    {
+        c.call_tool("returns_error", Json::object());
+    }
+    catch (const fastmcpp::Error&)
+    {
+        threw = true;
+    }
+    assert(threw);
+
+    std::cout << "  [PASS] isError=true throws exception\n";
+}
+
+void test_tool_call_nonexistent()
+{
+    std::cout << "Test: calling nonexistent tool...\n";
+
+    auto srv = create_error_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    bool threw = false;
+    try
+    {
+        c.call_tool("nonexistent_tool_xyz", Json::object());
+    }
+    catch (...)
+    {
+        threw = true;
+    }
+    assert(threw);
+
+    std::cout << "  [PASS] nonexistent tool throws\n";
+}
+
+void test_unicode_in_tool_description()
+{
+    std::cout << "Test: unicode in tool description...\n";
+
+    auto srv = create_unicode_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto tools = c.list_tools();
+    assert(tools.size() == 1);
+    assert(tools[0].description.has_value());
+    assert(tools[0].description->find(u8"回声") != std::string::npos);
+
+    std::cout << "  [PASS] unicode in description preserved\n";
+}
+
+void test_unicode_echo_roundtrip()
+{
+    std::cout << "Test: unicode echo roundtrip...\n";
+
+    auto srv = create_unicode_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    std::string input = u8"Hello 世界! Привет мир! 🌍";
+    auto result = c.call_tool("echo", {{"text", input}});
+
+    assert(!result.isError);
+    auto* text = std::get_if<client::TextContent>(&result.content[0]);
+    assert(text && text->text == input);
+    assert((*result.structuredContent)["echo"] == input);
+
+    std::cout << "  [PASS] unicode roundtrip works\n";
+}
+
+void test_unicode_in_resource_uri()
+{
+    std::cout << "Test: unicode in resource URI...\n";
+
+    auto srv = create_unicode_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto resources = c.list_resources();
+    assert(resources.size() == 1);
+    assert(resources[0].uri.find(u8"文档") != std::string::npos);
+    assert(resources[0].name == u8"中文文件");
+
+    std::cout << "  [PASS] unicode in resource URI preserved\n";
+}
+
+void test_unicode_in_prompt_description()
+{
+    std::cout << "Test: unicode in prompt description...\n";
+
+    auto srv = create_unicode_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto prompts = c.list_prompts();
+    assert(prompts.size() == 1);
+    assert(prompts[0].description.has_value());
+    assert(prompts[0].description->find(u8"问候语") != std::string::npos);
+
+    std::cout << "  [PASS] unicode in prompt description preserved\n";
+}
+
+void test_large_response()
+{
+    std::cout << "Test: large response handling...\n";
+
+    auto srv = create_large_data_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto result = c.call_tool("large_response", {{"size", 1000}});
+    assert(!result.isError);
+    assert(result.structuredContent.has_value());
+    assert((*result.structuredContent)["count"] == 1000);
+    assert((*result.structuredContent)["items"].size() == 1000);
+
+    std::cout << "  [PASS] large response (1000 items) works\n";
+}
+
+void test_large_request()
+{
+    std::cout << "Test: large request handling...\n";
+
+    auto srv = create_large_data_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    Json large_array = Json::array();
+    for (int i = 0; i < 500; ++i)
+        large_array.push_back(Json{{"id", i}, {"name", "item_" + std::to_string(i)}});
+
+    auto result = c.call_tool("echo_large", {{"data", large_array}});
+    assert(!result.isError);
+    assert((*result.structuredContent)["count"] == 500);
+
+    std::cout << "  [PASS] large request (500 items) works\n";
+}
+
+void test_empty_string_response()
+{
+    std::cout << "Test: empty string response...\n";
+
+    auto srv = create_special_cases_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto result = c.call_tool("empty_response", Json::object());
+    assert(!result.isError);
+    auto* text = std::get_if<client::TextContent>(&result.content[0]);
+    assert(text && text->text == "");
+    assert((*result.structuredContent)["result"] == "");
+
+    std::cout << "  [PASS] empty string handled\n";
+}
+
+void test_null_values_in_response()
+{
+    std::cout << "Test: null values in response...\n";
+
+    auto srv = create_special_cases_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto result = c.call_tool("null_values", Json::object());
+    assert(!result.isError);
+    assert((*result.structuredContent)["value"].is_null());
+    assert((*result.structuredContent)["nested"]["inner"].is_null());
+
+    std::cout << "  [PASS] null values preserved\n";
+}
+
+void test_special_characters()
+{
+    std::cout << "Test: special characters (newline, tab, quotes)...\n";
+
+    auto srv = create_special_cases_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto result = c.call_tool("special_chars", Json::object());
+    assert(!result.isError);
+
+    std::string expected = "Line1\nLine2\tTabbed\"Quoted\\";
+    auto* text = std::get_if<client::TextContent>(&result.content[0]);
+    assert(text && text->text == expected);
+
+    std::cout << "  [PASS] special characters preserved\n";
+}
+
+void test_tools_pagination_first_page()
+{
+    std::cout << "Test: tools pagination first page...\n";
+
+    auto srv = create_pagination_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto result = c.list_tools_mcp();
+    assert(result.tools.size() == 2);
+    assert(result.tools[0].name == "tool1");
+    assert(result.nextCursor.has_value());
+    assert(*result.nextCursor == "page2");
+
+    std::cout << "  [PASS] first page with nextCursor\n";
+}
+
+void test_tools_pagination_second_page()
+{
+    std::cout << "Test: tools pagination second page (via raw call)...\n";
+
+    auto srv = create_pagination_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    // Use raw call with cursor to test second page
+    auto response = c.call("tools/list", Json{{"cursor", "page2"}});
+    assert(response.contains("tools"));
+    assert(response["tools"].size() == 2);
+    assert(response["tools"][0]["name"] == "tool3");
+    assert(!response.contains("nextCursor")); // Last page
+
+    std::cout << "  [PASS] second page without nextCursor\n";
+}
+
+void test_resources_pagination()
+{
+    std::cout << "Test: resources pagination...\n";
+
+    auto srv = create_pagination_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto page1 = c.list_resources_mcp();
+    assert(page1.resources.size() == 1);
+    assert(page1.resources[0].name == "a.txt");
+    assert(page1.nextCursor.has_value());
+
+    // Use raw call for second page
+    auto page2_raw = c.call("resources/list", Json{{"cursor", *page1.nextCursor}});
+    assert(page2_raw["resources"].size() == 1);
+    assert(page2_raw["resources"][0]["name"] == "b.txt");
+
+    std::cout << "  [PASS] resources pagination works\n";
+}
+
+void test_prompts_pagination()
+{
+    std::cout << "Test: prompts pagination...\n";
+
+    auto srv = create_pagination_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto page1 = c.list_prompts_mcp();
+    assert(page1.prompts.size() == 1);
+    assert(page1.prompts[0].name == "prompt1");
+    assert(page1.nextCursor.has_value());
+
+    // Use raw call for second page
+    auto page2_raw = c.call("prompts/list", Json{{"cursor", *page1.nextCursor}});
+    assert(page2_raw["prompts"].size() == 1);
+    assert(page2_raw["prompts"][0]["name"] == "prompt2");
+
+    std::cout << "  [PASS] prompts pagination works\n";
+}
+
+void test_completion_for_prompt()
+{
+    std::cout << "Test: completion for prompt argument...\n";
+
+    auto srv = create_completion_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    Json ref = {{"type", "ref/prompt"}, {"name", "greeting"}};
+    auto result = c.complete_mcp(ref, {});
+
+    assert(result.completion.values.size() == 3);
+    assert(result.completion.values[0] == "formal");
+    assert(result.completion.hasMore == false);
+
+    std::cout << "  [PASS] prompt completion works\n";
+}
+
+void test_completion_for_resource()
+{
+    std::cout << "Test: completion for resource...\n";
+
+    auto srv = create_completion_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    Json ref = {{"type", "ref/resource"}, {"name", "files"}};
+    auto result = c.complete_mcp(ref, {});
+
+    assert(result.completion.values.size() == 2);
+    assert(result.completion.total == 2);
+
+    std::cout << "  [PASS] resource completion works\n";
+}
+
+void test_resource_multiple_contents()
+{
+    std::cout << "Test: resource with multiple content items...\n";
+
+    auto srv = create_multi_content_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto contents = c.read_resource("file:///multi.txt");
+    assert(contents.size() == 3);
+
+    auto* t1 = std::get_if<client::TextResourceContent>(&contents[0]);
+    auto* t2 = std::get_if<client::TextResourceContent>(&contents[1]);
+    auto* t3 = std::get_if<client::TextResourceContent>(&contents[2]);
+
+    assert(t1 && t1->text == "Part 1");
+    assert(t2 && t2->text == "Part 2");
+    assert(t3 && t3->text == "Part 3");
+
+    std::cout << "  [PASS] multiple content items returned\n";
+}
+
+void test_prompt_multiple_messages()
+{
+    std::cout << "Test: prompt with multiple messages...\n";
+
+    auto srv = create_multi_content_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto result = c.get_prompt("multi_message", Json::object());
+    assert(result.messages.size() == 3);
+    assert(result.messages[0].role == client::Role::User);
+    assert(result.messages[1].role == client::Role::Assistant);
+    assert(result.messages[2].role == client::Role::User);
+
+    std::cout << "  [PASS] multiple messages in prompt\n";
 }
 
 void test_integer_values()
@@ -102,40 +492,6 @@ void test_large_integer()
     std::cout << "  [PASS] large integer preserved\n";
 }
 
-// ============================================================================
-// Boolean and Array Tests
-// ============================================================================
-
-std::shared_ptr<server::Server> create_bool_array_server()
-{
-    auto srv = std::make_shared<server::Server>();
-
-    srv->route("tools/list",
-               [](const Json&)
-               {
-                   return Json{
-                       {"tools", Json::array({Json{{"name", "bools_arrays"},
-                                                   {"inputSchema", Json{{"type", "object"}}}}})}};
-               });
-
-    srv->route("tools/call",
-               [](const Json&)
-               {
-                   return Json{{"content", Json::array({Json{{"type", "text"}, {"text", "data"}}})},
-                               {"structuredContent",
-                                Json{{"true_val", true},
-                                     {"false_val", false},
-                                     {"empty_array", Json::array()},
-                                     {"int_array", Json::array({1, 2, 3, 4, 5})},
-                                     {"mixed_array", Json::array({1, "two", true, nullptr})},
-                                     {"nested_array",
-                                      Json::array({Json::array({1, 2}), Json::array({3, 4})})}}},
-                               {"isError", false}};
-               });
-
-    return srv;
-}
-
 void test_boolean_values()
 {
     std::cout << "Test: boolean values in response...\n";
@@ -153,1752 +509,264 @@ void test_boolean_values()
     std::cout << "  [PASS] boolean values preserved\n";
 }
 
-void test_array_types()
-{
-    std::cout << "Test: various array types...\n";
-
-    auto srv = create_bool_array_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("bools_arrays", Json::object());
-    auto& sc = *result.structuredContent;
-
-    assert(sc["empty_array"].empty());
-    assert(sc["int_array"].size() == 5);
-    assert(sc["int_array"][2] == 3);
-    assert(sc["mixed_array"].size() == 4);
-    assert(sc["mixed_array"][1] == "two");
-    assert(sc["mixed_array"][3].is_null());
-
-    std::cout << "  [PASS] array types preserved\n";
-}
-
-void test_nested_arrays()
-{
-    std::cout << "Test: nested arrays...\n";
-
-    auto srv = create_bool_array_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("bools_arrays", Json::object());
-    auto& sc = *result.structuredContent;
-
-    assert(sc["nested_array"].size() == 2);
-    assert(sc["nested_array"][0].size() == 2);
-    assert(sc["nested_array"][0][0] == 1);
-    assert(sc["nested_array"][1][1] == 4);
-
-    std::cout << "  [PASS] nested arrays preserved\n";
-}
-
-// ============================================================================
-// Concurrent Requests Tests
-// ============================================================================
-
-std::shared_ptr<server::Server> create_concurrent_server()
-{
-    auto srv = std::make_shared<server::Server>();
-
-    // Use shared_ptr for the counter so it survives after function returns
-    auto call_count = std::make_shared<std::atomic<int>>(0);
-
-    srv->route("tools/list",
-               [](const Json&)
-               {
-                   return Json{
-                       {"tools", Json::array({Json{{"name", "counter"},
-                                                   {"inputSchema", Json{{"type", "object"}}}}})}};
-               });
-
-    srv->route("tools/call",
-               [call_count](const Json&)
-               {
-                   int count = ++(*call_count);
-                   return Json{{"content", Json::array({Json{{"type", "text"},
-                                                             {"text", std::to_string(count)}}})},
-                               {"structuredContent", Json{{"count", count}}},
-                               {"isError", false}};
-               });
-
-    return srv;
-}
-
-void test_multiple_clients_same_server()
-{
-    std::cout << "Test: multiple clients with same server...\n";
-
-    auto srv = create_concurrent_server();
-
-    client::Client c1(std::make_unique<client::LoopbackTransport>(srv));
-    client::Client c2(std::make_unique<client::LoopbackTransport>(srv));
-    client::Client c3(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto r1 = c1.call_tool("counter", Json::object());
-    auto r2 = c2.call_tool("counter", Json::object());
-    auto r3 = c3.call_tool("counter", Json::object());
-
-    // Counts should be sequential
-    assert((*r1.structuredContent)["count"].get<int>() >= 1);
-    assert((*r2.structuredContent)["count"].get<int>() >= 2);
-    assert((*r3.structuredContent)["count"].get<int>() >= 3);
-
-    std::cout << "  [PASS] multiple clients work with same server\n";
-}
-
-void test_client_reuse()
-{
-    std::cout << "Test: client reuse across many calls...\n";
-
-    auto srv = create_interaction_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    // Make many calls with the same client
-    for (int i = 0; i < 50; ++i)
-    {
-        auto result = c.call_tool("add", {{"x", i}, {"y", 1}});
-        assert(!result.isError);
-    }
-
-    std::cout << "  [PASS] client handles 50 sequential calls\n";
-}
-
-// ============================================================================
-// Resource MIME Type Tests
-// ============================================================================
-
-std::shared_ptr<server::Server> create_mime_server()
-{
-    auto srv = std::make_shared<server::Server>();
-
-    srv->route("resources/list",
-               [](const Json&)
-               {
-                   return Json{{"resources", Json::array({Json{{"uri", "file:///doc.txt"},
-                                                               {"name", "doc.txt"},
-                                                               {"mimeType", "text/plain"}},
-                                                          Json{{"uri", "file:///doc.html"},
-                                                               {"name", "doc.html"},
-                                                               {"mimeType", "text/html"}},
-                                                          Json{{"uri", "file:///doc.json"},
-                                                               {"name", "doc.json"},
-                                                               {"mimeType", "application/json"}},
-                                                          Json{{"uri", "file:///doc.xml"},
-                                                               {"name", "doc.xml"},
-                                                               {"mimeType", "application/xml"}},
-                                                          Json{{"uri", "file:///image.png"},
-                                                               {"name", "image.png"},
-                                                               {"mimeType", "image/png"}},
-                                                          Json{{"uri", "file:///no_mime"},
-                                                               {"name", "no_mime"}}})}};
-               });
-
-    srv->route(
-        "resources/read",
-        [](const Json& in)
-        {
-            std::string uri = in.at("uri").get<std::string>();
-            std::string mime;
-            std::string text;
-
-            if (uri == "file:///doc.txt")
-            {
-                mime = "text/plain";
-                text = "Plain text";
-            }
-            else if (uri == "file:///doc.html")
-            {
-                mime = "text/html";
-                text = "<html>HTML</html>";
-            }
-            else if (uri == "file:///doc.json")
-            {
-                mime = "application/json";
-                text = "{\"key\":\"value\"}";
-            }
-            else if (uri == "file:///doc.xml")
-            {
-                mime = "application/xml";
-                text = "<root/>";
-            }
-            else if (uri == "file:///image.png")
-            {
-                mime = "image/png";
-                return Json{
-                    {"contents",
-                     Json::array({Json{{"uri", uri}, {"mimeType", mime}, {"blob", "iVBORw=="}}})}};
-            }
-            else
-            {
-                text = "No MIME type";
-                return Json{{"contents", Json::array({Json{{"uri", uri}, {"text", text}}})}};
-            }
-
-            return Json{{"contents",
-                         Json::array({Json{{"uri", uri}, {"mimeType", mime}, {"text", text}}})}};
-        });
-
-    return srv;
-}
-
-void test_various_mime_types()
-{
-    std::cout << "Test: various MIME types in resources...\n";
-
-    auto srv = create_mime_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto resources = c.list_resources();
-    assert(resources.size() == 6);
-
-    // Check MIME types
-    int text_count = 0, html_count = 0, json_count = 0;
-    for (const auto& r : resources)
-    {
-        if (r.mimeType.has_value())
-        {
-            if (*r.mimeType == "text/plain")
-                ++text_count;
-            else if (*r.mimeType == "text/html")
-                ++html_count;
-            else if (*r.mimeType == "application/json")
-                ++json_count;
-        }
-    }
-    assert(text_count == 1);
-    assert(html_count == 1);
-    assert(json_count == 1);
-
-    std::cout << "  [PASS] various MIME types handled\n";
-}
-
-void test_resource_without_mime()
-{
-    std::cout << "Test: resource without MIME type...\n";
-
-    auto srv = create_mime_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto resources = c.list_resources();
-    bool found_no_mime = false;
-    for (const auto& r : resources)
-    {
-        if (r.name == "no_mime")
-        {
-            assert(!r.mimeType.has_value());
-            found_no_mime = true;
-            break;
-        }
-    }
-    assert(found_no_mime);
-
-    std::cout << "  [PASS] resource without MIME type handled\n";
-}
-
-void test_image_resource_blob()
-{
-    std::cout << "Test: image resource returns blob...\n";
-
-    auto srv = create_mime_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto contents = c.read_resource("file:///image.png");
-    assert(contents.size() == 1);
-
-    auto* blob = std::get_if<client::BlobResourceContent>(&contents[0]);
-    assert(blob != nullptr);
-    assert(blob->blob == "iVBORw==");
-
-    std::cout << "  [PASS] image resource blob retrieved\n";
-}
-
-// ============================================================================
-// Empty Collections Tests
-// ============================================================================
-
-std::shared_ptr<server::Server> create_empty_server()
-{
-    auto srv = std::make_shared<server::Server>();
-
-    srv->route("tools/list", [](const Json&) { return Json{{"tools", Json::array()}}; });
-
-    srv->route("resources/list", [](const Json&) { return Json{{"resources", Json::array()}}; });
-
-    srv->route("prompts/list", [](const Json&) { return Json{{"prompts", Json::array()}}; });
-
-    srv->route("resources/templates/list",
-               [](const Json&) { return Json{{"resourceTemplates", Json::array()}}; });
-
-    return srv;
-}
-
-void test_empty_tools_list()
-{
-    std::cout << "Test: empty tools list...\n";
-
-    auto srv = create_empty_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto tools = c.list_tools();
-    assert(tools.empty());
-
-    std::cout << "  [PASS] empty tools list handled\n";
-}
-
-void test_empty_resources_list()
-{
-    std::cout << "Test: empty resources list...\n";
-
-    auto srv = create_empty_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto resources = c.list_resources();
-    assert(resources.empty());
-
-    std::cout << "  [PASS] empty resources list handled\n";
-}
-
-void test_empty_prompts_list()
-{
-    std::cout << "Test: empty prompts list...\n";
-
-    auto srv = create_empty_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto prompts = c.list_prompts();
-    assert(prompts.empty());
-
-    std::cout << "  [PASS] empty prompts list handled\n";
-}
-
-void test_empty_templates_list()
-{
-    std::cout << "Test: empty resource templates list...\n";
-
-    auto srv = create_empty_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto templates = c.list_resource_templates();
-    assert(templates.empty());
-
-    std::cout << "  [PASS] empty templates list handled\n";
-}
-
-// ============================================================================
-// Schema Edge Cases Tests
-// ============================================================================
-
-std::shared_ptr<server::Server> create_schema_edge_server()
-{
-    auto srv = std::make_shared<server::Server>();
-
-    srv->route(
-        "tools/list",
-        [](const Json&)
-        {
-            return Json{
-                {"tools",
-                 Json::array(
-                     {// Tool with minimal schema
-                      Json{{"name", "minimal"}, {"inputSchema", Json{{"type", "object"}}}},
-                      // Tool with empty properties
-                      Json{{"name", "empty_props"},
-                           {"inputSchema",
-                            Json{{"type", "object"}, {"properties", Json::object()}}}},
-                      // Tool with additionalProperties
-                      Json{{"name", "additional"},
-                           {"inputSchema",
-                            Json{{"type", "object"}, {"additionalProperties", true}}}},
-                      // Tool with deeply nested schema
-                      Json{{"name", "nested_schema"},
-                           {"inputSchema",
-                            Json{{"type", "object"},
-                                 {"properties",
-                                  Json{{"level1",
-                                        Json{{"type", "object"},
-                                             {"properties",
-                                              Json{{"level2",
-                                                    Json{{"type", "object"},
-                                                         {"properties",
-                                                          Json{{"value",
-                                                                {{"type",
-                                                                  "string"}}}}}}}}}}}}}}}}})}};
-        });
-
-    srv->route("tools/call",
-               [](const Json& in)
-               {
-                   std::string name = in.at("name").get<std::string>();
-                   return Json{{"content",
-                                Json::array({Json{{"type", "text"}, {"text", "called: " + name}}})},
-                               {"isError", false}};
-               });
-
-    return srv;
-}
-
-void test_minimal_schema()
-{
-    std::cout << "Test: tool with minimal schema...\n";
-
-    auto srv = create_schema_edge_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto tools = c.list_tools();
-    bool found = false;
-    for (const auto& t : tools)
-    {
-        if (t.name == "minimal")
-        {
-            assert(t.inputSchema["type"] == "object");
-            assert(!t.inputSchema.contains("properties"));
-            found = true;
-            break;
-        }
-    }
-    assert(found);
-
-    std::cout << "  [PASS] minimal schema handled\n";
-}
-
-void test_empty_properties_schema()
-{
-    std::cout << "Test: tool with empty properties schema...\n";
-
-    auto srv = create_schema_edge_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto tools = c.list_tools();
-    bool found = false;
-    for (const auto& t : tools)
-    {
-        if (t.name == "empty_props")
-        {
-            assert(t.inputSchema.contains("properties"));
-            assert(t.inputSchema["properties"].empty());
-            found = true;
-            break;
-        }
-    }
-    assert(found);
-
-    std::cout << "  [PASS] empty properties schema handled\n";
-}
-
-void test_deeply_nested_schema()
-{
-    std::cout << "Test: tool with deeply nested schema...\n";
-
-    auto srv = create_schema_edge_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto tools = c.list_tools();
-    bool found = false;
-    for (const auto& t : tools)
-    {
-        if (t.name == "nested_schema")
-        {
-            assert(t.inputSchema.contains("properties"));
-            assert(t.inputSchema["properties"].contains("level1"));
-            assert(t.inputSchema["properties"]["level1"]["properties"]["level2"]["properties"]
-                                ["value"]["type"] == "string");
-            found = true;
-            break;
-        }
-    }
-    assert(found);
-
-    std::cout << "  [PASS] deeply nested schema parsed\n";
-}
-
-// ============================================================================
-// Tool Argument Variations Tests
-// ============================================================================
-
-std::shared_ptr<server::Server> create_arg_variations_server()
-{
-    auto srv = std::make_shared<server::Server>();
-
-    srv->route(
-        "tools/list",
-        [](const Json&)
-        {
-            return Json{
-                {"tools",
-                 Json::array({Json{
-                     {"name", "echo"},
-                     {"inputSchema", Json{{"type", "object"},
-                                          {"properties", Json{{"value", {{"type", "any"}}}}}}}}})}};
-        });
-
-    srv->route("tools/call",
-               [](const Json& in)
-               {
-                   Json args = in.value("arguments", Json::object());
-                   return Json{
-                       {"content", Json::array({Json{{"type", "text"}, {"text", args.dump()}}})},
-                       {"structuredContent", args},
-                       {"isError", false}};
-               });
-
-    return srv;
-}
-
-void test_empty_arguments()
-{
-    std::cout << "Test: call tool with empty arguments...\n";
-
-    auto srv = create_arg_variations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("echo", Json::object());
-    assert(!result.isError);
-    assert(result.structuredContent.has_value());
-    assert(result.structuredContent->empty());
-
-    std::cout << "  [PASS] empty arguments handled\n";
-}
-
-void test_deeply_nested_arguments()
-{
-    std::cout << "Test: call tool with deeply nested arguments...\n";
-
-    auto srv = create_arg_variations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    Json nested_args = {{"level1", {{"level2", {{"level3", {{"value", "deep"}}}}}}}};
-
-    auto result = c.call_tool("echo", nested_args);
-    assert(!result.isError);
-    assert((*result.structuredContent)["level1"]["level2"]["level3"]["value"] == "deep");
-
-    std::cout << "  [PASS] deeply nested arguments preserved\n";
-}
-
-void test_array_as_argument()
-{
-    std::cout << "Test: call tool with array argument...\n";
-
-    auto srv = create_arg_variations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    Json array_args = {{"items", Json::array({1, 2, 3, 4, 5})}};
-    auto result = c.call_tool("echo", array_args);
-
-    assert(!result.isError);
-    assert((*result.structuredContent)["items"].size() == 5);
-
-    std::cout << "  [PASS] array argument handled\n";
-}
-
-void test_mixed_type_arguments()
-{
-    std::cout << "Test: call tool with mixed type arguments...\n";
-
-    auto srv = create_arg_variations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    Json mixed_args = {{"string", "text"},
-                       {"number", 42},
-                       {"float", 3.14},
-                       {"bool", true},
-                       {"null", nullptr},
-                       {"array", Json::array({1, "two", true})},
-                       {"object", Json{{"nested", "value"}}}};
-
-    auto result = c.call_tool("echo", mixed_args);
-    assert(!result.isError);
-
-    auto& sc = *result.structuredContent;
-    assert(sc["string"] == "text");
-    assert(sc["number"] == 42);
-    assert(sc["bool"] == true);
-    assert(sc["null"].is_null());
-    assert(sc["array"].size() == 3);
-    assert(sc["object"]["nested"] == "value");
-
-    std::cout << "  [PASS] mixed type arguments preserved\n";
-}
-
-// ============================================================================
-// Resource Annotations Tests
-// ============================================================================
-
-std::shared_ptr<server::Server> create_annotations_server()
-{
-    auto srv = std::make_shared<server::Server>();
-
-    srv->route(
-        "resources/list",
-        [](const Json&)
-        {
-            return Json{
-                {"resources",
-                 Json::array(
-                     {Json{{"uri", "file:///annotated.txt"},
-                           {"name", "annotated.txt"},
-                           {"annotations", Json{{"audience", Json::array({"user"})}}}},
-                      Json{{"uri", "file:///priority.txt"},
-                           {"name", "priority.txt"},
-                           {"annotations", Json{{"priority", 0.9}}}},
-                      Json{{"uri", "file:///multi.txt"},
-                           {"name", "multi.txt"},
-                           {"annotations", Json{{"audience", Json::array({"user", "assistant"})},
-                                                {"priority", 0.5}}}}})}};
-        });
-
-    srv->route("resources/read",
-               [](const Json& in)
-               {
-                   std::string uri = in.at("uri").get<std::string>();
-                   return Json{
-                       {"contents", Json::array({Json{{"uri", uri}, {"text", "content"}}})}};
-               });
-
-    return srv;
-}
-
-void test_resource_with_annotations()
-{
-    std::cout << "Test: resource with annotations...\n";
-
-    auto srv = create_annotations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto resources = c.list_resources();
-    assert(resources.size() == 3);
-
-    bool found = false;
-    for (const auto& r : resources)
-    {
-        if (r.name == "annotated.txt")
-        {
-            assert(r.annotations.has_value());
-            assert((*r.annotations)["audience"].size() == 1);
-            assert((*r.annotations)["audience"][0] == "user");
-            found = true;
-            break;
-        }
-    }
-    assert(found);
-
-    std::cout << "  [PASS] resource annotations present\n";
-}
-
-void test_resource_priority_annotation()
-{
-    std::cout << "Test: resource with priority annotation...\n";
-
-    auto srv = create_annotations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto resources = c.list_resources();
-    bool found = false;
-    for (const auto& r : resources)
-    {
-        if (r.name == "priority.txt")
-        {
-            assert(r.annotations.has_value());
-            assert((*r.annotations)["priority"].get<double>() == 0.9);
-            found = true;
-            break;
-        }
-    }
-    assert(found);
-
-    std::cout << "  [PASS] priority annotation value preserved\n";
-}
-
-void test_resource_multiple_annotations()
-{
-    std::cout << "Test: resource with multiple annotations...\n";
-
-    auto srv = create_annotations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto resources = c.list_resources();
-    bool found = false;
-    for (const auto& r : resources)
-    {
-        if (r.name == "multi.txt")
-        {
-            assert(r.annotations.has_value());
-            assert((*r.annotations).contains("audience"));
-            assert((*r.annotations).contains("priority"));
-            assert((*r.annotations)["audience"].size() == 2);
-            found = true;
-            break;
-        }
-    }
-    assert(found);
-
-    std::cout << "  [PASS] multiple annotations work\n";
-}
-
-// ============================================================================
-// String Escape Sequence Tests
-// ============================================================================
-
-std::shared_ptr<server::Server> create_escape_server()
-{
-    auto srv = std::make_shared<server::Server>();
-
-    srv->route("tools/list",
-               [](const Json&)
-               {
-                   return Json{
-                       {"tools", Json::array({Json{{"name", "echo"},
-                                                   {"inputSchema", Json{{"type", "object"}}}}})}};
-               });
-
-    srv->route("tools/call",
-               [](const Json& in)
-               {
-                   Json args = in.value("arguments", Json::object());
-                   return Json{{"content", Json::array({Json{{"type", "text"},
-                                                             {"text", args.value("text", "")}}})},
-                               {"structuredContent", args},
-                               {"isError", false}};
-               });
-
-    return srv;
-}
-
-void test_backslash_escape()
-{
-    std::cout << "Test: backslash escape sequences...\n";
-
-    auto srv = create_escape_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    std::string input = "path\\to\\file";
-    auto result = c.call_tool("echo", {{"text", input}});
-
-    assert((*result.structuredContent)["text"] == input);
-
-    std::cout << "  [PASS] backslash preserved\n";
-}
-
-void test_unicode_escape()
-{
-    std::cout << "Test: unicode escape sequences...\n";
-
-    auto srv = create_escape_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    std::string input = "Hello \xE2\x9C\x93 World"; // UTF-8 checkmark
-    auto result = c.call_tool("echo", {{"text", input}});
-
-    assert((*result.structuredContent)["text"] == input);
-
-    std::cout << "  [PASS] unicode escape preserved\n";
-}
-
-void test_control_characters()
-{
-    std::cout << "Test: control characters in string...\n";
-
-    auto srv = create_escape_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    std::string input = "line1\nline2\ttabbed\rcarriage";
-    auto result = c.call_tool("echo", {{"text", input}});
-
-    assert((*result.structuredContent)["text"] == input);
-
-    std::cout << "  [PASS] control characters preserved\n";
-}
-
-void test_empty_and_whitespace_strings()
-{
-    std::cout << "Test: empty and whitespace strings...\n";
-
-    auto srv = create_escape_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    // Empty string
-    auto r1 = c.call_tool("echo", {{"text", ""}});
-    assert((*r1.structuredContent)["text"] == "");
-
-    // Only spaces
-    auto r2 = c.call_tool("echo", {{"text", "   "}});
-    assert((*r2.structuredContent)["text"] == "   ");
-
-    // Only newlines
-    auto r3 = c.call_tool("echo", {{"text", "\n\n\n"}});
-    assert((*r3.structuredContent)["text"] == "\n\n\n");
-
-    std::cout << "  [PASS] empty and whitespace handled\n";
-}
-
-// ============================================================================
-// Type Coercion Tests
-// ============================================================================
-
-std::shared_ptr<server::Server> create_coercion_server()
-{
-    auto srv = std::make_shared<server::Server>();
-
-    srv->route("tools/list",
-               [](const Json&)
-               {
-                   return Json{
-                       {"tools", Json::array({Json{{"name", "types"},
-                                                   {"inputSchema", Json{{"type", "object"}}}}})}};
-               });
-
-    srv->route("tools/call",
-               [](const Json&)
-               {
-                   return Json{
-                       {"content", Json::array({Json{{"type", "text"}, {"text", "types"}}})},
-                       {"structuredContent", Json{{"string_number", "123"},
-                                                  {"string_float", "3.14"},
-                                                  {"string_bool_true", "true"},
-                                                  {"string_bool_false", "false"},
-                                                  {"number_as_string", 456},
-                                                  {"zero", 0},
-                                                  {"negative", -42},
-                                                  {"very_small", 0.000001},
-                                                  {"very_large", 999999999999LL}}},
-                       {"isError", false}};
-               });
-
-    return srv;
-}
-
-void test_numeric_string_values()
-{
-    std::cout << "Test: numeric strings in structured content...\n";
-
-    auto srv = create_coercion_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("types", Json::object());
-    auto& sc = *result.structuredContent;
-
-    // String values that look like numbers
-    assert(sc["string_number"] == "123");
-    assert(sc["string_float"] == "3.14");
-    assert(sc["string_number"].is_string());
-
-    std::cout << "  [PASS] numeric strings stay as strings\n";
-}
-
-void test_edge_numeric_values()
-{
-    std::cout << "Test: edge case numeric values...\n";
-
-    auto srv = create_coercion_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("types", Json::object());
-    auto& sc = *result.structuredContent;
-
-    assert(sc["zero"] == 0);
-    assert(sc["negative"] == -42);
-    assert(sc["very_small"].get<double>() < 0.0001);
-    assert(sc["very_large"].get<int64_t>() == 999999999999LL);
-
-    std::cout << "  [PASS] edge numeric values preserved\n";
-}
-
-// ============================================================================
-// Prompt Argument Types Tests
-// ============================================================================
-
-std::shared_ptr<server::Server> create_prompt_args_server()
-{
-    auto srv = std::make_shared<server::Server>();
-
-    srv->route(
-        "prompts/list",
-        [](const Json&)
-        {
-            return Json{
-                {"prompts",
-                 Json::array(
-                     {Json{{"name", "required_args"},
-                           {"description", "Has required args"},
-                           {"arguments",
-                            Json::array({Json{{"name", "required_str"}, {"required", true}},
-                                         Json{{"name", "optional_str"}, {"required", false}}})}},
-                      Json{{"name", "typed_args"},
-                           {"description", "Has typed args"},
-                           {"arguments",
-                            Json::array({Json{{"name", "num"}, {"description", "A number"}},
-                                         Json{{"name", "flag"}, {"description", "A boolean"}}})}},
-                      Json{{"name", "no_args"}, {"description", "No arguments"}}})}};
-        });
-
-    srv->route("prompts/get",
-               [](const Json& in)
-               {
-                   std::string name = in.at("name").get<std::string>();
-                   Json args = in.value("arguments", Json::object());
-
-                   std::string msg;
-                   if (name == "required_args")
-                   {
-                       msg = "Required: " + args.value("required_str", "") +
-                             ", Optional: " + args.value("optional_str", "default");
-                   }
-                   else if (name == "typed_args")
-                   {
-                       msg = "Num: " + std::to_string(args.value("num", 0)) +
-                             ", Flag: " + (args.value("flag", false) ? "true" : "false");
-                   }
-                   else
-                   {
-                       msg = "No args prompt";
-                   }
-
-                   return Json{
-                       {"messages",
-                        Json::array({Json{
-                            {"role", "user"},
-                            {"content", Json::array({Json{{"type", "text"}, {"text", msg}}})}}})}};
-               });
-
-    return srv;
-}
-
-void test_prompt_required_args()
-{
-    std::cout << "Test: prompt with required arguments...\n";
-
-    auto srv = create_prompt_args_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto prompts = c.list_prompts();
-    bool found = false;
-    for (const auto& p : prompts)
-    {
-        if (p.name == "required_args")
-        {
-            assert(p.arguments.has_value());
-            assert(p.arguments->size() == 2);
-            // Check that required flag is present
-            found = true;
-            break;
-        }
-    }
-    assert(found);
-
-    std::cout << "  [PASS] required args metadata present\n";
-}
-
-void test_prompt_get_with_typed_args()
-{
-    std::cout << "Test: get_prompt with typed arguments...\n";
-
-    auto srv = create_prompt_args_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    // Use no_args prompt instead - simpler case
-    auto result = c.get_prompt("no_args", Json::object());
-    assert(!result.messages.empty());
-
-    auto& msg = result.messages[0];
-    assert(!msg.content.empty());
-
-    auto* text = std::get_if<client::TextContent>(&msg.content[0]);
-    assert(text != nullptr);
-    assert(text->text.find("No args") != std::string::npos);
-
-    std::cout << "  [PASS] get_prompt with no args works\n";
-}
-
-// ============================================================================
-// Server Response Variations Tests
-// ============================================================================
-
-std::shared_ptr<server::Server> create_response_variations_server()
-{
-    auto srv = std::make_shared<server::Server>();
-
-    srv->route(
-        "tools/list",
-        [](const Json&)
-        {
-            return Json{
-                {"tools",
-                 Json::array(
-                     {Json{{"name", "minimal_response"}, {"inputSchema", Json{{"type", "object"}}}},
-                      Json{{"name", "full_response"}, {"inputSchema", Json{{"type", "object"}}}},
-                      Json{{"name", "extra_fields"}, {"inputSchema", Json{{"type", "object"}}}}})}};
-        });
-
-    srv->route(
-        "tools/call",
-        [](const Json& in)
-        {
-            std::string name = in.at("name").get<std::string>();
-
-            if (name == "minimal_response")
-            {
-                // Absolute minimum valid response
-                return Json{{"content", Json::array({Json{{"type", "text"}, {"text", "min"}}})},
-                            {"isError", false}};
-            }
-            if (name == "full_response")
-            {
-                // Response with all optional fields
-                return Json{{"content", Json::array({Json{{"type", "text"}, {"text", "full"}}})},
-                            {"structuredContent", Json{{"key", "value"}}},
-                            {"isError", false},
-                            {"_meta", Json{{"custom", "meta"}}}};
-            }
-            if (name == "extra_fields")
-            {
-                // Response with extra unknown fields (should be ignored)
-                return Json{{"content", Json::array({Json{{"type", "text"}, {"text", "extra"}}})},
-                            {"isError", false},
-                            {"unknownField1", "ignored"},
-                            {"unknownField2", 12345},
-                            {"_meta", Json{{"known", true}}}};
-            }
-            return Json{{"content", Json::array()}, {"isError", true}};
-        });
-
-    return srv;
-}
-
-void test_minimal_tool_response()
-{
-    std::cout << "Test: minimal valid tool response...\n";
-
-    auto srv = create_response_variations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("minimal_response", Json::object());
-    assert(!result.isError);
-    assert(result.content.size() == 1);
-    assert(!result.structuredContent.has_value());
-
-    std::cout << "  [PASS] minimal response handled\n";
-}
-
-void test_full_tool_response()
-{
-    std::cout << "Test: full tool response with all fields...\n";
-
-    auto srv = create_response_variations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("full_response", Json::object());
-    assert(!result.isError);
-    assert(result.content.size() == 1);
-    assert(result.structuredContent.has_value());
-    assert(result.meta.has_value());
-    assert((*result.meta)["custom"] == "meta");
-
-    std::cout << "  [PASS] full response with all fields\n";
-}
-
-void test_response_with_extra_fields()
-{
-    std::cout << "Test: response with extra unknown fields...\n";
-
-    auto srv = create_response_variations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    // Should not crash even with unknown fields
-    auto result = c.call_tool("extra_fields", Json::object());
-    assert(!result.isError);
-    assert(result.meta.has_value());
-    assert((*result.meta)["known"] == true);
-
-    std::cout << "  [PASS] extra fields ignored gracefully\n";
-}
-
-// ============================================================================
-// Tool Return Types Tests (matching Python TestToolReturnTypes)
-// ============================================================================
-
-std::shared_ptr<server::Server> create_return_types_server()
-{
-    auto srv = std::make_shared<server::Server>();
-
-    srv->route(
-        "tools/list",
-        [](const Json&)
-        {
-            return Json{
-                {"tools",
-                 Json::array(
-                     {Json{{"name", "return_string"}, {"inputSchema", Json{{"type", "object"}}}},
-                      Json{{"name", "return_number"}, {"inputSchema", Json{{"type", "object"}}}},
-                      Json{{"name", "return_bool"}, {"inputSchema", Json{{"type", "object"}}}},
-                      Json{{"name", "return_null"}, {"inputSchema", Json{{"type", "object"}}}},
-                      Json{{"name", "return_array"}, {"inputSchema", Json{{"type", "object"}}}},
-                      Json{{"name", "return_object"}, {"inputSchema", Json{{"type", "object"}}}},
-                      Json{{"name", "return_uuid"}, {"inputSchema", Json{{"type", "object"}}}},
-                      Json{{"name", "return_datetime"},
-                           {"inputSchema", Json{{"type", "object"}}}}})}};
-        });
-
-    srv->route(
-        "tools/call",
-        [](const Json& in)
-        {
-            std::string name = in.at("name").get<std::string>();
-
-            Json result;
-            if (name == "return_string")
-            {
-                result = Json{
-                    {"content", Json::array({Json{{"type", "text"}, {"text", "hello world"}}})},
-                    {"isError", false}};
-            }
-            else if (name == "return_number")
-            {
-                result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "42"}}})},
-                              {"structuredContent", Json{{"value", 42}}},
-                              {"isError", false}};
-            }
-            else if (name == "return_bool")
-            {
-                result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "true"}}})},
-                              {"structuredContent", Json{{"value", true}}},
-                              {"isError", false}};
-            }
-            else if (name == "return_null")
-            {
-                result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "null"}}})},
-                              {"structuredContent", Json{{"value", nullptr}}},
-                              {"isError", false}};
-            }
-            else if (name == "return_array")
-            {
-                result =
-                    Json{{"content", Json::array({Json{{"type", "text"}, {"text", "[1,2,3]"}}})},
-                         {"structuredContent", Json{{"value", Json::array({1, 2, 3})}}},
-                         {"isError", false}};
-            }
-            else if (name == "return_object")
-            {
-                result = Json{{"content", Json::array({Json{{"type", "text"}, {"text", "{...}"}}})},
-                              {"structuredContent", Json{{"value", Json{{"nested", "object"}}}}},
-                              {"isError", false}};
-            }
-            else if (name == "return_uuid")
-            {
-                result = Json{
-                    {"content",
-                     Json::array({Json{{"type", "text"},
-                                       {"text", "550e8400-e29b-41d4-a716-446655440000"}}})},
-                    {"structuredContent", Json{{"uuid", "550e8400-e29b-41d4-a716-446655440000"}}},
-                    {"isError", false}};
-            }
-            else if (name == "return_datetime")
-            {
-                result =
-                    Json{{"content",
-                          Json::array({Json{{"type", "text"}, {"text", "2024-01-15T10:30:00Z"}}})},
-                         {"structuredContent", Json{{"datetime", "2024-01-15T10:30:00Z"}}},
-                         {"isError", false}};
-            }
-            else
-            {
-                result = Json{{"content", Json::array()}, {"isError", true}};
-            }
-            return result;
-        });
-
-    return srv;
-}
-
-void test_return_type_string()
-{
-    std::cout << "Test: tool returns string...\n";
-
-    auto srv = create_return_types_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("return_string", Json::object());
-    assert(!result.isError);
-    assert(result.content.size() == 1);
-
-    auto* text = std::get_if<client::TextContent>(&result.content[0]);
-    assert(text != nullptr);
-    assert(text->text == "hello world");
-
-    std::cout << "  [PASS] string return type\n";
-}
-
-void test_return_type_number()
-{
-    std::cout << "Test: tool returns number...\n";
-
-    auto srv = create_return_types_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("return_number", Json::object());
-    assert(!result.isError);
-    assert(result.structuredContent.has_value());
-    assert((*result.structuredContent)["value"] == 42);
-
-    std::cout << "  [PASS] number return type\n";
-}
-
-void test_return_type_bool()
-{
-    std::cout << "Test: tool returns boolean...\n";
-
-    auto srv = create_return_types_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("return_bool", Json::object());
-    assert(!result.isError);
-    assert(result.structuredContent.has_value());
-    assert((*result.structuredContent)["value"] == true);
-
-    std::cout << "  [PASS] boolean return type\n";
-}
-
-void test_return_type_null()
-{
-    std::cout << "Test: tool returns null...\n";
-
-    auto srv = create_return_types_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("return_null", Json::object());
-    assert(!result.isError);
-    assert(result.structuredContent.has_value());
-    assert((*result.structuredContent)["value"].is_null());
-
-    std::cout << "  [PASS] null return type\n";
-}
-
-void test_return_type_array()
-{
-    std::cout << "Test: tool returns array...\n";
-
-    auto srv = create_return_types_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("return_array", Json::object());
-    assert(!result.isError);
-    assert(result.structuredContent.has_value());
-    assert((*result.structuredContent)["value"].is_array());
-    assert((*result.structuredContent)["value"].size() == 3);
-
-    std::cout << "  [PASS] array return type\n";
-}
-
-void test_return_type_object()
-{
-    std::cout << "Test: tool returns object...\n";
-
-    auto srv = create_return_types_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("return_object", Json::object());
-    assert(!result.isError);
-    assert(result.structuredContent.has_value());
-    assert((*result.structuredContent)["value"].is_object());
-    assert((*result.structuredContent)["value"]["nested"] == "object");
-
-    std::cout << "  [PASS] object return type\n";
-}
-
-void test_return_type_uuid()
-{
-    std::cout << "Test: tool returns UUID string...\n";
-
-    auto srv = create_return_types_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("return_uuid", Json::object());
-    assert(!result.isError);
-    assert(result.structuredContent.has_value());
-    std::string uuid = (*result.structuredContent)["uuid"].get<std::string>();
-    assert(uuid.length() == 36); // UUID format
-    assert(uuid[8] == '-' && uuid[13] == '-');
-
-    std::cout << "  [PASS] UUID string return type\n";
-}
-
-void test_return_type_datetime()
-{
-    std::cout << "Test: tool returns datetime string...\n";
-
-    auto srv = create_return_types_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("return_datetime", Json::object());
-    assert(!result.isError);
-    assert(result.structuredContent.has_value());
-    std::string dt = (*result.structuredContent)["datetime"].get<std::string>();
-    assert(dt.find("2024-01-15") != std::string::npos);
-    assert(dt.find("T") != std::string::npos);
-
-    std::cout << "  [PASS] datetime string return type\n";
-}
-
-// ============================================================================
-// Resource Template Tests (matching Python TestResourceTemplates)
-// ============================================================================
-
-std::shared_ptr<server::Server> create_resource_template_server()
-{
-    auto srv = std::make_shared<server::Server>();
-
-    srv->route("resources/templates/list",
-               [](const Json&)
-               {
-                   return Json{{"resourceTemplates",
-                                Json::array({Json{{"uriTemplate", "file:///{path}"},
-                                                  {"name", "File Template"},
-                                                  {"description", "Access any file by path"}},
-                                             Json{{"uriTemplate", "db://{table}/{id}"},
-                                                  {"name", "Database Record"},
-                                                  {"description", "Access database records"}},
-                                             Json{{"uriTemplate", "api://{version}/users/{userId}"},
-                                                  {"name", "API User"},
-                                                  {"description", "Access user data via API"}}})}};
-               });
-
-    srv->route("resources/read",
-               [](const Json& in)
-               {
-                   std::string uri = in.at("uri").get<std::string>();
-                   std::string text;
-
-                   if (uri.find("file://") == 0)
-                       text = "File content for: " + uri.substr(8);
-                   else if (uri.find("db://") == 0)
-                       text = "Database record: " + uri.substr(5);
-                   else if (uri.find("api://") == 0)
-                       text = "API response for: " + uri.substr(6);
-                   else
-                       text = "Unknown resource: " + uri;
-
-                   return Json{{"contents", Json::array({Json{{"uri", uri}, {"text", text}}})}};
-               });
-
-    return srv;
-}
-
-void test_list_resource_templates_count()
-{
-    std::cout << "Test: list_resource_templates count...\n";
-
-    auto srv = create_resource_template_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto templates = c.list_resource_templates();
-    assert(templates.size() == 3);
-
-    std::cout << "  [PASS] 3 resource templates listed\n";
-}
-
-void test_resource_template_uri_pattern()
-{
-    std::cout << "Test: resource template URI pattern...\n";
-
-    auto srv = create_resource_template_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto templates = c.list_resource_templates();
-    bool found_file = false;
-    for (const auto& t : templates)
-    {
-        if (t.name == "File Template")
-        {
-            assert(t.uriTemplate.find("{path}") != std::string::npos);
-            found_file = true;
-            break;
-        }
-    }
-    assert(found_file);
-
-    std::cout << "  [PASS] URI template pattern present\n";
-}
-
-void test_resource_template_with_multiple_params()
-{
-    std::cout << "Test: resource template with multiple params...\n";
-
-    auto srv = create_resource_template_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto templates = c.list_resource_templates();
-    bool found = false;
-    for (const auto& t : templates)
-    {
-        if (t.name == "API User")
-        {
-            assert(t.uriTemplate.find("{version}") != std::string::npos);
-            assert(t.uriTemplate.find("{userId}") != std::string::npos);
-            found = true;
-            break;
-        }
-    }
-    assert(found);
-
-    std::cout << "  [PASS] multiple template params\n";
-}
-
-void test_read_templated_resource()
-{
-    std::cout << "Test: read resource via template...\n";
-
-    auto srv = create_resource_template_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto contents = c.read_resource("file:///my/file.txt");
-    assert(contents.size() == 1);
-
-    auto* text = std::get_if<client::TextResourceContent>(&contents[0]);
-    assert(text != nullptr);
-    assert(text->text.find("my/file.txt") != std::string::npos);
-
-    std::cout << "  [PASS] templated resource read\n";
-}
-
-// ============================================================================
-// Tool Parameter Coercion Tests (matching Python TestToolParameters)
-// ============================================================================
-
-std::shared_ptr<server::Server> create_coercion_params_server()
-{
-    auto srv = std::make_shared<server::Server>();
-
-    srv->route(
-        "tools/list",
-        [](const Json&)
-        {
-            return Json{
-                {"tools", Json::array({Json{
-                              {"name", "typed_params"},
-                              {"inputSchema",
-                               Json{{"type", "object"},
-                                    {"properties",
-                                     Json{{"int_val", Json{{"type", "integer"}}},
-                                          {"float_val", Json{{"type", "number"}}},
-                                          {"bool_val", Json{{"type", "boolean"}}},
-                                          {"str_val", Json{{"type", "string"}}},
-                                          {"array_val", Json{{"type", "array"},
-                                                             {"items", Json{{"type", "integer"}}}}},
-                                          {"object_val", Json{{"type", "object"}}}}},
-                                    {"required", Json::array({"int_val"})}}}}})}};
-        });
-
-    srv->route("tools/call",
-               [](const Json& in)
-               {
-                   Json args = in.value("arguments", Json::object());
-                   return Json{
-                       {"content", Json::array({Json{{"type", "text"}, {"text", args.dump()}}})},
-                       {"structuredContent", args},
-                       {"isError", false}};
-               });
-
-    return srv;
-}
-
-void test_integer_parameter()
-{
-    std::cout << "Test: integer parameter handling...\n";
-
-    auto srv = create_coercion_params_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("typed_params", {{"int_val", 42}});
-    assert(!result.isError);
-    assert((*result.structuredContent)["int_val"] == 42);
-
-    std::cout << "  [PASS] integer parameter\n";
-}
-
-void test_float_parameter()
-{
-    std::cout << "Test: float parameter handling...\n";
-
-    auto srv = create_coercion_params_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("typed_params", {{"int_val", 1}, {"float_val", 3.14159}});
-    assert(!result.isError);
-    double val = (*result.structuredContent)["float_val"].get<double>();
-    assert(val > 3.14 && val < 3.15);
-
-    std::cout << "  [PASS] float parameter\n";
-}
-
-void test_boolean_parameter()
-{
-    std::cout << "Test: boolean parameter handling...\n";
-
-    auto srv = create_coercion_params_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("typed_params", {{"int_val", 1}, {"bool_val", true}});
-    assert(!result.isError);
-    assert((*result.structuredContent)["bool_val"] == true);
-
-    std::cout << "  [PASS] boolean parameter\n";
-}
-
-void test_string_parameter()
-{
-    std::cout << "Test: string parameter handling...\n";
-
-    auto srv = create_coercion_params_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.call_tool("typed_params", {{"int_val", 1}, {"str_val", "hello"}});
-    assert(!result.isError);
-    assert((*result.structuredContent)["str_val"] == "hello");
-
-    std::cout << "  [PASS] string parameter\n";
-}
-
-void test_array_parameter()
-{
-    std::cout << "Test: array parameter handling...\n";
-
-    auto srv = create_coercion_params_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result =
-        c.call_tool("typed_params", {{"int_val", 1}, {"array_val", Json::array({1, 2, 3})}});
-    assert(!result.isError);
-    assert((*result.structuredContent)["array_val"].size() == 3);
-
-    std::cout << "  [PASS] array parameter\n";
-}
-
-void test_object_parameter()
-{
-    std::cout << "Test: object parameter handling...\n";
-
-    auto srv = create_coercion_params_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result =
-        c.call_tool("typed_params", {{"int_val", 1}, {"object_val", Json{{"key", "value"}}}});
-    assert(!result.isError);
-    assert((*result.structuredContent)["object_val"]["key"] == "value");
-
-    std::cout << "  [PASS] object parameter\n";
-}
-
-// ============================================================================
-// Prompt Variations Tests (matching Python TestPrompts)
-// ============================================================================
-
-std::shared_ptr<server::Server> create_prompt_variations_server()
-{
-    auto srv = std::make_shared<server::Server>();
-
-    srv->route(
-        "prompts/list",
-        [](const Json&)
-        {
-            return Json{
-                {"prompts",
-                 Json::array(
-                     {Json{{"name", "simple"}, {"description", "Simple prompt"}},
-                      Json{{"name", "with_description"},
-                           {"description", "A prompt that has a detailed description for users"}},
-                      Json{{"name", "multi_message"}, {"description", "Returns multiple messages"}},
-                      Json{{"name", "system_prompt"}, {"description", "Has system message"}}})}};
-        });
-
-    srv->route(
-        "prompts/get",
-        [](const Json& in)
-        {
-            std::string name = in.at("name").get<std::string>();
-
-            if (name == "simple")
-            {
-                return Json{
-                    {"messages",
-                     Json::array({Json{
-                         {"role", "user"},
-                         {"content", Json::array({Json{{"type", "text"}, {"text", "Hello"}}})}}})}};
-            }
-            if (name == "with_description")
-            {
-                return Json{
-                    {"description", "This is a detailed description"},
-                    {"messages",
-                     Json::array({Json{
-                         {"role", "user"},
-                         {"content",
-                          Json::array({Json{{"type", "text"}, {"text", "Described prompt"}}})}}})}};
-            }
-            if (name == "multi_message")
-            {
-                return Json{
-                    {"messages",
-                     Json::array(
-                         {Json{{"role", "user"},
-                               {"content",
-                                Json::array({Json{{"type", "text"}, {"text", "First message"}}})}},
-                          Json{{"role", "assistant"},
-                               {"content",
-                                Json::array({Json{{"type", "text"}, {"text", "Response"}}})}},
-                          Json{{"role", "user"},
-                               {"content",
-                                Json::array({Json{{"type", "text"}, {"text", "Follow up"}}})}}})}};
-            }
-            if (name == "system_prompt")
-            {
-                return Json{
-                    {"messages",
-                     Json::array({Json{
-                         {"role", "user"},
-                         {"content", Json::array({Json{{"type", "text"},
-                                                       {"text", "System message here"}}})}}})}};
-            }
-            return Json{{"messages", Json::array()}};
-        });
-
-    return srv;
-}
-
-void test_simple_prompt()
-{
-    std::cout << "Test: simple prompt...\n";
-
-    auto srv = create_prompt_variations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.get_prompt("simple", Json::object());
-    assert(result.messages.size() == 1);
-    assert(result.messages[0].role == client::Role::User);
-
-    std::cout << "  [PASS] simple prompt\n";
-}
-
-void test_prompt_with_description()
-{
-    std::cout << "Test: prompt with description...\n";
-
-    auto srv = create_prompt_variations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.get_prompt("with_description", Json::object());
-    assert(result.description.has_value());
-    assert(result.description->find("detailed") != std::string::npos);
-
-    std::cout << "  [PASS] prompt description present\n";
-}
-
-void test_multi_message_prompt()
-{
-    std::cout << "Test: multi-message prompt...\n";
-
-    auto srv = create_prompt_variations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.get_prompt("multi_message", Json::object());
-    assert(result.messages.size() == 3);
-    assert(result.messages[0].role == client::Role::User);
-    assert(result.messages[1].role == client::Role::Assistant);
-    assert(result.messages[2].role == client::Role::User);
-
-    std::cout << "  [PASS] multi-message prompt\n";
-}
-
-void test_prompt_message_content()
-{
-    std::cout << "Test: prompt message content...\n";
-
-    auto srv = create_prompt_variations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-
-    auto result = c.get_prompt("simple", Json::object());
-    assert(!result.messages.empty());
-    assert(!result.messages[0].content.empty());
-
-    auto* text = std::get_if<client::TextContent>(&result.messages[0].content[0]);
-    assert(text != nullptr);
-    assert(text->text == "Hello");
-
-    std::cout << "  [PASS] prompt message content\n";
-}
-
-// ============================================================================
-// Main - Part 2
-// ============================================================================
-
 int main()
 {
-    std::cout << "Running server interaction tests (Part 2)...\n\n";
+    std::cout << "Running interactions part 2 tests..." << std::endl;
+    int passed = 0;
+    int failed = 0;
 
-    try
-    {
+    try {
+        test_structured_content_array();
+        std::cout << "[PASS] test_structured_content_array" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_structured_content_array: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_tool_without_output_schema();
+        std::cout << "[PASS] test_tool_without_output_schema" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_tool_without_output_schema: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_single_text_content();
+        std::cout << "[PASS] test_single_text_content" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_single_text_content: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_multiple_text_content();
+        std::cout << "[PASS] test_multiple_text_content" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_multiple_text_content: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_mixed_content_types();
+        std::cout << "[PASS] test_mixed_content_types" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_mixed_content_types: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_tool_returns_error_flag();
+        std::cout << "[PASS] test_tool_returns_error_flag" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_tool_returns_error_flag: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_tool_call_nonexistent();
+        std::cout << "[PASS] test_tool_call_nonexistent" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_tool_call_nonexistent: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_unicode_in_tool_description();
+        std::cout << "[PASS] test_unicode_in_tool_description" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_unicode_in_tool_description: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_unicode_echo_roundtrip();
+        std::cout << "[PASS] test_unicode_echo_roundtrip" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_unicode_echo_roundtrip: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_unicode_in_resource_uri();
+        std::cout << "[PASS] test_unicode_in_resource_uri" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_unicode_in_resource_uri: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_unicode_in_prompt_description();
+        std::cout << "[PASS] test_unicode_in_prompt_description" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_unicode_in_prompt_description: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_large_response();
+        std::cout << "[PASS] test_large_response" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_large_response: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_large_request();
+        std::cout << "[PASS] test_large_request" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_large_request: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_empty_string_response();
+        std::cout << "[PASS] test_empty_string_response" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_empty_string_response: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_null_values_in_response();
+        std::cout << "[PASS] test_null_values_in_response" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_null_values_in_response: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_special_characters();
+        std::cout << "[PASS] test_special_characters" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_special_characters: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_tools_pagination_first_page();
+        std::cout << "[PASS] test_tools_pagination_first_page" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_tools_pagination_first_page: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_tools_pagination_second_page();
+        std::cout << "[PASS] test_tools_pagination_second_page" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_tools_pagination_second_page: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_resources_pagination();
+        std::cout << "[PASS] test_resources_pagination" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_resources_pagination: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_prompts_pagination();
+        std::cout << "[PASS] test_prompts_pagination" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_prompts_pagination: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_completion_for_prompt();
+        std::cout << "[PASS] test_completion_for_prompt" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_completion_for_prompt: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_completion_for_resource();
+        std::cout << "[PASS] test_completion_for_resource" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_completion_for_resource: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_resource_multiple_contents();
+        std::cout << "[PASS] test_resource_multiple_contents" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_resource_multiple_contents: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
+        test_prompt_multiple_messages();
+        std::cout << "[PASS] test_prompt_multiple_messages" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_prompt_multiple_messages: " << e.what() << std::endl;
+        failed++;
+    }
+
+    try {
         test_integer_values();
-        test_float_values();
-        test_large_integer();
-        test_boolean_values();
-        test_array_types();
-        test_nested_arrays();
-        test_multiple_clients_same_server();
-        test_client_reuse();
-        test_various_mime_types();
-        test_resource_without_mime();
-        test_image_resource_blob();
-        test_empty_tools_list();
-        test_empty_resources_list();
-        test_empty_prompts_list();
-        test_empty_templates_list();
-        test_minimal_schema();
-        test_empty_properties_schema();
-        test_deeply_nested_schema();
-        test_empty_arguments();
-        test_deeply_nested_arguments();
-        test_array_as_argument();
-        test_mixed_type_arguments();
-        test_resource_with_annotations();
-        test_resource_priority_annotation();
-        test_resource_multiple_annotations();
-        test_backslash_escape();
-        test_unicode_escape();
-        test_control_characters();
-        test_empty_and_whitespace_strings();
-        test_numeric_string_values();
-        test_edge_numeric_values();
-        test_prompt_required_args();
-        test_prompt_get_with_typed_args();
-        test_minimal_tool_response();
-        test_full_tool_response();
-        test_response_with_extra_fields();
-        test_return_type_string();
-        test_return_type_number();
-        test_return_type_bool();
-        test_return_type_null();
-        test_return_type_array();
-        test_return_type_object();
-        test_return_type_uuid();
-        test_return_type_datetime();
-        test_list_resource_templates_count();
-        test_resource_template_uri_pattern();
-        test_resource_template_with_multiple_params();
-        test_read_templated_resource();
-        test_integer_parameter();
-        test_float_parameter();
-        test_boolean_parameter();
-        test_string_parameter();
-        test_array_parameter();
-        test_object_parameter();
-        test_simple_prompt();
-        test_prompt_with_description();
-        test_multi_message_prompt();
-        test_prompt_message_content();
+        std::cout << "[PASS] test_integer_values" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_integer_values: " << e.what() << std::endl;
+        failed++;
+    }
 
-        std::cout << "\n[OK] Part 2 tests passed! (58 tests)\n";
-        return 0;
+    try {
+        test_float_values();
+        std::cout << "[PASS] test_float_values" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_float_values: " << e.what() << std::endl;
+        failed++;
     }
-    catch (const std::exception& e)
-    {
-        std::cerr << "\n[FAIL] Test failed: " << e.what() << "\n";
-        return 1;
+
+    try {
+        test_large_integer();
+        std::cout << "[PASS] test_large_integer" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_large_integer: " << e.what() << std::endl;
+        failed++;
     }
+
+    try {
+        test_boolean_values();
+        std::cout << "[PASS] test_boolean_values" << std::endl;
+        passed++;
+    } catch (const std::exception& e) {
+        std::cout << "[FAIL] test_boolean_values: " << e.what() << std::endl;
+        failed++;
+    }
+
+    std::cout << "\nPart 2: " << passed << " passed, " << failed << " failed" << std::endl;
+    return failed > 0 ? 1 : 0;
 }

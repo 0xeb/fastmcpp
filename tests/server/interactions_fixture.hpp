@@ -1,8 +1,18 @@
 #pragma once
+
+#include "fastmcpp/client/client.hpp"
+#include "fastmcpp/client/transports.hpp"
 #include "fastmcpp/server/server.hpp"
 #include "fastmcpp/tools/manager.hpp"
 #include "fastmcpp/tools/tool.hpp"
 #include "fastmcpp/util/json.hpp"
+
+#include <cassert>
+#include <iostream>
+#include <string>
+#include <vector>
+
+using namespace fastmcpp;
 
 namespace fastmcpp {
 
