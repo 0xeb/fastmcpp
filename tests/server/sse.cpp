@@ -43,29 +43,12 @@ int main()
         return 1;
     }
 
-    // Wait for server to be ready - give it more time
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    // Wait for server to be ready - longer delay for macOS compatibility
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
     std::cout << "Server started on port " << port << "\n";
 
-    // Test if server is listening: use streaming GET and immediately cancel
-    // to avoid waiting on an infinite SSE stream.
-    httplib::Client test_client("127.0.0.1", port);
-    test_client.set_connection_timeout(std::chrono::seconds(5));
-    test_client.set_read_timeout(std::chrono::seconds(5));
-    auto test_res = test_client.Get("/sse",
-                                    [&](const char*, size_t)
-                                    {
-                                        // Cancel after first chunk to verify readiness without
-                                        // blocking
-                                        return false;
-                                    });
-    if (!test_res)
-    {
-        std::cerr << "Test connection failed: " << test_res.error() << "\n";
-        std::cerr << "Server may not be ready yet\n";
-    }
-
+    // Verify server is running
     if (!server.running())
     {
         std::cerr << "Server not running after start\n";
@@ -86,6 +69,9 @@ int main()
     std::thread sse_thread(
         [&]()
         {
+            // Give server a moment to fully initialize before first connection attempt
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
             auto sse_receiver = [&](const char* data, size_t len)
             {
                 sse_connected = true;
