@@ -1,4 +1,4 @@
-#include "fastmcpp/prompts/manager.hpp"
+﻿#include "fastmcpp/prompts/manager.hpp"
 #include "fastmcpp/resources/manager.hpp"
 #include "fastmcpp/server/context.hpp"
 

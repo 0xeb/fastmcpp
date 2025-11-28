@@ -4168,6 +4168,7 @@ void test_server_info()
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     auto info = c.initialize();
+    assert(!info.serverInfo.name.empty());
     assert(info.serverInfo.name == "test_server");
     assert(info.serverInfo.version == "1.0.0");
 
