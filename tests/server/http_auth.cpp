@@ -17,8 +17,8 @@ int main()
     const int port = 18082;
     const std::string token = "secret-token";
     const std::string origin = "https://example.com";
-    server::HttpServerWrapper http{core, "127.0.0.1", port, token, origin,
-                                   static_cast<size_t>(1024 * 16)};
+    server::HttpServerWrapper http{core,  "127.0.0.1", port,
+                                   token, origin,      static_cast<size_t>(1024 * 16)};
     if (!http.start())
     {
         std::cerr << "failed to start HTTP server\n";

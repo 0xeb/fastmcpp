@@ -3,7 +3,8 @@
 
 #include "interactions_fixture.hpp"
 
-namespace fastmcpp {
+namespace fastmcpp
+{
 
 std::shared_ptr<server::Server> create_resource_interaction_server();
 

@@ -540,254 +540,338 @@ int main()
     int passed = 0;
     int failed = 0;
 
-    try {
+    try
+    {
         test_tool_exists();
         std::cout << "[PASS] test_tool_exists" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_tool_exists: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_list_tools_count();
         std::cout << "[PASS] test_list_tools_count" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_list_tools_count: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_call_tool_basic();
         std::cout << "[PASS] test_call_tool_basic" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_call_tool_basic: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_call_tool_structured_content();
         std::cout << "[PASS] test_call_tool_structured_content" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_call_tool_structured_content: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_call_tool_error();
         std::cout << "[PASS] test_call_tool_error" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_call_tool_error: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_call_tool_list_return();
         std::cout << "[PASS] test_call_tool_list_return" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_call_tool_list_return: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_call_tool_nested_return();
         std::cout << "[PASS] test_call_tool_nested_return" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_call_tool_nested_return: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_call_tool_optional_params();
         std::cout << "[PASS] test_call_tool_optional_params" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_call_tool_optional_params: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_tool_input_schema_present();
         std::cout << "[PASS] test_tool_input_schema_present" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_tool_input_schema_present: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_tool_required_params();
         std::cout << "[PASS] test_tool_required_params" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_tool_required_params: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_tool_default_values();
         std::cout << "[PASS] test_tool_default_values" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_tool_default_values: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_multiple_tool_calls();
         std::cout << "[PASS] test_multiple_tool_calls" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_multiple_tool_calls: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_interleaved_operations();
         std::cout << "[PASS] test_interleaved_operations" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_interleaved_operations: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_list_resources();
         std::cout << "[PASS] test_list_resources" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_list_resources: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_read_resource_text();
         std::cout << "[PASS] test_read_resource_text" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_read_resource_text: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_read_resource_blob();
         std::cout << "[PASS] test_read_resource_blob" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_read_resource_blob: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_list_resource_templates();
         std::cout << "[PASS] test_list_resource_templates" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_list_resource_templates: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_resource_with_description();
         std::cout << "[PASS] test_resource_with_description" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_resource_with_description: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_list_prompts();
         std::cout << "[PASS] test_list_prompts" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_list_prompts: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_prompt_has_arguments();
         std::cout << "[PASS] test_prompt_has_arguments" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_prompt_has_arguments: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_get_prompt_basic();
         std::cout << "[PASS] test_get_prompt_basic" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_get_prompt_basic: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_get_prompt_with_args();
         std::cout << "[PASS] test_get_prompt_with_args" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_get_prompt_with_args: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_prompt_no_args();
         std::cout << "[PASS] test_prompt_no_args" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_prompt_no_args: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_tool_meta_present();
         std::cout << "[PASS] test_tool_meta_present" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_tool_meta_present: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_call_tool_with_meta();
         std::cout << "[PASS] test_call_tool_with_meta" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_call_tool_with_meta: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_call_tool_without_meta();
         std::cout << "[PASS] test_call_tool_without_meta" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_call_tool_without_meta: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_tool_has_output_schema();
         std::cout << "[PASS] test_tool_has_output_schema" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_tool_has_output_schema: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_structured_content_object();
         std::cout << "[PASS] test_structured_content_object" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_structured_content_object: " << e.what() << std::endl;
         failed++;
     }

@@ -2,7 +2,8 @@
 
 #include "interactions_helpers.hpp"
 
-namespace fastmcpp {
+namespace fastmcpp
+{
 
 std::shared_ptr<server::Server> create_resource_interaction_server()
 {

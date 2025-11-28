@@ -515,254 +515,338 @@ int main()
     int passed = 0;
     int failed = 0;
 
-    try {
+    try
+    {
         test_structured_content_array();
         std::cout << "[PASS] test_structured_content_array" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_structured_content_array: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_tool_without_output_schema();
         std::cout << "[PASS] test_tool_without_output_schema" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_tool_without_output_schema: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_single_text_content();
         std::cout << "[PASS] test_single_text_content" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_single_text_content: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_multiple_text_content();
         std::cout << "[PASS] test_multiple_text_content" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_multiple_text_content: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_mixed_content_types();
         std::cout << "[PASS] test_mixed_content_types" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_mixed_content_types: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_tool_returns_error_flag();
         std::cout << "[PASS] test_tool_returns_error_flag" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_tool_returns_error_flag: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_tool_call_nonexistent();
         std::cout << "[PASS] test_tool_call_nonexistent" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_tool_call_nonexistent: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_unicode_in_tool_description();
         std::cout << "[PASS] test_unicode_in_tool_description" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_unicode_in_tool_description: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_unicode_echo_roundtrip();
         std::cout << "[PASS] test_unicode_echo_roundtrip" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_unicode_echo_roundtrip: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_unicode_in_resource_uri();
         std::cout << "[PASS] test_unicode_in_resource_uri" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_unicode_in_resource_uri: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_unicode_in_prompt_description();
         std::cout << "[PASS] test_unicode_in_prompt_description" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_unicode_in_prompt_description: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_large_response();
         std::cout << "[PASS] test_large_response" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_large_response: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_large_request();
         std::cout << "[PASS] test_large_request" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_large_request: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_empty_string_response();
         std::cout << "[PASS] test_empty_string_response" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_empty_string_response: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_null_values_in_response();
         std::cout << "[PASS] test_null_values_in_response" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_null_values_in_response: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_special_characters();
         std::cout << "[PASS] test_special_characters" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_special_characters: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_tools_pagination_first_page();
         std::cout << "[PASS] test_tools_pagination_first_page" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_tools_pagination_first_page: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_tools_pagination_second_page();
         std::cout << "[PASS] test_tools_pagination_second_page" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_tools_pagination_second_page: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_resources_pagination();
         std::cout << "[PASS] test_resources_pagination" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_resources_pagination: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_prompts_pagination();
         std::cout << "[PASS] test_prompts_pagination" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_prompts_pagination: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_completion_for_prompt();
         std::cout << "[PASS] test_completion_for_prompt" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_completion_for_prompt: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_completion_for_resource();
         std::cout << "[PASS] test_completion_for_resource" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_completion_for_resource: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_resource_multiple_contents();
         std::cout << "[PASS] test_resource_multiple_contents" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_resource_multiple_contents: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_prompt_multiple_messages();
         std::cout << "[PASS] test_prompt_multiple_messages" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_prompt_multiple_messages: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_integer_values();
         std::cout << "[PASS] test_integer_values" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_integer_values: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_float_values();
         std::cout << "[PASS] test_float_values" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_float_values: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_large_integer();
         std::cout << "[PASS] test_large_integer" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_large_integer: " << e.what() << std::endl;
         failed++;
     }
 
-    try {
+    try
+    {
         test_boolean_values();
         std::cout << "[PASS] test_boolean_values" << std::endl;
         passed++;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         std::cout << "[FAIL] test_boolean_values: " << e.what() << std::endl;
         failed++;
     }

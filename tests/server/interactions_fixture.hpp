@@ -14,7 +14,8 @@
 
 using namespace fastmcpp;
 
-namespace fastmcpp {
+namespace fastmcpp
+{
 
 inline std::shared_ptr<server::Server> create_interaction_server()
 {
