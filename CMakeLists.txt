@@ -233,29 +233,33 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_server_patterns PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_patterns COMMAND fastmcpp_server_patterns)
 
-  # Server interactions split into 6 parts to avoid MSVC heap exhaustion
+  # Server interactions helpers library (compiled separately to avoid MSVC heap exhaustion)
+  add_library(fastmcpp_interactions_helpers STATIC tests/server/interactions_helpers.cpp)
+  target_link_libraries(fastmcpp_interactions_helpers PRIVATE fastmcpp_core)
+
+  # Server interactions split into 6 parts
   add_executable(fastmcpp_server_interactions_p1 tests/server/interactions_p1.cpp)
-  target_link_libraries(fastmcpp_server_interactions_p1 PRIVATE fastmcpp_core)
+  target_link_libraries(fastmcpp_server_interactions_p1 PRIVATE fastmcpp_core fastmcpp_interactions_helpers)
   add_test(NAME fastmcpp_server_interactions_p1 COMMAND fastmcpp_server_interactions_p1)
 
   add_executable(fastmcpp_server_interactions_p2 tests/server/interactions_p2.cpp)
-  target_link_libraries(fastmcpp_server_interactions_p2 PRIVATE fastmcpp_core)
+  target_link_libraries(fastmcpp_server_interactions_p2 PRIVATE fastmcpp_core fastmcpp_interactions_helpers)
   add_test(NAME fastmcpp_server_interactions_p2 COMMAND fastmcpp_server_interactions_p2)
 
   add_executable(fastmcpp_server_interactions_p3 tests/server/interactions_p3.cpp)
-  target_link_libraries(fastmcpp_server_interactions_p3 PRIVATE fastmcpp_core)
+  target_link_libraries(fastmcpp_server_interactions_p3 PRIVATE fastmcpp_core fastmcpp_interactions_helpers)
   add_test(NAME fastmcpp_server_interactions_p3 COMMAND fastmcpp_server_interactions_p3)
 
   add_executable(fastmcpp_server_interactions_p4 tests/server/interactions_p4.cpp)
-  target_link_libraries(fastmcpp_server_interactions_p4 PRIVATE fastmcpp_core)
+  target_link_libraries(fastmcpp_server_interactions_p4 PRIVATE fastmcpp_core fastmcpp_interactions_helpers)
   add_test(NAME fastmcpp_server_interactions_p4 COMMAND fastmcpp_server_interactions_p4)
 
   add_executable(fastmcpp_server_interactions_p5 tests/server/interactions_p5.cpp)
-  target_link_libraries(fastmcpp_server_interactions_p5 PRIVATE fastmcpp_core)
+  target_link_libraries(fastmcpp_server_interactions_p5 PRIVATE fastmcpp_core fastmcpp_interactions_helpers)
   add_test(NAME fastmcpp_server_interactions_p5 COMMAND fastmcpp_server_interactions_p5)
 
   add_executable(fastmcpp_server_interactions_p6 tests/server/interactions_p6.cpp)
-  target_link_libraries(fastmcpp_server_interactions_p6 PRIVATE fastmcpp_core)
+  target_link_libraries(fastmcpp_server_interactions_p6 PRIVATE fastmcpp_core fastmcpp_interactions_helpers)
   add_test(NAME fastmcpp_server_interactions_p6 COMMAND fastmcpp_server_interactions_p6)
 
   add_executable(fastmcpp_server_context_meta tests/server/context_meta.cpp)
