@@ -229,9 +229,18 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_server_patterns PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_patterns COMMAND fastmcpp_server_patterns)
 
-  add_executable(fastmcpp_server_interactions tests/server/interactions.cpp)
-  target_link_libraries(fastmcpp_server_interactions PRIVATE fastmcpp_core)
-  add_test(NAME fastmcpp_server_interactions COMMAND fastmcpp_server_interactions)
+  # Split into 3 parts to avoid MSVC heap exhaustion on CI (C1060)
+  add_executable(fastmcpp_server_interactions_part1 tests/server/interactions_part1.cpp)
+  target_link_libraries(fastmcpp_server_interactions_part1 PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_interactions_part1 COMMAND fastmcpp_server_interactions_part1)
+
+  add_executable(fastmcpp_server_interactions_part2 tests/server/interactions_part2.cpp)
+  target_link_libraries(fastmcpp_server_interactions_part2 PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_interactions_part2 COMMAND fastmcpp_server_interactions_part2)
+
+  add_executable(fastmcpp_server_interactions_part3 tests/server/interactions_part3.cpp)
+  target_link_libraries(fastmcpp_server_interactions_part3 PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_interactions_part3 COMMAND fastmcpp_server_interactions_part3)
 
   add_executable(fastmcpp_server_context_meta tests/server/context_meta.cpp)
   target_link_libraries(fastmcpp_server_context_meta PRIVATE fastmcpp_core)
