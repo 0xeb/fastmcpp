@@ -53,7 +53,6 @@ jobs:
         run: >
           cmake -B build -S .
           -G "Visual Studio 17 2022"
-          -A x64
           -T host=x64
           -DFASTMCPP_BUILD_TESTS=ON
           -DFASTMCPP_BUILD_EXAMPLES=ON
