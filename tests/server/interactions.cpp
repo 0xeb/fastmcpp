@@ -4154,8 +4154,8 @@ void test_server_protocol_version()
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     auto info = c.initialize();
-    assert(info.contains("protocolVersion"));
-    assert(info["protocolVersion"] == "2024-11-05");
+    assert(!info.protocolVersion.empty());
+    assert(info.protocolVersion == "2024-11-05");
 
     std::cout << "  [PASS] protocol version returned\n";
 }
@@ -4168,9 +4168,9 @@ void test_server_info()
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     auto info = c.initialize();
-    assert(info.contains("serverInfo"));
-    assert(info["serverInfo"]["name"] == "test_server");
-    assert(info["serverInfo"]["version"] == "1.0.0");
+    assert(!info.serverInfo.name.empty());
+    assert(info.serverInfo.name == "test_server");
+    assert(info.serverInfo.version == "1.0.0");
 
     std::cout << "  [PASS] server info returned\n";
 }
@@ -4183,10 +4183,9 @@ void test_server_capabilities()
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     auto info = c.initialize();
-    assert(info.contains("capabilities"));
-    assert(info["capabilities"].contains("tools"));
-    assert(info["capabilities"].contains("resources"));
-    assert(info["capabilities"]["tools"]["listChanged"] == true);
+    assert(info.capabilities.tools.has_value());
+    assert(info.capabilities.resources.has_value());
+    assert((*info.capabilities.tools)["listChanged"] == true);
 
     std::cout << "  [PASS] capabilities returned\n";
 }
@@ -4199,8 +4198,8 @@ void test_server_instructions()
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     auto info = c.initialize();
-    assert(info.contains("instructions"));
-    assert(info["instructions"] == "Server with full capabilities");
+    assert(info.instructions.has_value());
+    assert(*info.instructions == "Server with full capabilities");
 
     std::cout << "  [PASS] instructions returned\n";
 }
