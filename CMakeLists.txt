@@ -206,12 +206,15 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_sse_server tests/server/sse.cpp)
   target_link_libraries(fastmcpp_sse_server PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_sse_server COMMAND fastmcpp_sse_server)
+  # Avoid port conflicts with parallel tests; SSE tests can be flaky on CI
+  set_tests_properties(fastmcpp_sse_server PROPERTIES RUN_SERIAL TRUE)
 
   # MCP SSE format compliance test (regression test for GitHub Issue #1)
   add_executable(fastmcpp_sse_mcp_format tests/server/sse_mcp_format.cpp)
   target_link_libraries(fastmcpp_sse_mcp_format PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_sse_mcp_format COMMAND fastmcpp_sse_mcp_format)
 
+  set_tests_properties(fastmcpp_sse_mcp_format PROPERTIES RUN_SERIAL TRUE)
   # Advanced test suites (Task 3.4)
   add_executable(fastmcpp_tools_validation tests/tools/validation.cpp)
   target_link_libraries(fastmcpp_tools_validation PRIVATE fastmcpp_core)
