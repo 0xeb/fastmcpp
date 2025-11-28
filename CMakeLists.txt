@@ -234,7 +234,13 @@ if(FASTMCPP_BUILD_TESTS)
   add_test(NAME fastmcpp_server_patterns COMMAND fastmcpp_server_patterns)
 
   # Server interactions helpers library (compiled separately to avoid MSVC heap exhaustion)
-  add_library(fastmcpp_interactions_helpers STATIC tests/server/interactions_helpers.cpp)
+  add_library(fastmcpp_interactions_helpers STATIC
+    tests/server/interactions_helpers_p1.cpp
+    tests/server/interactions_helpers_p2.cpp
+    tests/server/interactions_helpers_p3.cpp
+    tests/server/interactions_helpers_p4.cpp
+    tests/server/interactions_helpers_p5.cpp
+  )
   target_link_libraries(fastmcpp_interactions_helpers PRIVATE fastmcpp_core)
 
   # Server interactions split into 6 parts
