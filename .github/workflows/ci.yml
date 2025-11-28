@@ -49,9 +49,12 @@ jobs:
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
+        # Use x64 host tools for more compiler heap space (avoids C1060 errors on template-heavy code)
         run: >
           cmake -B build -S .
           -G "Visual Studio 17 2022"
+          -A x64
+          -T host=x64
           -DFASTMCPP_BUILD_TESTS=ON
           -DFASTMCPP_BUILD_EXAMPLES=ON
 
