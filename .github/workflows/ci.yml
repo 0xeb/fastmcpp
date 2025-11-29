@@ -35,9 +35,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build/_deps
-          key: deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('CMakeLists.txt') }}
+          key: deps-${{ runner.os }}-${{ runner.arch }}-x64-${{ hashFiles('CMakeLists.txt') }}
           restore-keys: |
-            deps-${{ runner.os }}-${{ runner.arch }}-
+            deps-${{ runner.os }}-${{ runner.arch }}-x64-
 
       - name: Configure (Unix)
         if: runner.os != 'Windows'
@@ -49,11 +49,9 @@ jobs:
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
-        run: >
-          cmake -B build -S .
-          -G "Visual Studio 17 2022"
-          -DFASTMCPP_BUILD_TESTS=ON
-          -DFASTMCPP_BUILD_EXAMPLES=ON
+        run: |
+          if (Test-Path build) { Remove-Item -Recurse -Force build/CMakeCache.txt, build/CMakeFiles -ErrorAction SilentlyContinue }
+          cmake -B build -S . -G "Visual Studio 17 2022" -A x64 -DFASTMCPP_BUILD_TESTS=ON -DFASTMCPP_BUILD_EXAMPLES=ON
 
       - name: Build (Unix)
         if: runner.os != 'Windows'
@@ -61,8 +59,9 @@ jobs:
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
-        # Single-threaded build on Windows to avoid compiler heap space issues with large test files
-        run: cmake --build build --config ${{ matrix.build_type }} --parallel 1
+        # Single-threaded build to avoid C1060 "compiler out of heap space" on GitHub's 16GB Windows runners
+        # Even /m:4 exhausts heap with deeply nested JSON initializers in test files
+        run: cmake --build build --config ${{ matrix.build_type }} -- /m:1 /p:CL_MPCount=1
 
       - name: Test
         run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure
