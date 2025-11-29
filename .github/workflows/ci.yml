@@ -49,11 +49,9 @@ jobs:
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
-        run: >
-          cmake -B build -S .
-          -G "Visual Studio 17 2022" -A x64
-          -DFASTMCPP_BUILD_TESTS=ON
-          -DFASTMCPP_BUILD_EXAMPLES=ON
+        run: |
+          if (Test-Path build/CMakeCache.txt) { Remove-Item build/CMakeCache.txt -Force }
+          cmake -B build -S . -G "Visual Studio 17 2022" -A x64 -DFASTMCPP_BUILD_TESTS=ON -DFASTMCPP_BUILD_EXAMPLES=ON
 
       - name: Build (Unix)
         if: runner.os != 'Windows'
