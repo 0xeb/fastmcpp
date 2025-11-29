@@ -59,9 +59,9 @@ jobs:
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
-        # Reduce parallelism to avoid C1060 "compiler out of heap space" on GitHub's 16GB Windows runners
-        # /m:4 limits MSBuild workers, /p:CL_MPCount=1 disables cl.exe's /MP flag
-        run: cmake --build build --config ${{ matrix.build_type }} -- /m:4 /p:CL_MPCount=1
+        # Single-threaded build to avoid C1060 "compiler out of heap space" on GitHub's 16GB Windows runners
+        # Even /m:4 exhausts heap with deeply nested JSON initializers in test files
+        run: cmake --build build --config ${{ matrix.build_type }} -- /m:1 /p:CL_MPCount=1
 
       - name: Test
         run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure
