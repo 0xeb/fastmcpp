@@ -520,6 +520,31 @@ std::shared_ptr<server::Server> create_schema_edge_server()
         "tools/list",
         [](const Json&)
         {
+            // Build deeply nested schema programmatically to avoid MSVC C1060 on CI
+            Json value_schema;
+            value_schema["type"] = "string";
+
+            Json level2_props;
+            level2_props["value"] = value_schema;
+
+            Json level2_schema;
+            level2_schema["type"] = "object";
+            level2_schema["properties"] = level2_props;
+
+            Json level1_props;
+            level1_props["level2"] = level2_schema;
+
+            Json level1_schema;
+            level1_schema["type"] = "object";
+            level1_schema["properties"] = level1_props;
+
+            Json nested_props;
+            nested_props["level1"] = level1_schema;
+
+            Json nested_input_schema;
+            nested_input_schema["type"] = "object";
+            nested_input_schema["properties"] = nested_props;
+
             return Json{
                 {"tools",
                  Json::array(
@@ -533,20 +558,8 @@ std::shared_ptr<server::Server> create_schema_edge_server()
                       Json{{"name", "additional"},
                            {"inputSchema",
                             Json{{"type", "object"}, {"additionalProperties", true}}}},
-                      // Tool with deeply nested schema
-                      Json{{"name", "nested_schema"},
-                           {"inputSchema",
-                            Json{{"type", "object"},
-                                 {"properties",
-                                  Json{{"level1",
-                                        Json{{"type", "object"},
-                                             {"properties",
-                                              Json{{"level2",
-                                                    Json{{"type", "object"},
-                                                         {"properties",
-                                                          Json{{"value",
-                                                                {{"type",
-                                                                  "string"}}}}}}}}}}}}}}}}})}};
+                      // Tool with deeply nested schema (built programmatically)
+                      Json{{"name", "nested_schema"}, {"inputSchema", nested_input_schema}}})}};
         });
 
     srv->route("tools/call",
