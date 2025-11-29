@@ -50,7 +50,7 @@ jobs:
       - name: Configure (Windows)
         if: runner.os == 'Windows'
         run: |
-          if (Test-Path build/CMakeCache.txt) { Remove-Item build/CMakeCache.txt -Force }
+          if (Test-Path build) { Remove-Item -Recurse -Force build/CMakeCache.txt, build/CMakeFiles -ErrorAction SilentlyContinue }
           cmake -B build -S . -G "Visual Studio 17 2022" -A x64 -DFASTMCPP_BUILD_TESTS=ON -DFASTMCPP_BUILD_EXAMPLES=ON
 
       - name: Build (Unix)
