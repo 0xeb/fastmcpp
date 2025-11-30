@@ -42,6 +42,7 @@ int main()
     std::vector<int> seen;
     std::mutex m;
     std::atomic<bool> sse_connected{false};
+    std::string session_id;
 
     httplib::Client cli("127.0.0.1", port);
     cli.set_connection_timeout(std::chrono::seconds(10));
@@ -53,6 +54,28 @@ int main()
             {
                 sse_connected = true;
                 std::string chunk(data, len);
+
+                // Parse SSE endpoint event to extract session_id
+                if (chunk.find("event: endpoint") != std::string::npos)
+                {
+                    size_t data_pos = chunk.find("data: ");
+                    if (data_pos != std::string::npos)
+                    {
+                        size_t start = data_pos + 6;
+                        size_t end = chunk.find_first_of("\n\r", start);
+                        std::string endpoint_url = chunk.substr(start, end - start);
+
+                        size_t sid_pos = endpoint_url.find("session_id=");
+                        if (sid_pos != std::string::npos)
+                        {
+                            size_t sid_start = sid_pos + 11;
+                            size_t sid_end = endpoint_url.find_first_of("&\n\r", sid_start);
+                            std::lock_guard<std::mutex> lock(m);
+                            session_id = endpoint_url.substr(sid_start, sid_end - sid_start);
+                        }
+                    }
+                }
+
                 if (chunk.find("data: ") == 0)
                 {
                     size_t start = 6;
@@ -102,11 +125,36 @@ int main()
         return 1;
     }
 
+    // Wait for session_id to be extracted
+    for (int i = 0; i < 100; ++i)
+    {
+        std::lock_guard<std::mutex> lock(m);
+        if (!session_id.empty())
+            break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    std::string sid;
+    {
+        std::lock_guard<std::mutex> lock(m);
+        sid = session_id;
+    }
+
+    if (sid.empty())
+    {
+        server->stop();
+        if (sse_thread.joinable())
+            sse_thread.join();
+        std::cerr << "Failed to extract session_id" << std::endl;
+        return 1;
+    }
+
     httplib::Client post("127.0.0.1", port);
     for (int i = 1; i <= 3; ++i)
     {
         Json j = Json{{"n", i}};
-        auto res = post.Post("/messages", j.dump(), "application/json");
+        std::string post_url = "/messages?session_id=" + sid;
+        auto res = post.Post(post_url, j.dump(), "application/json");
         if (!res || res->status != 200)
         {
             server->stop();

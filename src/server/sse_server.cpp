@@ -5,15 +5,20 @@
 
 #include <chrono>
 #include <httplib.h>
+#include <iomanip>
 #include <iostream>
+#include <random>
+#include <sstream>
 
 namespace fastmcpp::server
 {
 
 SseServerWrapper::SseServerWrapper(McpHandler handler, std::string host, int port,
-                                   std::string sse_path, std::string message_path)
+                                   std::string sse_path, std::string message_path,
+                                   std::string auth_token, std::string cors_origin)
     : handler_(std::move(handler)), host_(std::move(host)), port_(port),
-      sse_path_(std::move(sse_path)), message_path_(std::move(message_path))
+      sse_path_(std::move(sse_path)), message_path_(std::move(message_path)),
+      auth_token_(std::move(auth_token)), cors_origin_(std::move(cors_origin))
 {
 }
 
@@ -22,12 +27,39 @@ SseServerWrapper::~SseServerWrapper()
     stop();
 }
 
-void SseServerWrapper::handle_sse_connection(httplib::DataSink& sink,
-                                             std::shared_ptr<ConnectionState> conn)
+bool SseServerWrapper::check_auth(const std::string& auth_header) const
 {
+    // If no auth token configured, allow all requests
+    if (auth_token_.empty())
+        return true;
 
-    // Generate session ID for this connection
-    auto session_id = std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+    // Check for "Bearer <token>" format
+    if (auth_header.find("Bearer ") != 0)
+        return false;
+
+    std::string provided_token = auth_header.substr(7); // Skip "Bearer "
+    return provided_token == auth_token_;
+}
+
+std::string SseServerWrapper::generate_session_id()
+{
+    // Generate cryptographically secure random session ID (128 bits = 32 hex chars)
+    std::random_device rd;
+    std::mt19937_64 gen(rd());
+    std::uniform_int_distribution<uint64_t> dis;
+
+    uint64_t high = dis(gen);
+    uint64_t low = dis(gen);
+
+    std::ostringstream oss;
+    oss << std::hex << std::setfill('0') << std::setw(16) << high << std::setw(16) << low;
+    return oss.str();
+}
+
+void SseServerWrapper::handle_sse_connection(httplib::DataSink& sink,
+                                             std::shared_ptr<ConnectionState> conn,
+                                             const std::string& session_id)
+{
 
     // Send initial comment to establish connection
     std::string welcome = ": SSE connection established\n\n";
@@ -107,7 +139,7 @@ void SseServerWrapper::send_event_to_all_clients(const fastmcpp::Json& event)
     std::lock_guard<std::mutex> lock(conns_mutex_);
     for (auto it = connections_.begin(); it != connections_.end();)
     {
-        auto conn = *it;
+        auto& [session_id, conn] = *it;
         if (!conn->alive)
         {
             it = connections_.erase(it);
@@ -115,11 +147,48 @@ void SseServerWrapper::send_event_to_all_clients(const fastmcpp::Json& event)
         }
         {
             std::lock_guard<std::mutex> ql(conn->m);
+            // Enforce queue size limit
+            if (conn->queue.size() >= MAX_QUEUE_SIZE)
+            {
+                // Drop oldest event when queue is full
+                conn->queue.pop_front();
+            }
             conn->queue.push_back(event);
         }
         conn->cv.notify_one();
         ++it;
     }
+}
+
+void SseServerWrapper::send_event_to_session(const std::string& session_id,
+                                             const fastmcpp::Json& event)
+{
+    std::lock_guard<std::mutex> lock(conns_mutex_);
+    auto it = connections_.find(session_id);
+    if (it == connections_.end())
+    {
+        // Session not found - likely disconnected or invalid
+        return;
+    }
+
+    auto& conn = it->second;
+    if (!conn->alive)
+    {
+        connections_.erase(it);
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> ql(conn->m);
+        // Enforce queue size limit
+        if (conn->queue.size() >= MAX_QUEUE_SIZE)
+        {
+            // Drop oldest event when queue is full
+            conn->queue.pop_front();
+        }
+        conn->queue.push_back(event);
+    }
+    conn->cv.notify_one();
 }
 
 void SseServerWrapper::run_server()
@@ -136,28 +205,74 @@ bool SseServerWrapper::start()
 
     svr_ = std::make_unique<httplib::Server>();
 
+    // Security: Set payload and timeout limits to prevent DoS
+    svr_->set_payload_max_length(10 * 1024 * 1024); // 10MB max payload
+    svr_->set_read_timeout(30, 0);                  // 30 second read timeout
+    svr_->set_write_timeout(30, 0);                 // 30 second write timeout
+
     // Set up SSE endpoint (GET)
     svr_->Get(sse_path_,
-              [this](const httplib::Request&, httplib::Response& res)
+              [this](const httplib::Request& req, httplib::Response& res)
               {
+                  // Security: Check authentication if configured
+                  if (!auth_token_.empty())
+                  {
+                      auto auth_it = req.headers.find("Authorization");
+                      if (auth_it == req.headers.end() || !check_auth(auth_it->second))
+                      {
+                          res.status = 401;
+                          res.set_content("{\"error\":\"Unauthorized\"}", "application/json");
+                          return;
+                      }
+                  }
+
+                  // Security: Check connection limit before accepting new connection
+                  {
+                      std::lock_guard<std::mutex> lock(conns_mutex_);
+                      if (connections_.size() >= MAX_CONNECTIONS)
+                      {
+                          res.status = 503; // Service Unavailable
+                          res.set_content("{\"error\":\"Maximum connections reached\"}",
+                                          "application/json");
+                          return;
+                      }
+                  }
+
                   res.status = 200;
                   res.set_header("Content-Type", "text/event-stream; charset=utf-8");
                   res.set_header("Cache-Control", "no-cache, no-transform");
                   res.set_header("Connection", "keep-alive");
                   res.set_header("Transfer-Encoding", "chunked");
-                  res.set_header("Access-Control-Allow-Origin", "*");
+
+                  // Security: Only set CORS header if explicitly configured
+                  if (!cors_origin_.empty())
+                      res.set_header("Access-Control-Allow-Origin", cors_origin_);
+
                   res.set_header("X-Accel-Buffering", "no");
 
                   res.set_chunked_content_provider(
                       "text/event-stream",
                       [this](size_t /*offset*/, httplib::DataSink& sink)
                       {
+                          // Generate cryptographically secure session ID
+                          auto session_id = generate_session_id();
+
                           auto conn = std::make_shared<ConnectionState>();
+                          conn->session_id = session_id;
+
                           {
                               std::lock_guard<std::mutex> lock(conns_mutex_);
-                              connections_.push_back(conn);
+                              connections_[session_id] = conn;
                           }
-                          handle_sse_connection(sink, conn);
+
+                          handle_sse_connection(sink, conn, session_id);
+
+                          // Clean up disconnected session
+                          {
+                              std::lock_guard<std::mutex> lock(conns_mutex_);
+                              connections_.erase(session_id);
+                          }
+
                           return false; // End stream when handle_sse_connection returns
                       },
                       [](bool) {});
@@ -188,14 +303,56 @@ bool SseServerWrapper::start()
         {
             try
             {
+                // Security: Check authentication if configured
+                if (!auth_token_.empty())
+                {
+                    auto auth_it = req.headers.find("Authorization");
+                    if (auth_it == req.headers.end() || !check_auth(auth_it->second))
+                    {
+                        res.status = 401;
+                        res.set_content("{\"error\":\"Unauthorized\"}", "application/json");
+                        return;
+                    }
+                }
+
+                // Security: Only set CORS header if explicitly configured
+                if (!cors_origin_.empty())
+                    res.set_header("Access-Control-Allow-Origin", cors_origin_);
+
+                // Security: Require session_id parameter to prevent message injection
+                std::string session_id;
+                if (req.has_param("session_id"))
+                {
+                    session_id = req.get_param_value("session_id");
+                }
+                else
+                {
+                    res.status = 400;
+                    res.set_content("{\"error\":\"session_id parameter required\"}",
+                                    "application/json");
+                    return;
+                }
+
+                // Security: Verify session exists
+                {
+                    std::lock_guard<std::mutex> lock(conns_mutex_);
+                    if (connections_.find(session_id) == connections_.end())
+                    {
+                        res.status = 404;
+                        res.set_content("{\"error\":\"Invalid or expired session_id\"}",
+                                        "application/json");
+                        return;
+                    }
+                }
+
                 // Parse JSON-RPC request
                 auto request = fastmcpp::util::json::parse(req.body);
 
                 // Process with handler
                 auto response = handler_(request);
 
-                // Send response via SSE stream
-                send_event_to_all_clients(response);
+                // Send response only to the requesting session
+                send_event_to_session(session_id, response);
 
                 // Also return in HTTP response for compatibility
                 res.set_content(response.dump(), "application/json");
@@ -295,7 +452,7 @@ void SseServerWrapper::stop()
     // Wake any waiting connection queues
     {
         std::lock_guard<std::mutex> lock(conns_mutex_);
-        for (auto& conn : connections_)
+        for (auto& [session_id, conn] : connections_)
         {
             conn->alive = false;
             conn->cv.notify_all();

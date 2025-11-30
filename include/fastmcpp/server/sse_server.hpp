@@ -11,6 +11,7 @@
 #include <queue>
 #include <string>
 #include <thread>
+#include <unordered_map>
 
 namespace fastmcpp::server
 {
@@ -50,10 +51,13 @@ class SseServerWrapper
      * @param port Port to listen on (default: 18080)
      * @param sse_path Path for SSE GET endpoint (default: "/sse")
      * @param message_path Path for POST message endpoint (default: "/messages")
+     * @param auth_token Optional auth token for Bearer authentication (empty = no auth required)
+     * @param cors_origin Optional CORS origin to allow (empty = no CORS header, use "*" for
+     * wildcard)
      */
     explicit SseServerWrapper(McpHandler handler, std::string host = "127.0.0.1", int port = 18080,
-                              std::string sse_path = "/sse",
-                              std::string message_path = "/messages");
+                              std::string sse_path = "/sse", std::string message_path = "/messages",
+                              std::string auth_token = "", std::string cors_origin = "");
 
     ~SseServerWrapper();
 
@@ -118,29 +122,40 @@ class SseServerWrapper
   private:
     void run_server();
     void send_event_to_all_clients(const fastmcpp::Json& event);
+    void send_event_to_session(const std::string& session_id, const fastmcpp::Json& event);
+    std::string generate_session_id();
+    bool check_auth(const std::string& auth_header) const;
 
     McpHandler handler_;
     std::string host_;
     int port_;
     std::string sse_path_;
     std::string message_path_;
+    std::string auth_token_;  // Optional Bearer token for authentication
+    std::string cors_origin_; // Optional CORS origin (empty = no CORS)
 
     std::unique_ptr<httplib::Server> svr_;
     std::thread thread_;
     std::atomic<bool> running_{false};
 
+    // Security limits
+    static constexpr size_t MAX_CONNECTIONS = 100;
+    static constexpr size_t MAX_QUEUE_SIZE = 1000;
+
     struct ConnectionState
     {
+        std::string session_id;
         std::deque<fastmcpp::Json> queue;
         std::mutex m;
         std::condition_variable cv;
         bool alive{true};
     };
 
-    void handle_sse_connection(httplib::DataSink& sink, std::shared_ptr<ConnectionState> conn);
+    void handle_sse_connection(httplib::DataSink& sink, std::shared_ptr<ConnectionState> conn,
+                               const std::string& session_id);
 
-    // Active SSE connections (per-connection queues)
-    std::vector<std::shared_ptr<ConnectionState>> connections_;
+    // Active SSE connections mapped by session ID
+    std::unordered_map<std::string, std::shared_ptr<ConnectionState>> connections_;
     std::mutex conns_mutex_;
 };
 

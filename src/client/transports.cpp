@@ -21,45 +21,88 @@ namespace fastmcpp::client
 
 namespace
 {
-std::pair<std::string, int> parse_host_port(const std::string& base)
+struct ParsedUrl
 {
-    std::string host = base;
-    int port = 80;
-    // Strip scheme if present
-    auto scheme_pos = host.find("://");
+    std::string scheme; // "http" or "https"
+    std::string host;
+    int port;
+    bool is_https;
+};
+
+ParsedUrl parse_url(const std::string& base)
+{
+    ParsedUrl result;
+    std::string remaining = base;
+
+    // Extract scheme
+    auto scheme_pos = remaining.find("://");
     if (scheme_pos != std::string::npos)
-        host = host.substr(scheme_pos + 3);
+    {
+        result.scheme = remaining.substr(0, scheme_pos);
+        remaining = remaining.substr(scheme_pos + 3);
+    }
+    else
+    {
+        // Default to http if no scheme specified
+        result.scheme = "http";
+    }
+
+    // Validate scheme (only allow http/https)
+    if (result.scheme != "http" && result.scheme != "https")
+    {
+        throw fastmcpp::TransportError("Unsupported URL scheme: " + result.scheme +
+                                       " (only http and https are allowed)");
+    }
+
+    result.is_https = (result.scheme == "https");
+
     // If path segments exist, strip them
-    auto slash_pos = host.find('/');
+    auto slash_pos = remaining.find('/');
     if (slash_pos != std::string::npos)
-        host = host.substr(0, slash_pos);
+        remaining = remaining.substr(0, slash_pos);
+
     // Extract port if provided
-    auto colon_pos = host.rfind(':');
+    auto colon_pos = remaining.rfind(':');
     if (colon_pos != std::string::npos)
     {
-        std::string port_str = host.substr(colon_pos + 1);
-        host = host.substr(0, colon_pos);
+        std::string port_str = remaining.substr(colon_pos + 1);
+        result.host = remaining.substr(0, colon_pos);
         try
         {
-            port = std::stoi(port_str);
+            result.port = std::stoi(port_str);
         }
         catch (...)
         {
-            port = 80;
+            // Use default port for scheme
+            result.port = result.is_https ? 443 : 80;
         }
     }
-    return {host, port};
+    else
+    {
+        result.host = remaining;
+        // Use default port for scheme
+        result.port = result.is_https ? 443 : 80;
+    }
+
+    return result;
 }
 } // namespace
 
 fastmcpp::Json HttpTransport::request(const std::string& route, const fastmcpp::Json& payload)
 {
-    auto [host, port] = parse_host_port(base_url_);
-    httplib::Client cli(host.c_str(), port);
+    auto url = parse_url(base_url_);
+
+    // Security: Create client with full scheme://host:port URL for proper TLS handling
+    std::string full_url = url.scheme + "://" + url.host + ":" + std::to_string(url.port);
+    httplib::Client cli(full_url.c_str());
+
     cli.set_connection_timeout(5, 0);
     cli.set_keep_alive(true);
     cli.set_read_timeout(10, 0);
-    cli.set_follow_location(true);
+
+    // Security: Disable redirects by default to prevent SSRF and TLS downgrade attacks
+    cli.set_follow_location(false);
+
     cli.set_default_headers({{"Accept", "text/event-stream, application/json"}});
     auto res = cli.Post(("/" + route).c_str(), payload.dump(), "application/json");
     if (!res)
@@ -72,8 +115,12 @@ fastmcpp::Json HttpTransport::request(const std::string& route, const fastmcpp::
 void HttpTransport::request_stream(const std::string& route, const fastmcpp::Json& /*payload*/,
                                    const std::function<void(const fastmcpp::Json&)>& on_event)
 {
-    auto [host, port] = parse_host_port(base_url_);
-    httplib::Client cli(host.c_str(), port);
+    auto url = parse_url(base_url_);
+
+    // Security: Create client with full scheme://host:port URL for proper TLS handling
+    std::string full_url = url.scheme + "://" + url.host + ":" + std::to_string(url.port);
+    httplib::Client cli(full_url.c_str());
+
     cli.set_connection_timeout(5, 0);
     cli.set_keep_alive(true);
     cli.set_read_timeout(10, 0);

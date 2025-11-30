@@ -25,6 +25,7 @@ add_library(fastmcpp_core
     src/server/server.cpp
     src/server/context.cpp
     src/server/middleware.cpp
+    src/server/security_middleware.cpp
     src/server/http_server.cpp
     src/server/stdio_server.cpp
     src/server/sse_server.cpp
@@ -250,9 +251,39 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_server_context_meta PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_context_meta COMMAND fastmcpp_server_context_meta)
 
+  add_executable(fastmcpp_server_security_limits tests/server/security_limits.cpp)
+  target_link_libraries(fastmcpp_server_security_limits PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_security_limits COMMAND fastmcpp_server_security_limits)
+
+  add_executable(fastmcpp_server_sse_session_security tests/server/sse_session_security.cpp)
+  target_link_libraries(fastmcpp_server_sse_session_security PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_sse_session_security COMMAND fastmcpp_server_sse_session_security)
+
+  # SSE session security with fastmcpp::client::HttpTransport (not raw httplib)
+  add_executable(fastmcpp_client_sse_session_client tests/client/sse_session_client.cpp)
+  target_link_libraries(fastmcpp_client_sse_session_client PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_sse_session_client COMMAND fastmcpp_client_sse_session_client)
+
+  # SSE + HTTP integration (real network, not LoopbackTransport)
+  add_executable(fastmcpp_server_sse_http_integration tests/server/sse_http_integration.cpp)
+  target_link_libraries(fastmcpp_server_sse_http_integration PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_sse_http_integration COMMAND fastmcpp_server_sse_http_integration)
+
+  add_executable(fastmcpp_server_auth_cors_security tests/server/auth_cors_security.cpp)
+  target_link_libraries(fastmcpp_server_auth_cors_security PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_auth_cors_security COMMAND fastmcpp_server_auth_cors_security)
+
+  add_executable(fastmcpp_server_security_middleware tests/server/security_middleware.cpp)
+  target_link_libraries(fastmcpp_server_security_middleware PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_security_middleware COMMAND fastmcpp_server_security_middleware)
+
   add_executable(fastmcpp_client_transports tests/client/transports.cpp)
   target_link_libraries(fastmcpp_client_transports PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_client_transports COMMAND fastmcpp_client_transports)
+
+  add_executable(fastmcpp_client_http_client_security tests/client/http_client_security.cpp)
+  target_link_libraries(fastmcpp_client_http_client_security PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_http_client_security COMMAND fastmcpp_client_http_client_security)
 
   add_executable(fastmcpp_client_api_basic tests/client/api_basic.cpp)
   target_link_libraries(fastmcpp_client_api_basic PRIVATE fastmcpp_core)
