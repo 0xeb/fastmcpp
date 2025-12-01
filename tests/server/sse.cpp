@@ -64,6 +64,7 @@ int main()
     std::atomic<int> events_received{0};
     Json received_event;
     std::mutex event_mutex;
+    std::string session_id;
 
     // Start SSE connection in background thread (retry a few times for robustness)
     std::thread sse_thread(
@@ -76,6 +77,27 @@ int main()
             {
                 sse_connected = true;
                 std::string chunk(data, len);
+
+                // Parse SSE endpoint event to extract session_id
+                if (chunk.find("event: endpoint") != std::string::npos)
+                {
+                    size_t data_pos = chunk.find("data: ");
+                    if (data_pos != std::string::npos)
+                    {
+                        size_t start = data_pos + 6; // After "data: "
+                        size_t end = chunk.find_first_of("\n\r", start);
+                        std::string endpoint_url = chunk.substr(start, end - start);
+
+                        // Extract session_id from URL like "/messages?session_id=..."
+                        size_t sid_pos = endpoint_url.find("session_id=");
+                        if (sid_pos != std::string::npos)
+                        {
+                            size_t sid_start = sid_pos + 11; // After "session_id="
+                            size_t sid_end = endpoint_url.find_first_of("&\n\r", sid_start);
+                            session_id = endpoint_url.substr(sid_start, sid_end - sid_start);
+                        }
+                    }
+                }
 
                 // Parse SSE format: "data: <json>\n\n"
                 if (chunk.find("data: ") == 0)
@@ -137,7 +159,20 @@ int main()
         return 1;
     }
 
-    // Send a message via POST
+    // Wait for session_id to be extracted
+    for (int i = 0; i < 100 && session_id.empty(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    if (session_id.empty())
+    {
+        std::cerr << "Failed to extract session_id from SSE endpoint\n";
+        server.stop();
+        if (sse_thread.joinable())
+            sse_thread.detach();
+        return 1;
+    }
+
+    // Send a message via POST with session_id
     Json request;
     request["jsonrpc"] = "2.0";
     request["id"] = 1;
@@ -147,7 +182,10 @@ int main()
     httplib::Client post_client("127.0.0.1", port);
     post_client.set_connection_timeout(std::chrono::seconds(10));
     post_client.set_read_timeout(std::chrono::seconds(10));
-    auto post_res = post_client.Post("/messages", request.dump(), "application/json");
+
+    // Include session_id in POST URL
+    std::string post_url = "/messages?session_id=" + session_id;
+    auto post_res = post_client.Post(post_url, request.dump(), "application/json");
 
     if (!post_res || post_res->status != 200)
     {
