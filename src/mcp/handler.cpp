@@ -412,7 +412,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                  const std::unordered_map<std::string, std::string>& descriptions)
 {
     // Build meta vector from ToolManager
-    std::vector<std::tuple<std::string, std::string, fastmcpp::Json>> meta;
+    std::vector<std::tuple<std::string, std::string, fastmcpp::Json>> tools_meta;
     for (const auto& name : tools.list_names())
     {
         fastmcpp::Json schema = fastmcpp::Json::object();
@@ -428,9 +428,154 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
         auto it = descriptions.find(name);
         if (it != descriptions.end())
             desc = it->second;
-        meta.emplace_back(name, desc, schema);
+        tools_meta.emplace_back(name, desc, schema);
     }
-    return make_mcp_handler(server_name, version, server, meta);
+
+    // Create handler that captures both server AND tools
+    // This allows tools/call to use tools.invoke() directly
+    return
+        [server_name, version, &server, &tools, tools_meta](
+            const fastmcpp::Json& message) -> fastmcpp::Json
+    {
+        try
+        {
+            const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
+            std::string method = message.value("method", "");
+            fastmcpp::Json params = message.value("params", fastmcpp::Json::object());
+
+            if (method == "initialize")
+            {
+                fastmcpp::Json serverInfo = {{"name", server.name()},
+                                             {"version", server.version()}};
+                if (server.website_url())
+                    serverInfo["websiteUrl"] = *server.website_url();
+                if (server.icons())
+                {
+                    fastmcpp::Json icons_array = fastmcpp::Json::array();
+                    for (const auto& icon : *server.icons())
+                    {
+                        fastmcpp::Json icon_json;
+                        to_json(icon_json, icon);
+                        icons_array.push_back(icon_json);
+                    }
+                    serverInfo["icons"] = icons_array;
+                }
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"},
+                    {"id", id},
+                    {"result",
+                     {{"protocolVersion", "2024-11-05"},
+                      {"capabilities", fastmcpp::Json{{"tools", fastmcpp::Json::object()}}},
+                      {"serverInfo", serverInfo}}}};
+            }
+
+            if (method == "tools/list")
+            {
+                fastmcpp::Json tools_array = fastmcpp::Json::array();
+                for (const auto& name : tools.list_names())
+                {
+                    const auto& tool = tools.get(name);
+                    fastmcpp::Json tool_json = {{"name", name}, {"inputSchema", tool.input_schema()}};
+
+                    // Add optional fields from Tool
+                    if (tool.title())
+                        tool_json["title"] = *tool.title();
+                    if (tool.description())
+                        tool_json["description"] = *tool.description();
+                    if (tool.icons() && !tool.icons()->empty())
+                    {
+                        fastmcpp::Json icons_json = fastmcpp::Json::array();
+                        for (const auto& icon : *tool.icons())
+                        {
+                            fastmcpp::Json icon_obj = {{"src", icon.src}};
+                            if (icon.mime_type)
+                                icon_obj["mimeType"] = *icon.mime_type;
+                            if (icon.sizes)
+                                icon_obj["sizes"] = *icon.sizes;
+                            icons_json.push_back(icon_obj);
+                        }
+                        tool_json["icons"] = icons_json;
+                    }
+                    tools_array.push_back(tool_json);
+                }
+                return fastmcpp::Json{{"jsonrpc", "2.0"},
+                                      {"id", id},
+                                      {"result", fastmcpp::Json{{"tools", tools_array}}}};
+            }
+
+            if (method == "tools/call")
+            {
+                std::string name = params.value("name", "");
+                fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
+                if (name.empty())
+                    return jsonrpc_error(id, -32602, "Missing tool name");
+                try
+                {
+                    // Use tools.invoke() directly - this is why we capture tools
+                    auto result = tools.invoke(name, args);
+                    fastmcpp::Json content = fastmcpp::Json::array();
+                    if (result.is_object() && result.contains("content"))
+                        content = result.at("content");
+                    else if (result.is_array())
+                        content = result;
+                    else if (result.is_string())
+                        content = fastmcpp::Json::array(
+                            {fastmcpp::Json{{"type", "text"}, {"text", result.get<std::string>()}}});
+                    else
+                        content = fastmcpp::Json::array(
+                            {fastmcpp::Json{{"type", "text"}, {"text", result.dump()}}});
+                    return fastmcpp::Json{{"jsonrpc", "2.0"},
+                                          {"id", id},
+                                          {"result", fastmcpp::Json{{"content", content}}}};
+                }
+                catch (const std::exception& e)
+                {
+                    return jsonrpc_error(id, -32603, e.what());
+                }
+            }
+
+            // Resources, prompts, etc. - route through server
+            if (method == "resources/list" || method == "resources/read" ||
+                method == "prompts/list" || method == "prompts/get")
+            {
+                try
+                {
+                    auto routed = server.handle(method, params);
+                    return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", routed}};
+                }
+                catch (...)
+                {
+                    // Return empty result for unimplemented
+                    if (method == "resources/list")
+                        return fastmcpp::Json{
+                            {"jsonrpc", "2.0"},
+                            {"id", id},
+                            {"result", fastmcpp::Json{{"resources", fastmcpp::Json::array()}}}};
+                    if (method == "resources/read")
+                        return fastmcpp::Json{
+                            {"jsonrpc", "2.0"},
+                            {"id", id},
+                            {"result", fastmcpp::Json{{"contents", fastmcpp::Json::array()}}}};
+                    if (method == "prompts/list")
+                        return fastmcpp::Json{
+                            {"jsonrpc", "2.0"},
+                            {"id", id},
+                            {"result", fastmcpp::Json{{"prompts", fastmcpp::Json::array()}}}};
+                    if (method == "prompts/get")
+                        return fastmcpp::Json{
+                            {"jsonrpc", "2.0"},
+                            {"id", id},
+                            {"result", fastmcpp::Json{{"messages", fastmcpp::Json::array()}}}};
+                }
+            }
+
+            return jsonrpc_error(id, -32601, std::string("Method '") + method + "' not found");
+        }
+        catch (const std::exception& e)
+        {
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), -32603, e.what());
+        }
+    };
 }
 
 } // namespace fastmcpp::mcp
