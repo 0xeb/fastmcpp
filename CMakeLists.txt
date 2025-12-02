@@ -293,6 +293,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_client_api_advanced PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_client_api_advanced COMMAND fastmcpp_client_api_advanced)
 
+  add_executable(fastmcpp_client_api_icons tests/client/api_icons.cpp)
+  target_link_libraries(fastmcpp_client_api_icons PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_api_icons COMMAND fastmcpp_client_api_icons)
+
   add_executable(fastmcpp_server_middleware tests/server/middleware.cpp)
   target_link_libraries(fastmcpp_server_middleware PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_middleware COMMAND fastmcpp_server_middleware)
