@@ -1,5 +1,7 @@
 #include "fastmcpp/mcp/handler.hpp"
 
+#include <optional>
+
 namespace fastmcpp::mcp
 {
 
@@ -11,17 +13,37 @@ static fastmcpp::Json jsonrpc_error(const fastmcpp::Json& id, int code, const st
 }
 
 static fastmcpp::Json make_tool_entry(const std::string& name, const std::string& description,
-                                      const fastmcpp::Json& schema)
+                                      const fastmcpp::Json& schema,
+                                      const std::optional<std::string>& title = std::nullopt,
+                                      const std::optional<std::vector<fastmcpp::Icon>>& icons = std::nullopt)
 {
     fastmcpp::Json entry = {
         {"name", name},
-        {"description", description},
     };
+    if (title)
+        entry["title"] = *title;
+    if (!description.empty())
+        entry["description"] = description;
     // Schema may be empty
     if (!schema.is_null() && !schema.empty())
         entry["inputSchema"] = schema;
     else
         entry["inputSchema"] = fastmcpp::Json::object();
+    // Add icons if present
+    if (icons && !icons->empty())
+    {
+        fastmcpp::Json icons_json = fastmcpp::Json::array();
+        for (const auto& icon : *icons)
+        {
+            fastmcpp::Json icon_obj = {{"src", icon.src}};
+            if (icon.mime_type)
+                icon_obj["mimeType"] = *icon.mime_type;
+            if (icon.sizes)
+                icon_obj["sizes"] = *icon.sizes;
+            icons_json.push_back(icon_obj);
+        }
+        entry["icons"] = icons_json;
+    }
     return entry;
 }
 
@@ -59,6 +81,9 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 fastmcpp::Json tools_array = fastmcpp::Json::array();
                 for (auto& name : tools.list_names())
                 {
+                    // Get full tool object to access all fields
+                    const auto& tool = tools.get(name);
+                    
                     fastmcpp::Json schema = fastmcpp::Json::object();
                     auto it = input_schemas_override.find(name);
                     if (it != input_schemas_override.end())
@@ -69,7 +94,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     {
                         try
                         {
-                            schema = tools.input_schema_for(name);
+                            schema = tool.input_schema();
                         }
                         catch (...)
                         {
@@ -77,11 +102,16 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                         }
                     }
 
+                    // Get description from override map or from tool
                     std::string desc = "";
                     auto dit = descriptions.find(name);
                     if (dit != descriptions.end())
                         desc = dit->second;
-                    tools_array.push_back(make_tool_entry(name, desc, schema));
+                    else if (tool.description())
+                        desc = *tool.description();
+                    
+                    tools_array.push_back(make_tool_entry(name, desc, schema, 
+                                                          tool.title(), tool.icons()));
                 }
 
                 return fastmcpp::Json{{"jsonrpc", "2.0"},

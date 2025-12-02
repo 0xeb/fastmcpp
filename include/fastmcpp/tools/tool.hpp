@@ -2,6 +2,7 @@
 #include "fastmcpp/types.hpp"
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,8 @@ class Tool
     using Fn = std::function<fastmcpp::Json(const fastmcpp::Json&)>;
 
     Tool() = default;
+
+    // Original constructor (backward compatible)
     Tool(std::string name, fastmcpp::Json input_schema, fastmcpp::Json output_schema, Fn fn,
          std::vector<std::string> exclude_args = {})
         : name_(std::move(name)), input_schema_(std::move(input_schema)),
@@ -22,9 +25,32 @@ class Tool
     {
     }
 
+    // Extended constructor with title, description, icons
+    Tool(std::string name, fastmcpp::Json input_schema, fastmcpp::Json output_schema, Fn fn,
+         std::optional<std::string> title, std::optional<std::string> description,
+         std::optional<std::vector<fastmcpp::Icon>> icons,
+         std::vector<std::string> exclude_args = {})
+        : name_(std::move(name)), title_(std::move(title)), description_(std::move(description)),
+          input_schema_(std::move(input_schema)), output_schema_(std::move(output_schema)),
+          icons_(std::move(icons)), fn_(std::move(fn)), exclude_args_(std::move(exclude_args))
+    {
+    }
+
     const std::string& name() const
     {
         return name_;
+    }
+    const std::optional<std::string>& title() const
+    {
+        return title_;
+    }
+    const std::optional<std::string>& description() const
+    {
+        return description_;
+    }
+    const std::optional<std::vector<fastmcpp::Icon>>& icons() const
+    {
+        return icons_;
     }
     fastmcpp::Json input_schema() const
     {
@@ -39,6 +65,23 @@ class Tool
     fastmcpp::Json invoke(const fastmcpp::Json& input) const
     {
         return fn_(input);
+    }
+
+    // Setters for optional fields (builder pattern)
+    Tool& set_title(std::string title)
+    {
+        title_ = std::move(title);
+        return *this;
+    }
+    Tool& set_description(std::string desc)
+    {
+        description_ = std::move(desc);
+        return *this;
+    }
+    Tool& set_icons(std::vector<fastmcpp::Icon> icons)
+    {
+        icons_ = std::move(icons);
+        return *this;
     }
 
   private:
@@ -76,8 +119,11 @@ class Tool
     }
 
     std::string name_;
+    std::optional<std::string> title_;
+    std::optional<std::string> description_;
     fastmcpp::Json input_schema_;
     fastmcpp::Json output_schema_;
+    std::optional<std::vector<fastmcpp::Icon>> icons_;
     Fn fn_;
     std::vector<std::string> exclude_args_;
 };
