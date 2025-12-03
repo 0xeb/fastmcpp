@@ -27,16 +27,28 @@ int main()
     resources::ResourceManager resource_mgr;
 
     // Register some sample resources
-    resources::Resource doc1{Id{"file://docs/readme.txt"}, resources::Kind::File,
-                             Json{{"description", "Project README"}, {"size", 1024}}};
+    resources::Resource doc1;
+    doc1.uri = "file://docs/readme.txt";
+    doc1.name = "readme.txt";
+    doc1.id = Id{"file://docs/readme.txt"};
+    doc1.kind = resources::Kind::File;
+    doc1.metadata = Json{{"description", "Project README"}, {"size", 1024}};
     resource_mgr.register_resource(doc1);
 
-    resources::Resource doc2{Id{"file://docs/api.txt"}, resources::Kind::File,
-                             Json{{"description", "API Documentation"}, {"size", 2048}}};
+    resources::Resource doc2;
+    doc2.uri = "file://docs/api.txt";
+    doc2.name = "api.txt";
+    doc2.id = Id{"file://docs/api.txt"};
+    doc2.kind = resources::Kind::File;
+    doc2.metadata = Json{{"description", "API Documentation"}, {"size", 2048}};
     resource_mgr.register_resource(doc2);
 
-    resources::Resource config{Id{"config://app.json"}, resources::Kind::Json,
-                               Json{{"description", "Application config"}}};
+    resources::Resource config;
+    config.uri = "config://app.json";
+    config.name = "app.json";
+    config.id = Id{"config://app.json"};
+    config.kind = resources::Kind::Json;
+    config.metadata = Json{{"description", "Application config"}};
     resource_mgr.register_resource(config);
 
     // ============================================================================
@@ -71,9 +83,9 @@ int main()
     std::cout << "\n2. Listing Prompts:\n";
     std::cout << "   " << std::string(40, '-') << "\n";
     auto prompts = ctx.list_prompts();
-    for (const auto& [name, prompt] : prompts)
+    for (const auto& prompt : prompts)
     {
-        std::cout << "   - Name: " << name << "\n";
+        std::cout << "   - Name: " << prompt.name << "\n";
         std::cout << "     Template: " << prompt.template_string() << "\n\n";
     }
 

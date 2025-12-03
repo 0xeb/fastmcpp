@@ -28,13 +28,21 @@ int main()
     prompts::PromptManager prompt_mgr;
 
     // Register some resources
-    resource_mgr.register_resource(resources::Resource{Id{"file://docs/readme.md"},
-                                                       resources::Kind::File,
-                                                       Json{{"description", "Project README"}}});
+    resources::Resource res1;
+    res1.uri = "file://docs/readme.md";
+    res1.name = "readme.md";
+    res1.id = Id{"file://docs/readme.md"};
+    res1.kind = resources::Kind::File;
+    res1.metadata = Json{{"description", "Project README"}};
+    resource_mgr.register_resource(res1);
 
-    resource_mgr.register_resource(resources::Resource{Id{"file://docs/api.md"},
-                                                       resources::Kind::File,
-                                                       Json{{"description", "API Documentation"}}});
+    resources::Resource res2;
+    res2.uri = "file://docs/api.md";
+    res2.name = "api.md";
+    res2.id = Id{"file://docs/api.md"};
+    res2.kind = resources::Kind::File;
+    res2.metadata = Json{{"description", "API Documentation"}};
+    resource_mgr.register_resource(res2);
 
     // Register some prompts
     prompt_mgr.add("greeting", prompts::Prompt("Hello {{name}}!"));
