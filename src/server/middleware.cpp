@@ -17,20 +17,28 @@ void ToolInjectionMiddleware::add_prompt_tools(const prompts::PromptManager& pm)
         [&pm](const Json& /*args*/) -> Json
         {
             Context ctx(resources::ResourceManager(), pm);
-            auto prompts = ctx.list_prompts();
+            auto prompts_list = ctx.list_prompts();
 
             Json prompt_list = Json::array();
-            for (const auto& [name, prompt] : prompts)
+            for (const auto& prompt : prompts_list)
             {
-                Json prompt_obj = {
-                    {"name", name},
-                    {"description", prompt.template_string()},
-                    {"arguments", Json::array()},
-                    {"messages",
-                     Json::array({Json{
-                         {"role", "user"},
-                         {"content", Json::array({Json{{"type", "text"},
-                                                       {"text", prompt.template_string()}}})}}})}};
+                Json prompt_obj = {{"name", prompt.name}};
+                if (prompt.description)
+                    prompt_obj["description"] = *prompt.description;
+                else
+                    prompt_obj["description"] = nullptr;
+
+                // Build arguments list
+                Json args_list = Json::array();
+                for (const auto& arg : prompt.arguments)
+                {
+                    Json arg_obj = {{"name", arg.name}, {"required", arg.required}};
+                    if (arg.description)
+                        arg_obj["description"] = *arg.description;
+                    args_list.push_back(arg_obj);
+                }
+                prompt_obj["arguments"] = args_list;
+
                 prompt_list.push_back(prompt_obj);
             }
 
