@@ -15,7 +15,9 @@ class PromptManager
   public:
     void add(const std::string& name, const Prompt& p)
     {
-        prompts_[name] = p;
+        Prompt stored = p;
+        stored.name = name;
+        prompts_[name] = stored;
     }
 
     void register_prompt(const Prompt& p)

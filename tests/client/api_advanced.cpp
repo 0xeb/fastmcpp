@@ -294,7 +294,7 @@ void test_list_resource_templates()
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     auto result = c.list_resource_templates_mcp();
-    assert(result.resourceTemplates.size() == 2);
+    assert(result.resourceTemplates.size() == 3);
     assert(result._meta.has_value());
     assert(result._meta->value("hasMore", true) == false);
 

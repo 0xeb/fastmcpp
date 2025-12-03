@@ -115,7 +115,15 @@ std::shared_ptr<server::Server> create_tool_server()
                                                                       {"format", "date-time"}}}}},
                                                  {"required", Json::array({"id", "timestamp"})}}}}},
                    {"mode", Json{{"enum", Json::array({"fast", "slow"})}}}}},
-                 {"required", Json::array({"items", "mode"})}})};
+                 {"required", Json::array({"items", "mode"})}}),
+        // Tool with icons for icon tests
+        make_tool("icon_tool", "Tool with icons", Json{{"type", "object"}},
+                  std::nullopt,  // outputSchema
+                  std::string("My Icon Tool"),  // title
+                  std::vector<fastmcpp::Icon>{
+                      fastmcpp::Icon{"https://example.com/icon.png", std::string("image/png"), std::nullopt},
+                      fastmcpp::Icon{"data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=", std::string("image/svg+xml"),
+                                     std::vector<std::string>{"48x48", "any"}}})};
 
     // Store last received meta for testing
     static Json last_received_meta = nullptr;

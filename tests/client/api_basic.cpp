@@ -110,7 +110,7 @@ void test_list_resources()
 
     auto resources = c.list_resources();
 
-    assert(resources.size() == 3);
+    assert(resources.size() == 4);
     assert(resources[0].uri == "file:///readme.txt");
     assert(resources[0].name == "readme.txt");
     assert(resources[0].mimeType.value_or("") == "text/plain");
