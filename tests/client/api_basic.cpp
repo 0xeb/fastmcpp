@@ -151,12 +151,13 @@ void test_list_prompts()
 
     auto prompts = c.list_prompts();
 
-    assert(prompts.size() == 2);
+    assert(prompts.size() == 3);
     assert(prompts[0].name == "code_review");
     assert(prompts[1].name == "summarize");
     assert(prompts[1].arguments.has_value());
     assert(prompts[1].arguments->size() == 1);
     assert((*prompts[1].arguments)[0].name == "style");
+    assert(prompts[2].name == "icon_prompt");
 
     std::cout << "  [PASS] list_prompts() works\n";
 }
