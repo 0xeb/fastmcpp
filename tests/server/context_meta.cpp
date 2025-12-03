@@ -11,7 +11,13 @@ int main()
     resources::ResourceManager rm;
     prompts::PromptManager pm;
     pm.add("hello", prompts::Prompt{"Hello"});
-    rm.register_resource(resources::Resource{Id{"file://test"}, resources::Kind::File, Json{}});
+    resources::Resource res;
+    res.uri = "file://test";
+    res.name = "test";
+    res.id = Id{"file://test"};
+    res.kind = resources::Kind::File;
+    res.metadata = Json{};
+    rm.register_resource(res);
 
     // Context without MCP session: request metadata unavailable
     server::Context ctx_no_session(rm, pm);

@@ -28,7 +28,7 @@ std::vector<resources::Resource> Context::list_resources() const
     return resource_mgr_->list();
 }
 
-std::vector<std::pair<std::string, prompts::Prompt>> Context::list_prompts() const
+std::vector<prompts::Prompt> Context::list_prompts() const
 {
     return prompt_mgr_->list();
 }

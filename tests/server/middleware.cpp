@@ -53,9 +53,13 @@ int main()
         fastmcpp::prompts::PromptManager pm;
         pm.add("hello", fastmcpp::prompts::Prompt{"Hello, {{name}}"});
         fastmcpp::resources::ResourceManager rm;
-        rm.register_resource(fastmcpp::resources::Resource{fastmcpp::Id{"file://test.txt"},
-                                                           fastmcpp::resources::Kind::File,
-                                                           Json{{"mimeType", "text/plain"}}});
+        fastmcpp::resources::Resource test_res;
+        test_res.uri = "file://test.txt";
+        test_res.name = "test.txt";
+        test_res.id = fastmcpp::Id{"file://test.txt"};
+        test_res.kind = fastmcpp::resources::Kind::File;
+        test_res.metadata = Json{{"mimeType", "text/plain"}};
+        rm.register_resource(test_res);
 
         server::ToolInjectionMiddleware mw;
         mw.add_prompt_tools(pm);

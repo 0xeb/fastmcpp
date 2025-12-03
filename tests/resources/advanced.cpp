@@ -13,6 +13,19 @@
 
 using namespace fastmcpp;
 
+// Helper to create resources with legacy fields for backward compatibility tests
+resources::Resource make_legacy_resource(const std::string& id, resources::Kind kind,
+                                         const Json& metadata)
+{
+    resources::Resource r;
+    r.uri = id;
+    r.name = id;
+    r.id = Id{id};
+    r.kind = kind;
+    r.metadata = metadata;
+    return r;
+}
+
 void test_multiple_resource_kinds()
 {
     std::cout << "Test 1: Multiple resource kinds...\n";
@@ -20,19 +33,19 @@ void test_multiple_resource_kinds()
     resources::ResourceManager rm;
 
     // File resource
-    resources::Resource file_res{Id{"file1"}, resources::Kind::File,
-                                 Json{{"path", "/data/file.txt"}, {"size", 1024}}};
+    auto file_res = make_legacy_resource("file1", resources::Kind::File,
+                                         Json{{"path", "/data/file.txt"}, {"size", 1024}});
 
     // Text resource
-    resources::Resource text_res{Id{"text1"}, resources::Kind::Text,
-                                 Json{{"content", "Hello World"}, {"encoding", "utf-8"}}};
+    auto text_res = make_legacy_resource("text1", resources::Kind::Text,
+                                         Json{{"content", "Hello World"}, {"encoding", "utf-8"}});
 
     // JSON resource
-    resources::Resource json_res{Id{"json1"}, resources::Kind::Json,
-                                 Json{{"data", Json{{"key", "value"}}}}};
+    auto json_res = make_legacy_resource("json1", resources::Kind::Json,
+                                         Json{{"data", Json{{"key", "value"}}}});
 
     // Unknown kind resource
-    resources::Resource unknown_res{Id{"unknown1"}, resources::Kind::Unknown, Json::object()};
+    auto unknown_res = make_legacy_resource("unknown1", resources::Kind::Unknown, Json::object());
 
     rm.register_resource(file_res);
     rm.register_resource(text_res);
@@ -69,13 +82,13 @@ void test_resource_metadata()
     resources::ResourceManager rm;
 
     // Resource with rich metadata
-    resources::Resource rich_res{
-        Id{"rich1"}, resources::Kind::File,
+    auto rich_res = make_legacy_resource(
+        "rich1", resources::Kind::File,
         Json{{"name", "document.pdf"},
              {"size_bytes", 2048},
              {"created_at", "2025-01-01T00:00:00Z"},
              {"tags", Json::array({"important", "draft"})},
-             {"author", Json{{"name", "Alice"}, {"email", "alice@example.com"}}}}};
+             {"author", Json{{"name", "Alice"}, {"email", "alice@example.com"}}}});
 
     rm.register_resource(rich_res);
 
@@ -95,15 +108,15 @@ void test_resource_update()
     resources::ResourceManager rm;
 
     // Register initial version
-    resources::Resource v1{Id{"doc1"}, resources::Kind::Text,
-                           Json{{"version", 1}, {"content", "Version 1"}}};
+    auto v1 = make_legacy_resource("doc1", resources::Kind::Text,
+                                   Json{{"version", 1}, {"content", "Version 1"}});
 
     rm.register_resource(v1);
     assert(rm.get("doc1").metadata["version"] == 1);
 
     // Update with new version (same ID)
-    resources::Resource v2{Id{"doc1"}, resources::Kind::Text,
-                           Json{{"version", 2}, {"content", "Version 2"}}};
+    auto v2 = make_legacy_resource("doc1", resources::Kind::Text,
+                                   Json{{"version", 2}, {"content", "Version 2"}});
 
     rm.register_resource(v2);
 
@@ -150,8 +163,8 @@ void test_resource_list_ordering()
     // Add multiple resources
     for (int i = 0; i < 5; ++i)
     {
-        resources::Resource res{Id{"res_" + std::to_string(i)}, resources::Kind::Text,
-                                Json{{"index", i}}};
+        auto res = make_legacy_resource("res_" + std::to_string(i), resources::Kind::Text,
+                                        Json{{"index", i}});
         rm.register_resource(res);
     }
 
@@ -178,7 +191,7 @@ void test_empty_metadata()
     resources::ResourceManager rm;
 
     // Resource with empty metadata
-    resources::Resource empty_meta{Id{"empty1"}, resources::Kind::Text, Json::object()};
+    auto empty_meta = make_legacy_resource("empty1", resources::Kind::Text, Json::object());
 
     rm.register_resource(empty_meta);
 
@@ -200,7 +213,7 @@ void test_large_metadata()
     for (int i = 0; i < 100; ++i)
         large_meta["field_" + std::to_string(i)] = "value_" + std::to_string(i);
 
-    resources::Resource large_res{Id{"large1"}, resources::Kind::Json, large_meta};
+    auto large_res = make_legacy_resource("large1", resources::Kind::Json, large_meta);
 
     rm.register_resource(large_res);
 
@@ -224,7 +237,7 @@ void test_special_characters_in_id()
 
     for (const auto& id : special_ids)
     {
-        resources::Resource res{Id{id}, resources::Kind::Text, Json{{"id", id}}};
+        auto res = make_legacy_resource(id, resources::Kind::Text, Json{{"id", id}});
         rm.register_resource(res);
     }
 
@@ -264,9 +277,10 @@ void test_many_resources()
     // Register many resources
     for (int i = 0; i < num_resources; ++i)
     {
-        resources::Resource res{Id{"bulk_" + std::to_string(i)},
-                                static_cast<resources::Kind>((i % 4)), // Cycle through kinds
-                                Json{{"index", i}}};
+        auto res =
+            make_legacy_resource("bulk_" + std::to_string(i),
+                                 static_cast<resources::Kind>((i % 4)), // Cycle through kinds
+                                 Json{{"index", i}});
         rm.register_resource(res);
     }
 

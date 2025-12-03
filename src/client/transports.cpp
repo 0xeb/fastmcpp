@@ -526,4 +526,288 @@ fastmcpp::Json StdioTransport::request(const std::string& route, const fastmcpp:
 #endif
 }
 
+// =============================================================================
+// SseClientTransport implementation
+// =============================================================================
+
+SseClientTransport::SseClientTransport(std::string base_url, std::string sse_path,
+                                       std::string messages_path)
+    : base_url_(std::move(base_url)), sse_path_(std::move(sse_path)),
+      messages_path_(std::move(messages_path))
+{
+    start_sse_listener();
+}
+
+SseClientTransport::~SseClientTransport()
+{
+    stop_sse_listener();
+}
+
+bool SseClientTransport::is_connected() const
+{
+    return connected_.load(std::memory_order_acquire);
+}
+
+void SseClientTransport::start_sse_listener()
+{
+    running_.store(true, std::memory_order_release);
+
+    sse_thread_ = std::make_unique<std::thread>(
+        [this]()
+        {
+            auto url = parse_url(base_url_);
+
+            // Use two-argument constructor for better Windows compatibility
+            httplib::Client cli(url.host.c_str(), url.port);
+            cli.set_connection_timeout(10, 0);
+            cli.set_read_timeout(300, 0); // Long timeout for SSE stream (5 minutes)
+            cli.set_keep_alive(true);
+
+            std::string buffer;
+            auto content_receiver = [this, &buffer](const char* data, size_t len)
+            {
+                if (!running_.load(std::memory_order_acquire))
+                    return false;
+
+                buffer.append(data, len);
+
+                // Parse SSE events (data: lines separated by double newlines)
+                size_t pos = 0;
+                while (true)
+                {
+                    // Try both \n\n (Unix) and \r\n\r\n (Windows/HTTP) for compatibility
+                    size_t sep = buffer.find("\n\n", pos);
+                    int sep_len = 2;
+                    if (sep == std::string::npos)
+                    {
+                        sep = buffer.find("\r\n\r\n", pos);
+                        sep_len = 4;
+                    }
+                    if (sep == std::string::npos)
+                        break;
+
+                    std::string chunk = buffer.substr(pos, sep - pos);
+                    pos = sep + sep_len;
+
+                    // Extract event type and data lines
+                    std::string event_type;
+                    std::string aggregated;
+                    size_t line_start = 0;
+                    while (line_start < chunk.size())
+                    {
+                        size_t line_end = chunk.find('\n', line_start);
+                        std::string line = chunk.substr(line_start, line_end == std::string::npos
+                                                                        ? std::string::npos
+                                                                        : (line_end - line_start));
+                        // Strip trailing \r for CRLF line endings
+                        if (!line.empty() && line.back() == '\r')
+                            line.pop_back();
+
+                        if (line.rfind("event:", 0) == 0)
+                        {
+                            event_type = line.substr(6);
+                            if (!event_type.empty() && event_type[0] == ' ')
+                                event_type.erase(0, 1);
+                        }
+                        else if (line.rfind("data:", 0) == 0)
+                        {
+                            std::string data_part = line.substr(5);
+                            if (!data_part.empty() && data_part[0] == ' ')
+                                data_part.erase(0, 1);
+                            aggregated += data_part;
+                        }
+                        if (line_end == std::string::npos)
+                            break;
+                        line_start = line_end + 1;
+                    }
+
+                    if (!aggregated.empty())
+                    {
+                        // Handle endpoint event specially - it's not JSON
+                        if (event_type == "endpoint")
+                        {
+                            endpoint_path_ = aggregated;
+                        }
+                        else
+                        {
+                            // Try to parse as JSON for other events
+                            try
+                            {
+                                auto evt = fastmcpp::util::json::parse(aggregated);
+                                process_sse_event(evt);
+                            }
+                            catch (...)
+                            {
+                                // Ignore parse errors
+                            }
+                        }
+                    }
+                }
+
+                if (pos > 0)
+                    buffer.erase(0, pos);
+
+                return running_.load(std::memory_order_acquire);
+            };
+
+            auto response_handler = [this](const httplib::Response& r)
+            {
+                if (r.status >= 200 && r.status < 300)
+                {
+                    connected_.store(true, std::memory_order_release);
+                    return true;
+                }
+                return false;
+            };
+
+            // Try to connect with retries
+            httplib::Headers headers = {{"Accept", "text/event-stream"}};
+            for (int attempt = 0; attempt < 50 && running_.load(std::memory_order_acquire);
+                 ++attempt)
+            {
+                auto res = cli.Get(sse_path_.c_str(), headers, response_handler, content_receiver);
+                if (res)
+                    break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+
+            connected_.store(false, std::memory_order_release);
+        });
+
+    // Wait for connection to establish
+    for (int i = 0; i < 50 && !is_connected(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+}
+
+void SseClientTransport::stop_sse_listener()
+{
+    running_.store(false, std::memory_order_release);
+
+    // Wake up any pending requests
+    {
+        std::lock_guard<std::mutex> lock(pending_mutex_);
+        for (auto& [id, promise] : pending_requests_)
+        {
+            try
+            {
+                promise.set_exception(
+                    std::make_exception_ptr(fastmcpp::TransportError("SSE connection closed")));
+            }
+            catch (...)
+            {
+            }
+        }
+        pending_requests_.clear();
+    }
+    pending_cv_.notify_all();
+
+    if (sse_thread_ && sse_thread_->joinable())
+        sse_thread_->join();
+}
+
+void SseClientTransport::process_sse_event(const fastmcpp::Json& event)
+{
+    // Check if this is a JSON-RPC response with an ID
+    if (!event.contains("id"))
+        return;
+
+    auto id_val = event.at("id");
+    int64_t id = 0;
+    if (id_val.is_number())
+        id = id_val.get<int64_t>();
+    else if (id_val.is_string())
+    {
+        try
+        {
+            id = std::stoll(id_val.get<std::string>());
+        }
+        catch (...)
+        {
+            return;
+        }
+    }
+    else
+        return;
+
+    std::lock_guard<std::mutex> lock(pending_mutex_);
+    auto it = pending_requests_.find(id);
+    if (it != pending_requests_.end())
+    {
+        it->second.set_value(event);
+        pending_requests_.erase(it);
+        pending_cv_.notify_all();
+    }
+}
+
+fastmcpp::Json SseClientTransport::request(const std::string& route, const fastmcpp::Json& payload)
+{
+    if (!is_connected())
+        throw fastmcpp::TransportError("SSE client not connected");
+
+    // Generate unique request ID
+    int64_t id = next_id_.fetch_add(1, std::memory_order_relaxed);
+
+    // Build JSON-RPC request
+    fastmcpp::Json rpc_request = {
+        {"jsonrpc", "2.0"}, {"method", route}, {"params", payload}, {"id", id}};
+
+    // Create promise for response
+    std::promise<fastmcpp::Json> response_promise;
+    std::future<fastmcpp::Json> response_future = response_promise.get_future();
+
+    {
+        std::lock_guard<std::mutex> lock(pending_mutex_);
+        pending_requests_[id] = std::move(response_promise);
+    }
+
+    // Send request via POST to /messages with session_id
+    auto url = parse_url(base_url_);
+    httplib::Client cli(url.host.c_str(), url.port);
+    cli.set_connection_timeout(5, 0);
+    cli.set_read_timeout(30, 0);
+
+    // Use the endpoint path from SSE if available, otherwise use default
+    std::string post_path = endpoint_path_.empty() ? messages_path_ : endpoint_path_;
+    auto res = cli.Post(post_path.c_str(), rpc_request.dump(), "application/json");
+    if (!res)
+    {
+        std::lock_guard<std::mutex> lock(pending_mutex_);
+        pending_requests_.erase(id);
+        throw fastmcpp::TransportError("Failed to send request to " + messages_path_);
+    }
+    if (res->status < 200 || res->status >= 300)
+    {
+        std::lock_guard<std::mutex> lock(pending_mutex_);
+        pending_requests_.erase(id);
+        throw fastmcpp::TransportError("HTTP error: " + std::to_string(res->status));
+    }
+
+    // Wait for response from SSE stream (with timeout)
+    auto status = response_future.wait_for(std::chrono::seconds(30));
+    if (status == std::future_status::timeout)
+    {
+        std::lock_guard<std::mutex> lock(pending_mutex_);
+        pending_requests_.erase(id);
+        throw fastmcpp::TransportError("Request timeout waiting for SSE response");
+    }
+
+    auto rpc_response = response_future.get();
+
+    // Unwrap JSON-RPC response envelope
+    // Response format: {"jsonrpc":"2.0","id":...,"result":{...}} or
+    // {"jsonrpc":"2.0","id":...,"error":{...}}
+    if (rpc_response.contains("error"))
+    {
+        auto error = rpc_response["error"];
+        std::string message = error.value("message", "Unknown error");
+        throw fastmcpp::TransportError("JSON-RPC error: " + message);
+    }
+
+    if (rpc_response.contains("result"))
+        return rpc_response["result"];
+
+    // If no result or error, return empty object (shouldn't happen with well-formed JSON-RPC)
+    return fastmcpp::Json::object();
+}
+
 } // namespace fastmcpp::client

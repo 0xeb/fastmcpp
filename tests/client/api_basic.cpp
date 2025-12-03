@@ -12,12 +12,12 @@ void test_list_tools()
 
     auto tools = c.list_tools();
 
-    assert(tools.size() == 6);
+    assert(tools.size() == 7);
     assert(tools[0].name == "add");
     assert(tools[0].description.value_or("") == "Add two numbers");
     assert(tools[1].name == "greet");
 
-    std::cout << "  [PASS] list_tools() returns 6 tools\n";
+    std::cout << "  [PASS] list_tools() returns 7 tools\n";
 }
 
 void test_list_tools_mcp()
@@ -29,7 +29,7 @@ void test_list_tools_mcp()
 
     auto result = c.list_tools_mcp();
 
-    assert(result.tools.size() == 6);
+    assert(result.tools.size() == 7);
     assert(!result.nextCursor.has_value()); // No pagination in this test
 
     std::cout << "  [PASS] list_tools_mcp() returns ListToolsResult\n";
@@ -110,7 +110,7 @@ void test_list_resources()
 
     auto resources = c.list_resources();
 
-    assert(resources.size() == 3);
+    assert(resources.size() == 4);
     assert(resources[0].uri == "file:///readme.txt");
     assert(resources[0].name == "readme.txt");
     assert(resources[0].mimeType.value_or("") == "text/plain");
@@ -151,12 +151,13 @@ void test_list_prompts()
 
     auto prompts = c.list_prompts();
 
-    assert(prompts.size() == 2);
+    assert(prompts.size() == 3);
     assert(prompts[0].name == "code_review");
     assert(prompts[1].name == "summarize");
     assert(prompts[1].arguments.has_value());
     assert(prompts[1].arguments->size() == 1);
     assert((*prompts[1].arguments)[0].name == "style");
+    assert(prompts[2].name == "icon_prompt");
 
     std::cout << "  [PASS] list_prompts() works\n";
 }

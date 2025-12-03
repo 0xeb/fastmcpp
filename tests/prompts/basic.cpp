@@ -1,4 +1,5 @@
 #include "fastmcpp/client/types.hpp"
+#include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/prompts/manager.hpp"
 #include "fastmcpp/prompts/prompt.hpp"
 
@@ -216,7 +217,7 @@ void test_manager_get_nonexistent()
     {
         pm.get("nonexistent");
     }
-    catch (const std::out_of_range&)
+    catch (const NotFoundError&)
     {
         threw = true;
     }

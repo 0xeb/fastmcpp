@@ -52,6 +52,23 @@ class CallbackTransport : public client::ITransport
     client::Client* client_;
 };
 
+// Helper to create ToolInfo (C++17 compatible)
+inline client::ToolInfo
+make_tool(const std::string& name, const std::string& desc, const Json& inputSchema,
+          const std::optional<Json>& outputSchema = std::nullopt,
+          const std::optional<std::string>& title = std::nullopt,
+          const std::optional<std::vector<fastmcpp::Icon>>& icons = std::nullopt)
+{
+    client::ToolInfo t;
+    t.name = name;
+    t.title = title;
+    t.description = desc;
+    t.inputSchema = inputSchema;
+    t.outputSchema = outputSchema;
+    t.icons = icons;
+    return t;
+}
+
 // Helper: Create a server with tools/list and tools/call routes
 std::shared_ptr<server::Server> create_tool_server()
 {
@@ -59,45 +76,56 @@ std::shared_ptr<server::Server> create_tool_server()
 
     // Register some tools
     static std::vector<client::ToolInfo> registered_tools = {
-        {"add", "Add two numbers",
-         Json{{"type", "object"},
-              {"properties", {{"a", {{"type", "number"}}}, {"b", {{"type", "number"}}}}}},
-         std::nullopt},
-        {"greet", "Greet a person",
-         Json{{"type", "object"}, {"properties", {{"name", {{"type", "string"}}}}}}, std::nullopt},
-        {"structured", "Return structured content", Json{{"type", "object"}},
-         Json{{"type", "object"},
-              {"x-fastmcp-wrap-result", true},
-              {"properties", {{"result", {{"type", "integer"}}}}},
-              {"required", Json::array({"result"})}}},
-        {"mixed", "Mixed content", Json{{"type", "object"}}, std::nullopt},
-        {"typed", "Nested typed result", Json{{"type", "object"}},
-         Json{{"type", "object"},
-              {"properties",
-               {{"items",
-                 Json{{"type", "array"},
-                      {"items",
-                       Json{{"type", "object"},
-                            {"properties",
-                             {{"id", Json{{"type", "integer"}}},
-                              {"name", Json{{"type", "string"}}},
-                              {"active", Json{{"type", "boolean"}, {"default", true}}},
-                              {"timestamp", Json{{"type", "string"}, {"format", "date-time"}}}}},
-                            {"required", Json::array({"id", "name", "timestamp"})}}}}},
-                {"mode", Json{{"enum", Json::array({"fast", "slow"})}}}}},
-              {"required", Json::array({"items", "mode"})}}},
-        {"typed_invalid", "Invalid typed result", Json{{"type", "object"}},
-         Json{{"type", "object"},
-              {"properties",
-               {{"items", Json{{"type", "array"},
-                               {"items", Json{{"type", "object"},
-                                              {"properties",
-                                               {{"id", Json{{"type", "integer"}}},
-                                                {"timestamp", Json{{"type", "string"},
-                                                                   {"format", "date-time"}}}}},
-                                              {"required", Json::array({"id", "timestamp"})}}}}},
-                {"mode", Json{{"enum", Json::array({"fast", "slow"})}}}}},
-              {"required", Json::array({"items", "mode"})}}}};
+        make_tool("add", "Add two numbers",
+                  Json{{"type", "object"},
+                       {"properties", {{"a", {{"type", "number"}}}, {"b", {{"type", "number"}}}}}}),
+        make_tool("greet", "Greet a person",
+                  Json{{"type", "object"}, {"properties", {{"name", {{"type", "string"}}}}}}),
+        make_tool("structured", "Return structured content", Json{{"type", "object"}},
+                  Json{{"type", "object"},
+                       {"x-fastmcp-wrap-result", true},
+                       {"properties", {{"result", {{"type", "integer"}}}}},
+                       {"required", Json::array({"result"})}}),
+        make_tool("mixed", "Mixed content", Json{{"type", "object"}}),
+        make_tool(
+            "typed", "Nested typed result", Json{{"type", "object"}},
+            Json{{"type", "object"},
+                 {"properties",
+                  {{"items",
+                    Json{{"type", "array"},
+                         {"items",
+                          Json{{"type", "object"},
+                               {"properties",
+                                {{"id", Json{{"type", "integer"}}},
+                                 {"name", Json{{"type", "string"}}},
+                                 {"active", Json{{"type", "boolean"}, {"default", true}}},
+                                 {"timestamp", Json{{"type", "string"}, {"format", "date-time"}}}}},
+                               {"required", Json::array({"id", "name", "timestamp"})}}}}},
+                   {"mode", Json{{"enum", Json::array({"fast", "slow"})}}}}},
+                 {"required", Json::array({"items", "mode"})}}),
+        make_tool(
+            "typed_invalid", "Invalid typed result", Json{{"type", "object"}},
+            Json{{"type", "object"},
+                 {"properties",
+                  {{"items", Json{{"type", "array"},
+                                  {"items", Json{{"type", "object"},
+                                                 {"properties",
+                                                  {{"id", Json{{"type", "integer"}}},
+                                                   {"timestamp", Json{{"type", "string"},
+                                                                      {"format", "date-time"}}}}},
+                                                 {"required", Json::array({"id", "timestamp"})}}}}},
+                   {"mode", Json{{"enum", Json::array({"fast", "slow"})}}}}},
+                 {"required", Json::array({"items", "mode"})}}),
+        // Tool with icons for icon tests
+        make_tool(
+            "icon_tool", "Tool with icons", Json{{"type", "object"}},
+            std::nullopt,                // outputSchema
+            std::string("My Icon Tool"), // title
+            std::vector<fastmcpp::Icon>{fastmcpp::Icon{"https://example.com/icon.png",
+                                                       std::string("image/png"), std::nullopt},
+                                        fastmcpp::Icon{"data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=",
+                                                       std::string("image/svg+xml"),
+                                                       std::vector<std::string>{"48x48", "any"}}})};
 
     // Store last received meta for testing
     static Json last_received_meta = nullptr;
@@ -109,10 +137,26 @@ std::shared_ptr<server::Server> create_tool_server()
                    for (const auto& t : registered_tools)
                    {
                        Json tool = {{"name", t.name}, {"inputSchema", t.inputSchema}};
+                       if (t.title)
+                           tool["title"] = *t.title;
                        if (t.description)
                            tool["description"] = *t.description;
                        if (t.outputSchema)
                            tool["outputSchema"] = *t.outputSchema;
+                       if (t.icons)
+                       {
+                           Json icons_json = Json::array();
+                           for (const auto& icon : *t.icons)
+                           {
+                               Json icon_obj = {{"src", icon.src}};
+                               if (icon.mime_type)
+                                   icon_obj["mimeType"] = *icon.mime_type;
+                               if (icon.sizes)
+                                   icon_obj["sizes"] = *icon.sizes;
+                               icons_json.push_back(icon_obj);
+                           }
+                           tool["icons"] = icons_json;
+                       }
                        tools.push_back(tool);
                    }
                    return Json{{"tools", tools}};
@@ -239,29 +283,41 @@ std::shared_ptr<server::Server> create_resource_server()
                [](const Json&)
                {
                    return Json{
-                       {"resources", Json::array({{{"uri", "file:///readme.txt"},
-                                                   {"name", "readme.txt"},
-                                                   {"mimeType", "text/plain"}},
-                                                  {{"uri", "file:///data.json"},
-                                                   {"name", "data.json"},
-                                                   {"mimeType", "application/json"}},
-                                                  {{"uri", "file:///blob.bin"},
-                                                   {"name", "blob.bin"},
-                                                   {"mimeType", "application/octet-stream"}}})},
+                       {"resources",
+                        Json::array({{{"uri", "file:///readme.txt"},
+                                      {"name", "readme.txt"},
+                                      {"mimeType", "text/plain"}},
+                                     {{"uri", "file:///data.json"},
+                                      {"name", "data.json"},
+                                      {"mimeType", "application/json"}},
+                                     {{"uri", "file:///blob.bin"},
+                                      {"name", "blob.bin"},
+                                      {"mimeType", "application/octet-stream"}},
+                                     {{"uri", "file:///icon-resource"},
+                                      {"name", "icon_resource"},
+                                      {"title", "Resource With Icons"},
+                                      {"icons",
+                                       Json::array({{{"src", "https://example.com/res.png"}}})}}})},
                        {"_meta", Json{{"page", 1}}}};
                });
 
-    srv->route("resources/templates/list",
-               [](const Json&)
-               {
-                   return Json{
-                       {"resourceTemplates", Json::array({{{"uriTemplate", "file:///{name}"},
-                                                           {"name", "file template"},
-                                                           {"description", "files"}},
-                                                          {{"uriTemplate", "mem:///{key}"},
-                                                           {"name", "memory template"}}})},
-                       {"_meta", Json{{"hasMore", false}}}};
-               });
+    srv->route(
+        "resources/templates/list",
+        [](const Json&)
+        {
+            return Json{
+                {"resourceTemplates",
+                 Json::array({{{"uriTemplate", "file:///{name}"},
+                               {"name", "file template"},
+                               {"description", "files"}},
+                              {{"uriTemplate", "mem:///{key}"}, {"name", "memory template"}},
+                              {{"uriTemplate", "icon:///{id}"},
+                               {"name", "icon_template"},
+                               {"title", "Template With Icons"},
+                               {"icons", Json::array({{{"src", "https://example.com/tpl.svg"},
+                                                       {"mimeType", "image/svg+xml"}}})}}})},
+                {"_meta", Json{{"hasMore", false}}}};
+        });
 
     srv->route("resources/read",
                [](const Json& in)
@@ -297,12 +353,17 @@ std::shared_ptr<server::Server> create_prompt_server()
         {
             return Json{
                 {"prompts",
-                 Json::array({{{"name", "code_review"}, {"description", "Review code for issues"}},
-                              {{"name", "summarize"},
-                               {"description", "Summarize text"},
-                               {"arguments", Json::array({{{"name", "style"},
-                                                           {"description", "Summary style"},
-                                                           {"required", false}}})}}})}};
+                 Json::array(
+                     {{{"name", "code_review"}, {"description", "Review code for issues"}},
+                      {{"name", "summarize"},
+                       {"description", "Summarize text"},
+                       {"arguments", Json::array({{{"name", "style"},
+                                                   {"description", "Summary style"},
+                                                   {"required", false}}})}},
+                      {{"name", "icon_prompt"},
+                       {"title", "Prompt With Icons"},
+                       {"description", "A prompt with icons"},
+                       {"icons", Json::array({{{"src", "https://example.com/prompt.png"}}})}}})}};
         });
 
     srv->route("prompts/get",

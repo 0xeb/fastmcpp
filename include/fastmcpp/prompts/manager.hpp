@@ -1,4 +1,5 @@
 #pragma once
+#include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/prompts/prompt.hpp"
 
 #include <string>
@@ -14,25 +15,46 @@ class PromptManager
   public:
     void add(const std::string& name, const Prompt& p)
     {
-        prompts_[name] = p;
+        Prompt stored = p;
+        stored.name = name;
+        prompts_[name] = stored;
     }
+
+    void register_prompt(const Prompt& p)
+    {
+        prompts_[p.name] = p;
+    }
+
     const Prompt& get(const std::string& name) const
     {
-        return prompts_.at(name);
+        auto it = prompts_.find(name);
+        if (it == prompts_.end())
+            throw NotFoundError("Prompt not found: " + name);
+        return it->second;
     }
+
     bool has(const std::string& name) const
     {
         return prompts_.count(name) > 0;
     }
 
-    // List all prompts (v2.13.0+)
-    std::vector<std::pair<std::string, Prompt>> list() const
+    std::vector<Prompt> list() const
     {
-        std::vector<std::pair<std::string, Prompt>> result;
+        std::vector<Prompt> result;
         result.reserve(prompts_.size());
-        for (const auto& kv : prompts_)
-            result.push_back(kv);
+        for (const auto& [name, prompt] : prompts_)
+            result.push_back(prompt);
         return result;
+    }
+
+    std::vector<PromptMessage> render(const std::string& name,
+                                      const Json& args = Json::object()) const
+    {
+        const auto& prompt = get(name);
+        if (prompt.generator)
+            return prompt.generator(args);
+        // Legacy: use template rendering
+        return {{{"user", prompt.template_string()}}};
     }
 
   private:

@@ -1,4 +1,6 @@
 #pragma once
+#include "fastmcpp/prompts/manager.hpp"
+#include "fastmcpp/resources/manager.hpp"
 #include "fastmcpp/server/server.hpp"
 #include "fastmcpp/tools/manager.hpp"
 #include "fastmcpp/types.hpp"
@@ -33,6 +35,13 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
 std::function<fastmcpp::Json(const fastmcpp::Json&)>
 make_mcp_handler(const std::string& server_name, const std::string& version,
                  const server::Server& server, const tools::ToolManager& tools,
+                 const std::unordered_map<std::string, std::string>& descriptions = {});
+
+// Full MCP handler with tools, resources, and prompts support
+std::function<fastmcpp::Json(const fastmcpp::Json&)>
+make_mcp_handler(const std::string& server_name, const std::string& version,
+                 const server::Server& server, const tools::ToolManager& tools,
+                 const resources::ResourceManager& resources, const prompts::PromptManager& prompts,
                  const std::unordered_map<std::string, std::string>& descriptions = {});
 
 } // namespace fastmcpp::mcp

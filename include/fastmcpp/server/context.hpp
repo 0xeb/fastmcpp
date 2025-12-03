@@ -67,8 +67,8 @@ class Context
     std::vector<resources::Resource> list_resources() const;
 
     /// List all available prompts from the server
-    /// @return Vector of (name, Prompt) pairs
-    std::vector<std::pair<std::string, prompts::Prompt>> list_prompts() const;
+    /// @return Vector of Prompt objects (each contains its name)
+    std::vector<prompts::Prompt> list_prompts() const;
 
     /// Get a prompt by name and render it with optional arguments
     /// @param name The name of the prompt to retrieve

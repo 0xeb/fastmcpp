@@ -239,10 +239,11 @@ bool SseServerWrapper::start()
                   }
 
                   res.status = 200;
+                  // Note: Don't set Transfer-Encoding manually - set_chunked_content_provider
+                  // handles it
                   res.set_header("Content-Type", "text/event-stream; charset=utf-8");
                   res.set_header("Cache-Control", "no-cache, no-transform");
                   res.set_header("Connection", "keep-alive");
-                  res.set_header("Transfer-Encoding", "chunked");
 
                   // Security: Only set CORS header if explicitly configured
                   if (!cors_origin_.empty())

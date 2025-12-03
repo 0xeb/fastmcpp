@@ -2,10 +2,17 @@
 #include "fastmcpp/client/client.hpp"
 #include "fastmcpp/types.hpp"
 
+#include <atomic>
+#include <condition_variable>
 #include <filesystem>
+#include <future>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <ostream>
 #include <string>
+#include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace fastmcpp::client
@@ -80,6 +87,54 @@ class StdioTransport : public ITransport
     std::vector<std::string> args_;
     std::optional<std::filesystem::path> log_file_;
     std::ostream* log_stream_ = nullptr;
+};
+
+/// SSE client transport for connecting to MCP servers using Server-Sent Events protocol.
+/// This transport is compatible with Python fastmcp servers and other SSE-based MCP servers.
+///
+/// The SSE protocol works as follows:
+/// 1. Client connects to /sse endpoint (GET) to establish event stream
+/// 2. Client sends JSON-RPC requests to /messages endpoint (POST)
+/// 3. Server sends JSON-RPC responses back via the SSE stream
+class SseClientTransport : public ITransport
+{
+  public:
+    /// Construct an SSE client transport
+    /// @param base_url The base URL of the MCP server (e.g., "http://127.0.0.1:8766")
+    ///                 Will connect to {base_url}/sse and post to {base_url}/messages
+    /// @param sse_path Path for SSE endpoint (default: "/sse")
+    /// @param messages_path Path for message endpoint (default: "/messages")
+    explicit SseClientTransport(std::string base_url, std::string sse_path = "/sse",
+                                std::string messages_path = "/messages");
+
+    ~SseClientTransport();
+
+    /// Send a JSON-RPC request and wait for response
+    fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload) override;
+
+    /// Check if connected to SSE stream
+    bool is_connected() const;
+
+  private:
+    void start_sse_listener();
+    void stop_sse_listener();
+    void process_sse_event(const fastmcpp::Json& event);
+
+    std::string base_url_;
+    std::string sse_path_;
+    std::string messages_path_;
+    std::string endpoint_path_; // Endpoint path from SSE with session_id
+
+    // SSE listener thread and state
+    std::unique_ptr<std::thread> sse_thread_;
+    std::atomic<bool> running_{false};
+    std::atomic<bool> connected_{false};
+
+    // Request/response matching
+    std::atomic<int64_t> next_id_{1};
+    std::mutex pending_mutex_;
+    std::condition_variable pending_cv_;
+    std::unordered_map<int64_t, std::promise<fastmcpp::Json>> pending_requests_;
 };
 
 } // namespace fastmcpp::client

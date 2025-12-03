@@ -56,9 +56,11 @@ using ContentBlock = std::variant<TextContent, ImageContent, EmbeddedResourceCon
 struct ToolInfo
 {
     std::string name;
+    std::optional<std::string> title; ///< Human-readable title
     std::optional<std::string> description;
-    fastmcpp::Json inputSchema;                 ///< JSON Schema for tool input
-    std::optional<fastmcpp::Json> outputSchema; ///< JSON Schema for structured output
+    fastmcpp::Json inputSchema;                       ///< JSON Schema for tool input
+    std::optional<fastmcpp::Json> outputSchema;       ///< JSON Schema for structured output
+    std::optional<std::vector<fastmcpp::Icon>> icons; ///< Icons for UI display
 };
 
 /// Result of tools/list request
@@ -120,9 +122,11 @@ struct ResourceInfo
 {
     std::string uri;
     std::string name;
+    std::optional<std::string> title; ///< Human-readable title
     std::optional<std::string> description;
     std::optional<std::string> mimeType;
     std::optional<fastmcpp::Json> annotations;
+    std::optional<std::vector<fastmcpp::Icon>> icons; ///< Icons for UI display
 };
 
 /// Resource template information
@@ -131,9 +135,11 @@ struct ResourceTemplate
 {
     std::string uriTemplate;
     std::string name;
+    std::optional<std::string> title; ///< Human-readable title
     std::optional<std::string> description;
     std::optional<std::string> mimeType;
     std::optional<fastmcpp::Json> annotations;
+    std::optional<std::vector<fastmcpp::Icon>> icons; ///< Icons for UI display
 };
 
 /// Text resource content
@@ -195,8 +201,10 @@ struct PromptArgument
 struct PromptInfo
 {
     std::string name;
+    std::optional<std::string> title; ///< Human-readable title
     std::optional<std::string> description;
     std::optional<std::vector<PromptArgument>> arguments;
+    std::optional<std::vector<fastmcpp::Icon>> icons; ///< Icons for UI display
 };
 
 /// Prompt message role
@@ -309,48 +317,97 @@ inline void from_json(const fastmcpp::Json& j, ImageContent& c)
 inline void to_json(fastmcpp::Json& j, const ToolInfo& t)
 {
     j = fastmcpp::Json{{"name", t.name}, {"inputSchema", t.inputSchema}};
+    if (t.title)
+        j["title"] = *t.title;
     if (t.description)
         j["description"] = *t.description;
     if (t.outputSchema)
         j["outputSchema"] = *t.outputSchema;
+    if (t.icons)
+        j["icons"] = *t.icons;
 }
 
 inline void from_json(const fastmcpp::Json& j, ToolInfo& t)
 {
     t.name = j.at("name").get<std::string>();
+    if (j.contains("title"))
+        t.title = j["title"].get<std::string>();
     if (j.contains("description"))
         t.description = j["description"].get<std::string>();
     t.inputSchema = j.value("inputSchema", fastmcpp::Json::object());
     if (j.contains("outputSchema"))
         t.outputSchema = j["outputSchema"];
+    if (j.contains("icons"))
+        t.icons = j["icons"].get<std::vector<fastmcpp::Icon>>();
 }
 
 inline void to_json(fastmcpp::Json& j, const ResourceInfo& r)
 {
     j = fastmcpp::Json{{"uri", r.uri}, {"name", r.name}};
+    if (r.title)
+        j["title"] = *r.title;
     if (r.description)
         j["description"] = *r.description;
     if (r.mimeType)
         j["mimeType"] = *r.mimeType;
     if (r.annotations)
         j["annotations"] = *r.annotations;
+    if (r.icons)
+        j["icons"] = *r.icons;
 }
 
 inline void from_json(const fastmcpp::Json& j, ResourceInfo& r)
 {
     r.uri = j.at("uri").get<std::string>();
     r.name = j.at("name").get<std::string>();
+    if (j.contains("title"))
+        r.title = j["title"].get<std::string>();
     if (j.contains("description"))
         r.description = j["description"].get<std::string>();
     if (j.contains("mimeType"))
         r.mimeType = j["mimeType"].get<std::string>();
     if (j.contains("annotations"))
         r.annotations = j["annotations"];
+    if (j.contains("icons"))
+        r.icons = j["icons"].get<std::vector<fastmcpp::Icon>>();
+}
+
+inline void to_json(fastmcpp::Json& j, const ResourceTemplate& t)
+{
+    j = fastmcpp::Json{{"uriTemplate", t.uriTemplate}, {"name", t.name}};
+    if (t.title)
+        j["title"] = *t.title;
+    if (t.description)
+        j["description"] = *t.description;
+    if (t.mimeType)
+        j["mimeType"] = *t.mimeType;
+    if (t.annotations)
+        j["annotations"] = *t.annotations;
+    if (t.icons)
+        j["icons"] = *t.icons;
+}
+
+inline void from_json(const fastmcpp::Json& j, ResourceTemplate& t)
+{
+    t.uriTemplate = j.at("uriTemplate").get<std::string>();
+    t.name = j.at("name").get<std::string>();
+    if (j.contains("title"))
+        t.title = j["title"].get<std::string>();
+    if (j.contains("description"))
+        t.description = j["description"].get<std::string>();
+    if (j.contains("mimeType"))
+        t.mimeType = j["mimeType"].get<std::string>();
+    if (j.contains("annotations"))
+        t.annotations = j["annotations"];
+    if (j.contains("icons"))
+        t.icons = j["icons"].get<std::vector<fastmcpp::Icon>>();
 }
 
 inline void to_json(fastmcpp::Json& j, const PromptInfo& p)
 {
     j = fastmcpp::Json{{"name", p.name}};
+    if (p.title)
+        j["title"] = *p.title;
     if (p.description)
         j["description"] = *p.description;
     if (p.arguments)
@@ -364,11 +421,15 @@ inline void to_json(fastmcpp::Json& j, const PromptInfo& p)
             j["arguments"].push_back(argJson);
         }
     }
+    if (p.icons)
+        j["icons"] = *p.icons;
 }
 
 inline void from_json(const fastmcpp::Json& j, PromptInfo& p)
 {
     p.name = j.at("name").get<std::string>();
+    if (j.contains("title"))
+        p.title = j["title"].get<std::string>();
     if (j.contains("description"))
         p.description = j["description"].get<std::string>();
     if (j.contains("arguments"))
@@ -384,6 +445,8 @@ inline void from_json(const fastmcpp::Json& j, PromptInfo& p)
             p.arguments->push_back(arg);
         }
     }
+    if (j.contains("icons"))
+        p.icons = j["icons"].get<std::vector<fastmcpp::Icon>>();
 }
 
 inline void from_json(const fastmcpp::Json& j, TextResourceContent& c)
