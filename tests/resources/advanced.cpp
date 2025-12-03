@@ -15,7 +15,7 @@ using namespace fastmcpp;
 
 // Helper to create resources with legacy fields for backward compatibility tests
 resources::Resource make_legacy_resource(const std::string& id, resources::Kind kind,
-                                          const Json& metadata)
+                                         const Json& metadata)
 {
     resources::Resource r;
     r.uri = id;
@@ -277,9 +277,10 @@ void test_many_resources()
     // Register many resources
     for (int i = 0; i < num_resources; ++i)
     {
-        auto res = make_legacy_resource("bulk_" + std::to_string(i),
-                                        static_cast<resources::Kind>((i % 4)), // Cycle through kinds
-                                        Json{{"index", i}});
+        auto res =
+            make_legacy_resource("bulk_" + std::to_string(i),
+                                 static_cast<resources::Kind>((i % 4)), // Cycle through kinds
+                                 Json{{"index", i}});
         rm.register_resource(res);
     }
 

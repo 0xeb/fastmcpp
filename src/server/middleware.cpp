@@ -11,39 +11,38 @@ namespace fastmcpp::server
 void ToolInjectionMiddleware::add_prompt_tools(const prompts::PromptManager& pm)
 {
     // list_prompts tool
-    add_tool(
-        "list_prompts", "List all available prompts from the server",
-        Json{{"type", "object"}, {"properties", Json::object()}, {"required", Json::array()}},
-        [&pm](const Json& /*args*/) -> Json
-        {
-            Context ctx(resources::ResourceManager(), pm);
-            auto prompts_list = ctx.list_prompts();
+    add_tool("list_prompts", "List all available prompts from the server",
+             Json{{"type", "object"}, {"properties", Json::object()}, {"required", Json::array()}},
+             [&pm](const Json& /*args*/) -> Json
+             {
+                 Context ctx(resources::ResourceManager(), pm);
+                 auto prompts_list = ctx.list_prompts();
 
-            Json prompt_list = Json::array();
-            for (const auto& prompt : prompts_list)
-            {
-                Json prompt_obj = {{"name", prompt.name}};
-                if (prompt.description)
-                    prompt_obj["description"] = *prompt.description;
-                else
-                    prompt_obj["description"] = nullptr;
+                 Json prompt_list = Json::array();
+                 for (const auto& prompt : prompts_list)
+                 {
+                     Json prompt_obj = {{"name", prompt.name}};
+                     if (prompt.description)
+                         prompt_obj["description"] = *prompt.description;
+                     else
+                         prompt_obj["description"] = nullptr;
 
-                // Build arguments list
-                Json args_list = Json::array();
-                for (const auto& arg : prompt.arguments)
-                {
-                    Json arg_obj = {{"name", arg.name}, {"required", arg.required}};
-                    if (arg.description)
-                        arg_obj["description"] = *arg.description;
-                    args_list.push_back(arg_obj);
-                }
-                prompt_obj["arguments"] = args_list;
+                     // Build arguments list
+                     Json args_list = Json::array();
+                     for (const auto& arg : prompt.arguments)
+                     {
+                         Json arg_obj = {{"name", arg.name}, {"required", arg.required}};
+                         if (arg.description)
+                             arg_obj["description"] = *arg.description;
+                         args_list.push_back(arg_obj);
+                     }
+                     prompt_obj["arguments"] = args_list;
 
-                prompt_list.push_back(prompt_obj);
-            }
+                     prompt_list.push_back(prompt_obj);
+                 }
 
-            return Json{{"prompts", prompt_list}};
-        });
+                 return Json{{"prompts", prompt_list}};
+             });
 
     // get_prompt tool
     add_tool(

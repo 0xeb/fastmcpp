@@ -21,11 +21,11 @@ struct ResourceContent
 /// MCP Resource definition
 struct Resource
 {
-    std::string uri;                                       // e.g., "file://readme.txt"
-    std::string name;                                      // Human-readable name
-    std::optional<std::string> description;                // Optional description
-    std::optional<std::string> mime_type;                  // MIME type hint
-    std::function<ResourceContent(const Json&)> provider;  // Content provider function
+    std::string uri;                                      // e.g., "file://readme.txt"
+    std::string name;                                     // Human-readable name
+    std::optional<std::string> description;               // Optional description
+    std::optional<std::string> mime_type;                 // MIME type hint
+    std::function<ResourceContent(const Json&)> provider; // Content provider function
 
     // Legacy fields (for backwards compatibility)
     fastmcpp::Id id;

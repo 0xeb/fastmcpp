@@ -46,7 +46,7 @@ class PromptManager
     }
 
     std::vector<PromptMessage> render(const std::string& name,
-                                       const Json& args = Json::object()) const
+                                      const Json& args = Json::object()) const
     {
         const auto& prompt = get(name);
         if (prompt.generator)

@@ -37,7 +37,10 @@ struct Prompt
     Prompt() = default;
     explicit Prompt(std::string tmpl) : tmpl_(std::move(tmpl)) {}
 
-    const std::string& template_string() const { return tmpl_; }
+    const std::string& template_string() const
+    {
+        return tmpl_;
+    }
     std::string render(const std::unordered_map<std::string, std::string>& vars) const;
 
   private:

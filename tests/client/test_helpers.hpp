@@ -53,11 +53,11 @@ class CallbackTransport : public client::ITransport
 };
 
 // Helper to create ToolInfo (C++17 compatible)
-inline client::ToolInfo make_tool(const std::string& name, const std::string& desc,
-                                  const Json& inputSchema,
-                                  const std::optional<Json>& outputSchema = std::nullopt,
-                                  const std::optional<std::string>& title = std::nullopt,
-                                  const std::optional<std::vector<fastmcpp::Icon>>& icons = std::nullopt)
+inline client::ToolInfo
+make_tool(const std::string& name, const std::string& desc, const Json& inputSchema,
+          const std::optional<Json>& outputSchema = std::nullopt,
+          const std::optional<std::string>& title = std::nullopt,
+          const std::optional<std::vector<fastmcpp::Icon>>& icons = std::nullopt)
 {
     client::ToolInfo t;
     t.name = name;
@@ -273,39 +273,41 @@ std::shared_ptr<server::Server> create_resource_server()
                [](const Json&)
                {
                    return Json{
-                       {"resources", Json::array({{{"uri", "file:///readme.txt"},
-                                                   {"name", "readme.txt"},
-                                                   {"mimeType", "text/plain"}},
-                                                  {{"uri", "file:///data.json"},
-                                                   {"name", "data.json"},
-                                                   {"mimeType", "application/json"}},
-                                                  {{"uri", "file:///blob.bin"},
-                                                   {"name", "blob.bin"},
-                                                   {"mimeType", "application/octet-stream"}},
-                                                  {{"uri", "file:///icon-resource"},
-                                                   {"name", "icon_resource"},
-                                                   {"title", "Resource With Icons"},
-                                                   {"icons", Json::array({{{"src", "https://example.com/res.png"}}})}
-                                                  }})},
+                       {"resources",
+                        Json::array({{{"uri", "file:///readme.txt"},
+                                      {"name", "readme.txt"},
+                                      {"mimeType", "text/plain"}},
+                                     {{"uri", "file:///data.json"},
+                                      {"name", "data.json"},
+                                      {"mimeType", "application/json"}},
+                                     {{"uri", "file:///blob.bin"},
+                                      {"name", "blob.bin"},
+                                      {"mimeType", "application/octet-stream"}},
+                                     {{"uri", "file:///icon-resource"},
+                                      {"name", "icon_resource"},
+                                      {"title", "Resource With Icons"},
+                                      {"icons",
+                                       Json::array({{{"src", "https://example.com/res.png"}}})}}})},
                        {"_meta", Json{{"page", 1}}}};
                });
 
-    srv->route("resources/templates/list",
-               [](const Json&)
-               {
-                   return Json{
-                       {"resourceTemplates", Json::array({{{"uriTemplate", "file:///{name}"},
-                                                           {"name", "file template"},
-                                                           {"description", "files"}},
-                                                          {{"uriTemplate", "mem:///{key}"},
-                                                           {"name", "memory template"}},
-                                                          {{"uriTemplate", "icon:///{id}"},
-                                                           {"name", "icon_template"},
-                                                           {"title", "Template With Icons"},
-                                                           {"icons", Json::array({{{"src", "https://example.com/tpl.svg"}, {"mimeType", "image/svg+xml"}}})}
-                                                          }})},
-                       {"_meta", Json{{"hasMore", false}}}};
-               });
+    srv->route(
+        "resources/templates/list",
+        [](const Json&)
+        {
+            return Json{
+                {"resourceTemplates",
+                 Json::array({{{"uriTemplate", "file:///{name}"},
+                               {"name", "file template"},
+                               {"description", "files"}},
+                              {{"uriTemplate", "mem:///{key}"}, {"name", "memory template"}},
+                              {{"uriTemplate", "icon:///{id}"},
+                               {"name", "icon_template"},
+                               {"title", "Template With Icons"},
+                               {"icons", Json::array({{{"src", "https://example.com/tpl.svg"},
+                                                       {"mimeType", "image/svg+xml"}}})}}})},
+                {"_meta", Json{{"hasMore", false}}}};
+        });
 
     srv->route("resources/read",
                [](const Json& in)
@@ -341,17 +343,17 @@ std::shared_ptr<server::Server> create_prompt_server()
         {
             return Json{
                 {"prompts",
-                 Json::array({{{"name", "code_review"}, {"description", "Review code for issues"}},
-                              {{"name", "summarize"},
-                               {"description", "Summarize text"},
-                               {"arguments", Json::array({{{"name", "style"},
-                                                           {"description", "Summary style"},
-                                                           {"required", false}}})}},
-                              {{"name", "icon_prompt"},
-                               {"title", "Prompt With Icons"},
-                               {"description", "A prompt with icons"},
-                               {"icons", Json::array({{{"src", "https://example.com/prompt.png"}}})}}
-                             })}};
+                 Json::array(
+                     {{{"name", "code_review"}, {"description", "Review code for issues"}},
+                      {{"name", "summarize"},
+                       {"description", "Summarize text"},
+                       {"arguments", Json::array({{{"name", "style"},
+                                                   {"description", "Summary style"},
+                                                   {"required", false}}})}},
+                      {{"name", "icon_prompt"},
+                       {"title", "Prompt With Icons"},
+                       {"description", "A prompt with icons"},
+                       {"icons", Json::array({{{"src", "https://example.com/prompt.png"}}})}}})}};
         });
 
     srv->route("prompts/get",
