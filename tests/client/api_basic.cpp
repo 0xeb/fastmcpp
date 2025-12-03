@@ -12,12 +12,12 @@ void test_list_tools()
 
     auto tools = c.list_tools();
 
-    assert(tools.size() == 6);
+    assert(tools.size() == 7);
     assert(tools[0].name == "add");
     assert(tools[0].description.value_or("") == "Add two numbers");
     assert(tools[1].name == "greet");
 
-    std::cout << "  [PASS] list_tools() returns 6 tools\n";
+    std::cout << "  [PASS] list_tools() returns 7 tools\n";
 }
 
 void test_list_tools_mcp()
@@ -29,7 +29,7 @@ void test_list_tools_mcp()
 
     auto result = c.list_tools_mcp();
 
-    assert(result.tools.size() == 6);
+    assert(result.tools.size() == 7);
     assert(!result.nextCursor.has_value()); // No pagination in this test
 
     std::cout << "  [PASS] list_tools_mcp() returns ListToolsResult\n";

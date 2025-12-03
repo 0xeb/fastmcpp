@@ -731,6 +731,28 @@ class Client
                     rt.mimeType = r["mimeType"].get<std::string>();
                 if (r.contains("annotations"))
                     rt.annotations = r["annotations"];
+                if (r.contains("title"))
+                    rt.title = r["title"].get<std::string>();
+                if (r.contains("icons"))
+                {
+                    std::vector<fastmcpp::Icon> icons;
+                    for (const auto& icon : r["icons"])
+                    {
+                        fastmcpp::Icon i;
+                        i.src = icon.at("src").get<std::string>();
+                        if (icon.contains("mimeType"))
+                            i.mime_type = icon["mimeType"].get<std::string>();
+                        if (icon.contains("sizes"))
+                        {
+                            std::vector<std::string> sizes;
+                            for (const auto& s : icon["sizes"])
+                                sizes.push_back(s.get<std::string>());
+                            i.sizes = sizes;
+                        }
+                        icons.push_back(i);
+                    }
+                    rt.icons = icons;
+                }
                 result.resourceTemplates.push_back(rt);
             }
         }
