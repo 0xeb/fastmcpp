@@ -12,10 +12,11 @@ static fastmcpp::Json jsonrpc_error(const fastmcpp::Json& id, int code, const st
                           {"error", fastmcpp::Json{{"code", code}, {"message", message}}}};
 }
 
-static fastmcpp::Json make_tool_entry(const std::string& name, const std::string& description,
-                                      const fastmcpp::Json& schema,
-                                      const std::optional<std::string>& title = std::nullopt,
-                                      const std::optional<std::vector<fastmcpp::Icon>>& icons = std::nullopt)
+static fastmcpp::Json
+make_tool_entry(const std::string& name, const std::string& description,
+                const fastmcpp::Json& schema,
+                const std::optional<std::string>& title = std::nullopt,
+                const std::optional<std::vector<fastmcpp::Icon>>& icons = std::nullopt)
 {
     fastmcpp::Json entry = {
         {"name", name},
@@ -83,7 +84,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 {
                     // Get full tool object to access all fields
                     const auto& tool = tools.get(name);
-                    
+
                     fastmcpp::Json schema = fastmcpp::Json::object();
                     auto it = input_schemas_override.find(name);
                     if (it != input_schemas_override.end())
@@ -109,9 +110,9 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                         desc = dit->second;
                     else if (tool.description())
                         desc = *tool.description();
-                    
-                    tools_array.push_back(make_tool_entry(name, desc, schema, 
-                                                          tool.title(), tool.icons()));
+
+                    tools_array.push_back(
+                        make_tool_entry(name, desc, schema, tool.title(), tool.icons()));
                 }
 
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -433,9 +434,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
 
     // Create handler that captures both server AND tools
     // This allows tools/call to use tools.invoke() directly
-    return
-        [server_name, version, &server, &tools, tools_meta](
-            const fastmcpp::Json& message) -> fastmcpp::Json
+    return [server_name, version, &server, &tools,
+            tools_meta](const fastmcpp::Json& message) -> fastmcpp::Json
     {
         try
         {
@@ -475,7 +475,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 for (const auto& name : tools.list_names())
                 {
                     const auto& tool = tools.get(name);
-                    fastmcpp::Json tool_json = {{"name", name}, {"inputSchema", tool.input_schema()}};
+                    fastmcpp::Json tool_json = {{"name", name},
+                                                {"inputSchema", tool.input_schema()}};
 
                     // Add optional fields from Tool
                     if (tool.title())
@@ -519,8 +520,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     else if (result.is_array())
                         content = result;
                     else if (result.is_string())
-                        content = fastmcpp::Json::array(
-                            {fastmcpp::Json{{"type", "text"}, {"text", result.get<std::string>()}}});
+                        content = fastmcpp::Json::array({fastmcpp::Json{
+                            {"type", "text"}, {"text", result.get<std::string>()}}});
                     else
                         content = fastmcpp::Json::array(
                             {fastmcpp::Json{{"type", "text"}, {"text", result.dump()}}});
@@ -582,12 +583,11 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
 std::function<fastmcpp::Json(const fastmcpp::Json&)>
 make_mcp_handler(const std::string& server_name, const std::string& version,
                  const server::Server& server, const tools::ToolManager& tools,
-                 const resources::ResourceManager& resources,
-                 const prompts::PromptManager& prompts,
+                 const resources::ResourceManager& resources, const prompts::PromptManager& prompts,
                  const std::unordered_map<std::string, std::string>& descriptions)
 {
-    return [server_name, version, &server, &tools, &resources, &prompts, descriptions](
-               const fastmcpp::Json& message) -> fastmcpp::Json
+    return [server_name, version, &server, &tools, &resources, &prompts,
+            descriptions](const fastmcpp::Json& message) -> fastmcpp::Json
     {
         try
         {
@@ -597,7 +597,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
 
             if (method == "initialize")
             {
-                fastmcpp::Json serverInfo = {{"name", server.name()}, {"version", server.version()}};
+                fastmcpp::Json serverInfo = {{"name", server.name()},
+                                             {"version", server.version()}};
                 if (server.website_url())
                     serverInfo["websiteUrl"] = *server.website_url();
                 if (server.icons())
@@ -633,7 +634,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 for (const auto& name : tools.list_names())
                 {
                     const auto& tool = tools.get(name);
-                    fastmcpp::Json tool_json = {{"name", name}, {"inputSchema", tool.input_schema()}};
+                    fastmcpp::Json tool_json = {{"name", name},
+                                                {"inputSchema", tool.input_schema()}};
                     if (tool.title())
                         tool_json["title"] = *tool.title();
                     if (tool.description())
@@ -654,8 +656,9 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     }
                     tools_array.push_back(tool_json);
                 }
-                return fastmcpp::Json{
-                    {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json{{"tools", tools_array}}}};
+                return fastmcpp::Json{{"jsonrpc", "2.0"},
+                                      {"id", id},
+                                      {"result", fastmcpp::Json{{"tools", tools_array}}}};
             }
 
             if (method == "tools/call")
@@ -673,13 +676,14 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     else if (result.is_array())
                         content = result;
                     else if (result.is_string())
-                        content = fastmcpp::Json::array(
-                            {fastmcpp::Json{{"type", "text"}, {"text", result.get<std::string>()}}});
+                        content = fastmcpp::Json::array({fastmcpp::Json{
+                            {"type", "text"}, {"text", result.get<std::string>()}}});
                     else
                         content = fastmcpp::Json::array(
                             {fastmcpp::Json{{"type", "text"}, {"text", result.dump()}}});
-                    return fastmcpp::Json{
-                        {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json{{"content", content}}}};
+                    return fastmcpp::Json{{"jsonrpc", "2.0"},
+                                          {"id", id},
+                                          {"result", fastmcpp::Json{{"content", content}}}};
                 }
                 catch (const std::exception& e)
                 {
@@ -710,6 +714,9 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 std::string uri = params.value("uri", "");
                 if (uri.empty())
                     return jsonrpc_error(id, -32602, "Missing resource URI");
+                // Strip trailing slashes for compatibility with Python fastmcp
+                while (!uri.empty() && uri.back() == '/')
+                    uri.pop_back();
                 try
                 {
                     auto content = resources.read(uri, params);
@@ -739,7 +746,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                                 n |= binary[i + 2];
                             b64.push_back(b64_chars[(n >> 18) & 0x3F]);
                             b64.push_back(b64_chars[(n >> 12) & 0x3F]);
-                            b64.push_back((i + 1 < binary.size()) ? b64_chars[(n >> 6) & 0x3F] : '=');
+                            b64.push_back((i + 1 < binary.size()) ? b64_chars[(n >> 6) & 0x3F]
+                                                                  : '=');
                             b64.push_back((i + 2 < binary.size()) ? b64_chars[n & 0x3F] : '=');
                         }
                         content_json["blob"] = b64;
@@ -773,7 +781,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                         fastmcpp::Json args_array = fastmcpp::Json::array();
                         for (const auto& arg : prompt.arguments)
                         {
-                            fastmcpp::Json arg_json = {{"name", arg.name}, {"required", arg.required}};
+                            fastmcpp::Json arg_json = {{"name", arg.name},
+                                                       {"required", arg.required}};
                             if (arg.description)
                                 arg_json["description"] = *arg.description;
                             args_array.push_back(arg_json);
