@@ -790,6 +790,11 @@ class Client
                         tc.text = m["content"].get<std::string>();
                         msg.content.push_back(tc);
                     }
+                    else if (m["content"].is_object())
+                    {
+                        // Handle single content object (Python fastmcp format)
+                        msg.content.push_back(parse_content_block(m["content"]));
+                    }
                 }
                 result.messages.push_back(msg);
             }
