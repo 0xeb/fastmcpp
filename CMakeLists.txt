@@ -308,6 +308,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_server_middleware PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_middleware COMMAND fastmcpp_server_middleware)
 
+  add_executable(fastmcpp_server_middleware_pipeline tests/server/test_middleware_pipeline.cpp)
+  target_link_libraries(fastmcpp_server_middleware_pipeline PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_middleware_pipeline COMMAND fastmcpp_server_middleware_pipeline)
+
   add_executable(fastmcpp_stdio_client tests/transports/stdio_client.cpp)
   target_link_libraries(fastmcpp_stdio_client PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_stdio_client COMMAND fastmcpp_stdio_client)
