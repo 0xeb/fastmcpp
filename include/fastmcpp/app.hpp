@@ -1,6 +1,8 @@
 #pragma once
 
+#include "fastmcpp/client/types.hpp"
 #include "fastmcpp/prompts/manager.hpp"
+#include "fastmcpp/proxy.hpp"
 #include "fastmcpp/resources/manager.hpp"
 #include "fastmcpp/server/server.hpp"
 #include "fastmcpp/tools/manager.hpp"
@@ -13,11 +15,18 @@
 namespace fastmcpp
 {
 
-/// Mounted app reference with prefix
+/// Mounted app reference with prefix (direct mode)
 struct MountedApp
 {
     std::string prefix;              // Prefix for tools/prompts (e.g., "weather")
     class McpApp* app;               // Non-owning pointer to mounted app
+};
+
+/// Proxy-mounted app with prefix (proxy mode)
+struct ProxyMountedApp
+{
+    std::string prefix;                   // Prefix for tools/prompts
+    std::unique_ptr<ProxyApp> proxy;      // Owning pointer to proxy wrapper
 };
 
 /// MCP Application - bundles server metadata with managers
@@ -77,12 +86,16 @@ class McpApp
     /// Resources are prefixed in URI: "prefix+resource://..." or "resource://prefix/..."
     /// Prompts are prefixed with underscore: "prefix_promptname"
     ///
-    /// @param app The app to mount (must outlive this app)
+    /// @param app The app to mount (must outlive this app in direct mode)
     /// @param prefix Optional prefix (empty string = no prefix)
-    void mount(McpApp& app, const std::string& prefix = "");
+    /// @param as_proxy If true, mount in proxy mode (uses MCP handler for communication)
+    void mount(McpApp& app, const std::string& prefix = "", bool as_proxy = false);
 
-    /// Get list of mounted apps
+    /// Get list of directly mounted apps
     const std::vector<MountedApp>& mounted() const { return mounted_; }
+
+    /// Get list of proxy-mounted apps
+    const std::vector<ProxyMountedApp>& proxy_mounted() const { return proxy_mounted_; }
 
     // =========================================================================
     // Aggregated Lists (includes mounted apps)
@@ -91,6 +104,9 @@ class McpApp
     /// List all tools including from mounted apps
     /// Tools from mounted apps have prefix: "prefix_toolname"
     std::vector<std::pair<std::string, const tools::Tool*>> list_all_tools() const;
+
+    /// List all tools as ToolInfo (works for both direct and proxy mounts)
+    std::vector<client::ToolInfo> list_all_tools_info() const;
 
     /// List all resources including from mounted apps
     std::vector<resources::Resource> list_all_resources() const;
@@ -120,6 +136,7 @@ class McpApp
     resources::ResourceManager resources_;
     prompts::PromptManager prompts_;
     std::vector<MountedApp> mounted_;
+    std::vector<ProxyMountedApp> proxy_mounted_;
 
     // Prefix utilities
     static std::string add_prefix(const std::string& name, const std::string& prefix);

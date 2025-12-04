@@ -904,17 +904,18 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const McpA
             if (method == "tools/list")
             {
                 fastmcpp::Json tools_array = fastmcpp::Json::array();
-                for (const auto& [name, tool] : app.list_all_tools())
+                for (const auto& tool_info : app.list_all_tools_info())
                 {
-                    fastmcpp::Json tool_json = {{"name", name}, {"inputSchema", tool->input_schema()}};
-                    if (tool->title())
-                        tool_json["title"] = *tool->title();
-                    if (tool->description())
-                        tool_json["description"] = *tool->description();
-                    if (tool->icons() && !tool->icons()->empty())
+                    fastmcpp::Json tool_json = {{"name", tool_info.name},
+                                                {"inputSchema", tool_info.inputSchema}};
+                    if (tool_info.title)
+                        tool_json["title"] = *tool_info.title;
+                    if (tool_info.description)
+                        tool_json["description"] = *tool_info.description;
+                    if (tool_info.icons && !tool_info.icons->empty())
                     {
                         fastmcpp::Json icons_json = fastmcpp::Json::array();
-                        for (const auto& icon : *tool->icons())
+                        for (const auto& icon : *tool_info.icons)
                         {
                             fastmcpp::Json icon_obj = {{"src", icon.src}};
                             if (icon.mime_type)
