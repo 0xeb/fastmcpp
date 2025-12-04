@@ -18,6 +18,7 @@ add_library(fastmcpp_core
     src/mcp/handler.cpp
     src/resources/resource.cpp
     src/resources/manager.cpp
+    src/resources/template.cpp
     src/prompts/prompt.cpp
     src/prompts/manager.cpp
     src/tools/tool.cpp
@@ -221,6 +222,10 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_resources_advanced tests/resources/advanced.cpp)
   target_link_libraries(fastmcpp_resources_advanced PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_resources_advanced COMMAND fastmcpp_resources_advanced)
+
+  add_executable(fastmcpp_resources_templates tests/resources/templates.cpp)
+  target_link_libraries(fastmcpp_resources_templates PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_resources_templates COMMAND fastmcpp_resources_templates)
 
   add_executable(fastmcpp_server_basic tests/server/basic.cpp)
   target_link_libraries(fastmcpp_server_basic PRIVATE fastmcpp_core)

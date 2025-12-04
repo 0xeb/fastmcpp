@@ -615,7 +615,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
 
                 // Advertise capabilities for tools, resources, and prompts
                 fastmcpp::Json capabilities = {{"tools", fastmcpp::Json::object()}};
-                if (!resources.list().empty())
+                if (!resources.list().empty() || !resources.list_templates().empty())
                     capabilities["resources"] = fastmcpp::Json::object();
                 if (!prompts.list().empty())
                     capabilities["prompts"] = fastmcpp::Json::object();
@@ -707,6 +707,25 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
                                       {"result", fastmcpp::Json{{"resources", resources_array}}}};
+            }
+
+            // Resource templates support
+            if (method == "resources/templates/list")
+            {
+                fastmcpp::Json templates_array = fastmcpp::Json::array();
+                for (const auto& templ : resources.list_templates())
+                {
+                    fastmcpp::Json templ_json = {{"uriTemplate", templ.uri_template},
+                                                  {"name", templ.name}};
+                    if (templ.description)
+                        templ_json["description"] = *templ.description;
+                    if (templ.mime_type)
+                        templ_json["mimeType"] = *templ.mime_type;
+                    templates_array.push_back(templ_json);
+                }
+                return fastmcpp::Json{{"jsonrpc", "2.0"},
+                                      {"id", id},
+                                      {"result", fastmcpp::Json{{"resourceTemplates", templates_array}}}};
             }
 
             if (method == "resources/read")
