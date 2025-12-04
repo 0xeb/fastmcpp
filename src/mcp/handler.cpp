@@ -1,5 +1,6 @@
 #include "fastmcpp/mcp/handler.hpp"
 #include "fastmcpp/app.hpp"
+#include "fastmcpp/proxy.hpp"
 
 #include <optional>
 
@@ -1100,6 +1101,291 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const McpA
                     return fastmcpp::Json{{"jsonrpc", "2.0"},
                                           {"id", id},
                                           {"result", fastmcpp::Json{{"messages", messages_array}}}};
+                }
+                catch (const NotFoundError& e)
+                {
+                    return jsonrpc_error(id, -32602, e.what());
+                }
+                catch (const std::exception& e)
+                {
+                    return jsonrpc_error(id, -32603, e.what());
+                }
+            }
+
+            return jsonrpc_error(id, -32601, std::string("Method '") + method + "' not found");
+        }
+        catch (const std::exception& e)
+        {
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), -32603, e.what());
+        }
+    };
+}
+
+// ProxyApp handler - supports proxying to backend server
+std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const ProxyApp& app)
+{
+    return [&app](const fastmcpp::Json& message) -> fastmcpp::Json
+    {
+        try
+        {
+            const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
+            std::string method = message.value("method", "");
+            fastmcpp::Json params = message.value("params", fastmcpp::Json::object());
+
+            if (method == "initialize")
+            {
+                fastmcpp::Json serverInfo = {{"name", app.name()}, {"version", app.version()}};
+
+                // Advertise capabilities
+                fastmcpp::Json capabilities = {{"tools", fastmcpp::Json::object()}};
+                if (!app.list_all_resources().empty() || !app.list_all_resource_templates().empty())
+                    capabilities["resources"] = fastmcpp::Json::object();
+                if (!app.list_all_prompts().empty())
+                    capabilities["prompts"] = fastmcpp::Json::object();
+
+                return fastmcpp::Json{{"jsonrpc", "2.0"},
+                                      {"id", id},
+                                      {"result",
+                                       {{"protocolVersion", "2024-11-05"},
+                                        {"capabilities", capabilities},
+                                        {"serverInfo", serverInfo}}}};
+            }
+
+            // Tools
+            if (method == "tools/list")
+            {
+                fastmcpp::Json tools_array = fastmcpp::Json::array();
+                for (const auto& tool : app.list_all_tools())
+                {
+                    fastmcpp::Json tool_json = {{"name", tool.name}, {"inputSchema", tool.inputSchema}};
+                    if (tool.description)
+                        tool_json["description"] = *tool.description;
+                    if (tool.title)
+                        tool_json["title"] = *tool.title;
+                    if (tool.outputSchema)
+                        tool_json["outputSchema"] = *tool.outputSchema;
+                    if (tool.icons)
+                    {
+                        fastmcpp::Json icons_array = fastmcpp::Json::array();
+                        for (const auto& icon : *tool.icons)
+                        {
+                            fastmcpp::Json icon_json;
+                            to_json(icon_json, icon);
+                            icons_array.push_back(icon_json);
+                        }
+                        tool_json["icons"] = icons_array;
+                    }
+                    tools_array.push_back(tool_json);
+                }
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json{{"tools", tools_array}}}};
+            }
+
+            if (method == "tools/call")
+            {
+                std::string name = params.value("name", "");
+                fastmcpp::Json arguments = params.value("arguments", fastmcpp::Json::object());
+                if (name.empty())
+                    return jsonrpc_error(id, -32602, "Missing tool name");
+                try
+                {
+                    auto result = app.invoke_tool(name, arguments);
+
+                    // Convert result to JSON-RPC response
+                    fastmcpp::Json content_array = fastmcpp::Json::array();
+                    for (const auto& content : result.content)
+                    {
+                        if (auto* text = std::get_if<client::TextContent>(&content))
+                        {
+                            content_array.push_back({{"type", "text"}, {"text", text->text}});
+                        }
+                        else if (auto* img = std::get_if<client::ImageContent>(&content))
+                        {
+                            fastmcpp::Json img_json = {
+                                {"type", "image"}, {"data", img->data}, {"mimeType", img->mimeType}};
+                            content_array.push_back(img_json);
+                        }
+                        else if (auto* res = std::get_if<client::EmbeddedResourceContent>(&content))
+                        {
+                            fastmcpp::Json res_json = {{"type", "resource"}, {"uri", res->uri}};
+                            if (!res->text.empty())
+                                res_json["text"] = res->text;
+                            if (res->blob)
+                                res_json["blob"] = *res->blob;
+                            if (res->mimeType)
+                                res_json["mimeType"] = *res->mimeType;
+                            content_array.push_back(res_json);
+                        }
+                    }
+
+                    fastmcpp::Json response_result = {{"content", content_array}};
+                    if (result.isError)
+                        response_result["isError"] = true;
+                    if (result.structuredContent)
+                        response_result["structuredContent"] = *result.structuredContent;
+
+                    return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", response_result}};
+                }
+                catch (const NotFoundError& e)
+                {
+                    return jsonrpc_error(id, -32602, e.what());
+                }
+                catch (const std::exception& e)
+                {
+                    return jsonrpc_error(id, -32603, e.what());
+                }
+            }
+
+            // Resources
+            if (method == "resources/list")
+            {
+                fastmcpp::Json resources_array = fastmcpp::Json::array();
+                for (const auto& res : app.list_all_resources())
+                {
+                    fastmcpp::Json res_json = {{"uri", res.uri}, {"name", res.name}};
+                    if (res.description)
+                        res_json["description"] = *res.description;
+                    if (res.mimeType)
+                        res_json["mimeType"] = *res.mimeType;
+                    resources_array.push_back(res_json);
+                }
+                return fastmcpp::Json{{"jsonrpc", "2.0"},
+                                      {"id", id},
+                                      {"result", fastmcpp::Json{{"resources", resources_array}}}};
+            }
+
+            if (method == "resources/templates/list")
+            {
+                fastmcpp::Json templates_array = fastmcpp::Json::array();
+                for (const auto& templ : app.list_all_resource_templates())
+                {
+                    fastmcpp::Json templ_json = {{"uriTemplate", templ.uriTemplate}, {"name", templ.name}};
+                    if (templ.description)
+                        templ_json["description"] = *templ.description;
+                    if (templ.mimeType)
+                        templ_json["mimeType"] = *templ.mimeType;
+                    templates_array.push_back(templ_json);
+                }
+                return fastmcpp::Json{{"jsonrpc", "2.0"},
+                                      {"id", id},
+                                      {"result", fastmcpp::Json{{"resourceTemplates", templates_array}}}};
+            }
+
+            if (method == "resources/read")
+            {
+                std::string uri = params.value("uri", "");
+                if (uri.empty())
+                    return jsonrpc_error(id, -32602, "Missing resource URI");
+                try
+                {
+                    auto result = app.read_resource(uri);
+
+                    fastmcpp::Json contents_array = fastmcpp::Json::array();
+                    for (const auto& content : result.contents)
+                    {
+                        if (auto* text_content = std::get_if<client::TextResourceContent>(&content))
+                        {
+                            fastmcpp::Json content_json = {{"uri", text_content->uri}};
+                            if (text_content->mimeType)
+                                content_json["mimeType"] = *text_content->mimeType;
+                            content_json["text"] = text_content->text;
+                            contents_array.push_back(content_json);
+                        }
+                        else if (auto* blob_content = std::get_if<client::BlobResourceContent>(&content))
+                        {
+                            fastmcpp::Json content_json = {{"uri", blob_content->uri}};
+                            if (blob_content->mimeType)
+                                content_json["mimeType"] = *blob_content->mimeType;
+                            content_json["blob"] = blob_content->blob;
+                            contents_array.push_back(content_json);
+                        }
+                    }
+
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json{{"contents", contents_array}}}};
+                }
+                catch (const NotFoundError& e)
+                {
+                    return jsonrpc_error(id, -32602, e.what());
+                }
+                catch (const std::exception& e)
+                {
+                    return jsonrpc_error(id, -32603, e.what());
+                }
+            }
+
+            // Prompts
+            if (method == "prompts/list")
+            {
+                fastmcpp::Json prompts_array = fastmcpp::Json::array();
+                for (const auto& prompt : app.list_all_prompts())
+                {
+                    fastmcpp::Json prompt_json = {{"name", prompt.name}};
+                    if (prompt.description)
+                        prompt_json["description"] = *prompt.description;
+                    if (prompt.arguments)
+                    {
+                        fastmcpp::Json args_array = fastmcpp::Json::array();
+                        for (const auto& arg : *prompt.arguments)
+                        {
+                            fastmcpp::Json arg_json = {{"name", arg.name}, {"required", arg.required}};
+                            if (arg.description)
+                                arg_json["description"] = *arg.description;
+                            args_array.push_back(arg_json);
+                        }
+                        prompt_json["arguments"] = args_array;
+                    }
+                    prompts_array.push_back(prompt_json);
+                }
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json{{"prompts", prompts_array}}}};
+            }
+
+            if (method == "prompts/get")
+            {
+                std::string name = params.value("name", "");
+                if (name.empty())
+                    return jsonrpc_error(id, -32602, "Missing prompt name");
+                try
+                {
+                    fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
+                    auto result = app.get_prompt(name, args);
+
+                    fastmcpp::Json messages_array = fastmcpp::Json::array();
+                    for (const auto& msg : result.messages)
+                    {
+                        fastmcpp::Json content_array = fastmcpp::Json::array();
+                        for (const auto& content : msg.content)
+                        {
+                            if (auto* text = std::get_if<client::TextContent>(&content))
+                            {
+                                content_array.push_back({{"type", "text"}, {"text", text->text}});
+                            }
+                            else if (auto* img = std::get_if<client::ImageContent>(&content))
+                            {
+                                content_array.push_back(
+                                    {{"type", "image"}, {"data", img->data}, {"mimeType", img->mimeType}});
+                            }
+                            else if (auto* res = std::get_if<client::EmbeddedResourceContent>(&content))
+                            {
+                                fastmcpp::Json res_json = {{"type", "resource"}, {"uri", res->uri}};
+                                if (!res->text.empty())
+                                    res_json["text"] = res->text;
+                                if (res->blob)
+                                    res_json["blob"] = *res->blob;
+                                content_array.push_back(res_json);
+                            }
+                        }
+
+                        std::string role_str = (msg.role == client::Role::Assistant) ? "assistant" : "user";
+                        messages_array.push_back({{"role", role_str}, {"content", content_array}});
+                    }
+
+                    fastmcpp::Json response_result = {{"messages", messages_array}};
+                    if (result.description)
+                        response_result["description"] = *result.description;
+
+                    return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", response_result}};
                 }
                 catch (const NotFoundError& e)
                 {

@@ -11,7 +11,8 @@
 
 namespace fastmcpp
 {
-class McpApp; // Forward declaration
+class McpApp;   // Forward declaration
+class ProxyApp; // Forward declaration
 }
 
 namespace fastmcpp::mcp
@@ -52,5 +53,9 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
 // MCP handler from McpApp - supports mounted apps with aggregation
 // Uses app's aggregated lists and routing for mounted sub-apps
 std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const McpApp& app);
+
+// MCP handler from ProxyApp - supports proxying to backend server
+// Uses app's aggregated lists (local + remote) and routing
+std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const ProxyApp& app);
 
 } // namespace fastmcpp::mcp

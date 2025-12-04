@@ -16,6 +16,7 @@ add_library(fastmcpp_core
     src/types.cpp
     src/util/schema_build.cpp
     src/app.cpp
+    src/proxy.cpp
     src/mcp/handler.cpp
     src/resources/resource.cpp
     src/resources/manager.cpp
@@ -319,6 +320,11 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_app_mounting tests/app/mounting.cpp)
   target_link_libraries(fastmcpp_app_mounting PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_app_mounting COMMAND fastmcpp_app_mounting)
+
+  # Proxy tests
+  add_executable(fastmcpp_proxy_basic tests/proxy/basic.cpp)
+  target_link_libraries(fastmcpp_proxy_basic PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_proxy_basic COMMAND fastmcpp_proxy_basic)
 
   set_tests_properties(fastmcpp_stdio_client PROPERTIES
     LABELS "conformance"
