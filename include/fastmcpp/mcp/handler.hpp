@@ -9,6 +9,11 @@
 #include <string>
 #include <unordered_map>
 
+namespace fastmcpp
+{
+class McpApp; // Forward declaration
+}
+
 namespace fastmcpp::mcp
 {
 
@@ -43,5 +48,9 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                  const server::Server& server, const tools::ToolManager& tools,
                  const resources::ResourceManager& resources, const prompts::PromptManager& prompts,
                  const std::unordered_map<std::string, std::string>& descriptions = {});
+
+// MCP handler from McpApp - supports mounted apps with aggregation
+// Uses app's aggregated lists and routing for mounted sub-apps
+std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const McpApp& app);
 
 } // namespace fastmcpp::mcp

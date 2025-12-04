@@ -15,6 +15,7 @@ option(FASTMCPP_ENABLE_LOCAL_WS_TEST "Enable local WebSocket server test (depend
 add_library(fastmcpp_core
     src/types.cpp
     src/util/schema_build.cpp
+    src/app.cpp
     src/mcp/handler.cpp
     src/resources/resource.cpp
     src/resources/manager.cpp
@@ -313,6 +314,12 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_stdio_failure tests/transports/stdio_failure.cpp)
   target_link_libraries(fastmcpp_stdio_failure PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_stdio_failure COMMAND fastmcpp_stdio_failure)
+
+  # App mounting tests
+  add_executable(fastmcpp_app_mounting tests/app/mounting.cpp)
+  target_link_libraries(fastmcpp_app_mounting PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_app_mounting COMMAND fastmcpp_app_mounting)
+
   set_tests_properties(fastmcpp_stdio_client PROPERTIES
     LABELS "conformance"
     WORKING_DIRECTORY "$<TARGET_FILE_DIR:fastmcpp_stdio_client>"
