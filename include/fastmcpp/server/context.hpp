@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <variant>
 
 namespace fastmcpp
 {
@@ -20,6 +21,40 @@ namespace fastmcpp::server
 {
 
 enum class LogLevel { Debug, Info, Warning, Error };
+
+// ============================================================================
+// Sampling types (for Context.sample())
+// ============================================================================
+
+/// Message for sampling request
+struct SamplingMessage
+{
+    std::string role;     // "user" or "assistant"
+    std::string content;  // Text content
+};
+
+/// Parameters for sampling request
+struct SamplingParams
+{
+    std::optional<std::string> system_prompt;
+    std::optional<float> temperature;
+    std::optional<int> max_tokens;
+    std::optional<std::vector<std::string>> model_preferences;
+};
+
+/// Result from sampling (text, image, or audio content)
+struct SamplingResult
+{
+    std::string type;     // "text", "image", "audio"
+    std::string content;  // Text content or base64 data
+    std::optional<std::string> mime_type;
+};
+
+/// Callback type for sampling: takes messages + params, returns result
+using SamplingCallback = std::function<SamplingResult(
+    const std::vector<SamplingMessage>&,
+    const SamplingParams&
+)>;
 
 inline std::string to_string(LogLevel level)
 {
@@ -149,6 +184,45 @@ class Context
     void send_prompt_list_changed() const
     { send_notification("notifications/prompts/list_changed", Json::object()); }
 
+    // ========================================================================
+    // Sampling API
+    // ========================================================================
+
+    /// Set the sampling callback (typically injected by server)
+    void set_sampling_callback(SamplingCallback callback)
+    { sampling_callback_ = std::move(callback); }
+
+    /// Check if sampling is available
+    bool has_sampling() const { return static_cast<bool>(sampling_callback_); }
+
+    /// Request LLM completion from client
+    /// @param messages The messages to send (string or SamplingMessage vector)
+    /// @param params Optional sampling parameters
+    /// @return SamplingResult with text/image/audio content
+    /// @throws std::runtime_error if sampling not available
+    SamplingResult sample(const std::string& message,
+                          const SamplingParams& params = {}) const
+    {
+        std::vector<SamplingMessage> msgs = {{"user", message}};
+        return sample(msgs, params);
+    }
+
+    SamplingResult sample(const std::vector<SamplingMessage>& messages,
+                          const SamplingParams& params = {}) const
+    {
+        if (!sampling_callback_)
+            throw std::runtime_error("Sampling not available: no sampling callback set");
+        return sampling_callback_(messages, params);
+    }
+
+    /// Convenience: sample and return just the text content
+    std::string sample_text(const std::string& message,
+                            const SamplingParams& params = {}) const
+    {
+        auto result = sample(message, params);
+        return result.content;
+    }
+
   private:
     void send_notification(const std::string& method, const Json& params) const
     {
@@ -164,6 +238,7 @@ class Context
     LogCallback log_callback_;
     ProgressCallback progress_callback_;
     NotificationCallback notification_callback_;
+    SamplingCallback sampling_callback_;
 };
 
 } // namespace fastmcpp::server
