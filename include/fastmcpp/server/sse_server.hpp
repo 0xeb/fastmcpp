@@ -1,4 +1,5 @@
 #pragma once
+#include "fastmcpp/server/session.hpp"
 #include "fastmcpp/types.hpp"
 
 #include <atomic>
@@ -119,6 +120,58 @@ class SseServerWrapper
         return message_path_;
     }
 
+    /**
+     * Send a notification to a specific session.
+     *
+     * This allows server-initiated messages to be pushed to clients,
+     * useful for progress updates, log messages, and other notifications
+     * during long-running operations.
+     *
+     * @param session_id The session to send to
+     * @param notification The JSON-RPC notification (should have no "id" field)
+     */
+    void send_notification(const std::string& session_id, const fastmcpp::Json& notification)
+    {
+        send_event_to_session(session_id, notification);
+    }
+
+    /**
+     * Broadcast a notification to all connected sessions.
+     *
+     * @param notification The JSON-RPC notification to broadcast
+     */
+    void broadcast_notification(const fastmcpp::Json& notification)
+    {
+        send_event_to_all_clients(notification);
+    }
+
+    /**
+     * Get the ServerSession for a given session ID.
+     *
+     * This allows server-initiated requests (sampling, elicitation) via
+     * the session's bidirectional transport.
+     *
+     * @param session_id The session to get
+     * @return Shared pointer to ServerSession, or nullptr if not found
+     */
+    std::shared_ptr<ServerSession> get_session(const std::string& session_id) const
+    {
+        std::lock_guard<std::mutex> lock(conns_mutex_);
+        auto it = connections_.find(session_id);
+        if (it == connections_.end() || !it->second->alive)
+            return nullptr;
+        return it->second->server_session;
+    }
+
+    /**
+     * Get the number of active connections.
+     */
+    size_t connection_count() const
+    {
+        std::lock_guard<std::mutex> lock(conns_mutex_);
+        return connections_.size();
+    }
+
   private:
     void run_server();
     void send_event_to_all_clients(const fastmcpp::Json& event);
@@ -149,6 +202,7 @@ class SseServerWrapper
         std::mutex m;
         std::condition_variable cv;
         bool alive{true};
+        std::shared_ptr<ServerSession> server_session; // For bidirectional requests
     };
 
     void handle_sse_connection(httplib::DataSink& sink, std::shared_ptr<ConnectionState> conn,
@@ -156,7 +210,7 @@ class SseServerWrapper
 
     // Active SSE connections mapped by session ID
     std::unordered_map<std::string, std::shared_ptr<ConnectionState>> connections_;
-    std::mutex conns_mutex_;
+    mutable std::mutex conns_mutex_;
 };
 
 } // namespace fastmcpp::server

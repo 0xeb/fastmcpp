@@ -15,9 +15,12 @@ option(FASTMCPP_ENABLE_LOCAL_WS_TEST "Enable local WebSocket server test (depend
 add_library(fastmcpp_core
     src/types.cpp
     src/util/schema_build.cpp
+    src/app.cpp
+    src/proxy.cpp
     src/mcp/handler.cpp
     src/resources/resource.cpp
     src/resources/manager.cpp
+    src/resources/template.cpp
     src/prompts/prompt.cpp
     src/prompts/manager.cpp
     src/tools/tool.cpp
@@ -142,6 +145,18 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_tools PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_tools COMMAND fastmcpp_tools)
 
+  add_executable(fastmcpp_tools_transform tests/tools/test_tool_transform.cpp)
+  target_link_libraries(fastmcpp_tools_transform PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_tools_transform COMMAND fastmcpp_tools_transform)
+
+  add_executable(fastmcpp_tools_transform_ext tests/tools/test_tool_transform_extended.cpp)
+  target_link_libraries(fastmcpp_tools_transform_ext PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_tools_transform_ext COMMAND fastmcpp_tools_transform_ext)
+
+  add_executable(fastmcpp_tools_manager tests/tools/test_tool_manager.cpp)
+  target_link_libraries(fastmcpp_tools_manager PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_tools_manager COMMAND fastmcpp_tools_manager)
+
   add_executable(fastmcpp_integration tests/integration.cpp)
   target_link_libraries(fastmcpp_integration PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_integration COMMAND fastmcpp_integration)
@@ -222,6 +237,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_resources_advanced PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_resources_advanced COMMAND fastmcpp_resources_advanced)
 
+  add_executable(fastmcpp_resources_templates tests/resources/templates.cpp)
+  target_link_libraries(fastmcpp_resources_templates PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_resources_templates COMMAND fastmcpp_resources_templates)
+
   add_executable(fastmcpp_server_basic tests/server/basic.cpp)
   target_link_libraries(fastmcpp_server_basic PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_basic COMMAND fastmcpp_server_basic)
@@ -250,6 +269,21 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_server_context_meta tests/server/context_meta.cpp)
   target_link_libraries(fastmcpp_server_context_meta PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_context_meta COMMAND fastmcpp_server_context_meta)
+  add_executable(fastmcpp_server_context_full tests/server/test_context_full.cpp)
+  target_link_libraries(fastmcpp_server_context_full PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_context_full COMMAND fastmcpp_server_context_full)
+
+  add_executable(fastmcpp_server_context_sse_integration tests/server/test_context_sse_integration.cpp)
+  target_link_libraries(fastmcpp_server_context_sse_integration PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_context_sse_integration COMMAND fastmcpp_server_context_sse_integration)
+
+  add_executable(fastmcpp_server_context_sampling tests/server/test_context_sampling.cpp)
+  target_link_libraries(fastmcpp_server_context_sampling PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_context_sampling COMMAND fastmcpp_server_context_sampling)
+
+  add_executable(fastmcpp_server_session tests/server/test_server_session.cpp)
+  target_link_libraries(fastmcpp_server_session PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_session COMMAND fastmcpp_server_session)
 
   add_executable(fastmcpp_server_security_limits tests/server/security_limits.cpp)
   target_link_libraries(fastmcpp_server_security_limits PRIVATE fastmcpp_core)
@@ -301,6 +335,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_server_middleware PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_middleware COMMAND fastmcpp_server_middleware)
 
+  add_executable(fastmcpp_server_middleware_pipeline tests/server/test_middleware_pipeline.cpp)
+  target_link_libraries(fastmcpp_server_middleware_pipeline PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_middleware_pipeline COMMAND fastmcpp_server_middleware_pipeline)
+
   add_executable(fastmcpp_stdio_client tests/transports/stdio_client.cpp)
   target_link_libraries(fastmcpp_stdio_client PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_stdio_client COMMAND fastmcpp_stdio_client)
@@ -308,6 +346,17 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_stdio_failure tests/transports/stdio_failure.cpp)
   target_link_libraries(fastmcpp_stdio_failure PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_stdio_failure COMMAND fastmcpp_stdio_failure)
+
+  # App mounting tests
+  add_executable(fastmcpp_app_mounting tests/app/mounting.cpp)
+  target_link_libraries(fastmcpp_app_mounting PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_app_mounting COMMAND fastmcpp_app_mounting)
+
+  # Proxy tests
+  add_executable(fastmcpp_proxy_basic tests/proxy/basic.cpp)
+  target_link_libraries(fastmcpp_proxy_basic PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_proxy_basic COMMAND fastmcpp_proxy_basic)
+
   set_tests_properties(fastmcpp_stdio_client PROPERTIES
     LABELS "conformance"
     WORKING_DIRECTORY "$<TARGET_FILE_DIR:fastmcpp_stdio_client>"

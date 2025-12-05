@@ -56,6 +56,37 @@ class LoopbackTransport : public ITransport
     std::shared_ptr<fastmcpp::server::Server> server_;
 };
 
+/// In-process transport that uses an MCP handler function
+/// This is useful for proxy mode mounting where we want to communicate
+/// with a mounted app via its MCP handler
+class InProcessMcpTransport : public ITransport
+{
+  public:
+    using HandlerFn = std::function<fastmcpp::Json(const fastmcpp::Json&)>;
+
+    explicit InProcessMcpTransport(HandlerFn handler) : handler_(std::move(handler)) {}
+
+    fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload) override
+    {
+        // Build JSON-RPC request
+        static int request_id = 0;
+        fastmcpp::Json jsonrpc_request = {
+            {"jsonrpc", "2.0"}, {"id", ++request_id}, {"method", route}, {"params", payload}};
+
+        // Call handler
+        fastmcpp::Json response = handler_(jsonrpc_request);
+
+        // Extract result or error
+        if (response.contains("error"))
+            throw fastmcpp::Error(response["error"].value("message", "Unknown error"));
+
+        return response.value("result", fastmcpp::Json::object());
+    }
+
+  private:
+    HandlerFn handler_;
+};
+
 // ============================================================================
 // Call Options
 // ============================================================================

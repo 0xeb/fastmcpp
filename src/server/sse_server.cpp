@@ -261,6 +261,22 @@ bool SseServerWrapper::start()
                           auto conn = std::make_shared<ConnectionState>();
                           conn->session_id = session_id;
 
+                          // Create ServerSession for bidirectional communication
+                          // The send callback pushes events to this connection's queue
+                          auto weak_conn = std::weak_ptr<ConnectionState>(conn);
+                          conn->server_session = std::make_shared<ServerSession>(
+                              session_id,
+                              [weak_conn, this](const Json& msg)
+                              {
+                                  if (auto c = weak_conn.lock())
+                                  {
+                                      std::lock_guard<std::mutex> ql(c->m);
+                                      if (c->queue.size() < MAX_QUEUE_SIZE)
+                                          c->queue.push_back(msg);
+                                      c->cv.notify_one();
+                                  }
+                              });
+
                           {
                               std::lock_guard<std::mutex> lock(conns_mutex_);
                               connections_[session_id] = conn;
@@ -346,11 +362,47 @@ bool SseServerWrapper::start()
                     }
                 }
 
-                // Parse JSON-RPC request
-                auto request = fastmcpp::util::json::parse(req.body);
+                // Parse JSON-RPC message
+                auto message = fastmcpp::util::json::parse(req.body);
 
-                // Process with handler
-                auto response = handler_(request);
+                // Inject session_id into request meta for handler access
+                if (!message.contains("params"))
+                    message["params"] = Json::object();
+                if (!message["params"].contains("_meta"))
+                    message["params"]["_meta"] = Json::object();
+                message["params"]["_meta"]["session_id"] = session_id;
+
+                // Check if this is a response to a server-initiated request
+                if (ServerSession::is_response(message))
+                {
+                    // Get the session and route the response
+                    std::shared_ptr<ConnectionState> conn;
+                    {
+                        std::lock_guard<std::mutex> lock(conns_mutex_);
+                        auto it = connections_.find(session_id);
+                        if (it != connections_.end())
+                            conn = it->second;
+                    }
+
+                    if (conn && conn->server_session)
+                    {
+                        bool handled = conn->server_session->handle_response(message);
+                        if (handled)
+                        {
+                            res.set_content("{\"status\":\"ok\"}", "application/json");
+                            res.status = 200;
+                            return;
+                        }
+                    }
+
+                    // Response not handled (unknown request ID)
+                    res.status = 400;
+                    res.set_content("{\"error\":\"Unknown response ID\"}", "application/json");
+                    return;
+                }
+
+                // Normal request - process with handler
+                auto response = handler_(message);
 
                 // Send response only to the requesting session
                 send_event_to_session(session_id, response);
