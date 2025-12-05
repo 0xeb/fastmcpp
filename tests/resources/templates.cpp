@@ -241,8 +241,7 @@ int test_resource_manager_templates()
     {
         std::string city = params.value("city", "unknown");
         Json data = {{"city", city}, {"temperature", 20}, {"conditions", "sunny"}};
-        return ResourceContent{
-            "weather://" + city + "/current", "application/json", data.dump()};
+        return ResourceContent{"weather://" + city + "/current", "application/json", data.dump()};
     };
 
     mgr.register_template(std::move(templ));

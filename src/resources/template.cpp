@@ -79,9 +79,7 @@ std::vector<std::string> extract_path_params(const std::string& uri_template)
 
         // Skip query parameters {?...}
         if (full_match.find("{?") == std::string::npos)
-        {
             params.push_back(match[1].str());
-        }
     }
 
     return params;
@@ -110,9 +108,7 @@ std::vector<std::string> extract_query_params(const std::string& uri_template)
             size_t start = param.find_first_not_of(" \t");
             size_t end_pos = param.find_last_not_of(" \t");
             if (start != std::string::npos)
-            {
                 params.push_back(param.substr(start, end_pos - start + 1));
-            }
         }
     }
 
@@ -151,9 +147,7 @@ std::string build_regex_pattern(const std::string& uri_template)
 
         // Escape literal text before placeholder
         if (placeholder_start > pos)
-        {
             result += escape_regex(pattern.substr(pos, placeholder_start - pos));
-        }
 
         // Find end of placeholder
         size_t placeholder_end = pattern.find('}', placeholder_start);
@@ -164,7 +158,8 @@ std::string build_regex_pattern(const std::string& uri_template)
             break;
         }
 
-        std::string placeholder = pattern.substr(placeholder_start, placeholder_end - placeholder_start + 1);
+        std::string placeholder =
+            pattern.substr(placeholder_start, placeholder_end - placeholder_start + 1);
 
         // Check what kind of placeholder
         if (placeholder.find("{?") == 0)
@@ -234,15 +229,13 @@ void ResourceTemplate::parse()
     }
 }
 
-std::optional<std::unordered_map<std::string, std::string>> ResourceTemplate::match(
-    const std::string& uri) const
+std::optional<std::unordered_map<std::string, std::string>>
+ResourceTemplate::match(const std::string& uri) const
 {
     std::smatch match;
 
     if (!std::regex_match(uri, match, uri_regex))
-    {
         return std::nullopt;
-    }
 
     std::unordered_map<std::string, std::string> params;
 
@@ -269,9 +262,7 @@ std::optional<std::unordered_map<std::string, std::string>> ResourceTemplate::ma
                         std::string value = pair.substr(eq_pos + 1);
 
                         if (key == param.name)
-                        {
                             params[param.name] = url_decode(value);
-                        }
                     }
                 }
             }
@@ -298,27 +289,22 @@ std::optional<std::unordered_map<std::string, std::string>> ResourceTemplate::ma
                 size_t other_pos = uri_template.find(other_placeholder);
 
                 if (other_pos < param_pos)
-                {
                     ++group_index;
-                }
                 else if (&other_param == &param)
-                {
                     break;
-                }
             }
 
             if (group_index < static_cast<int>(match.size()))
-            {
                 params[param.name] = url_decode(match[group_index].str());
-            }
         }
     }
 
     return params;
 }
 
-Resource ResourceTemplate::create_resource(
-    const std::string& uri, const std::unordered_map<std::string, std::string>& params) const
+Resource
+ResourceTemplate::create_resource(const std::string& uri,
+                                  const std::unordered_map<std::string, std::string>& params) const
 {
     Resource resource;
     resource.uri = uri;
@@ -333,18 +319,15 @@ Resource ResourceTemplate::create_resource(
         auto captured_params = params;
         auto template_provider = provider;
 
-        resource.provider = [captured_params, template_provider](const Json& extra_params) -> ResourceContent
+        resource.provider = [captured_params,
+                             template_provider](const Json& extra_params) -> ResourceContent
         {
             // Merge captured params with any extra params
             Json merged_params = Json::object();
             for (const auto& [key, value] : captured_params)
-            {
                 merged_params[key] = value;
-            }
             for (const auto& [key, value] : extra_params.items())
-            {
                 merged_params[key] = value;
-            }
             return template_provider(merged_params);
         };
     }

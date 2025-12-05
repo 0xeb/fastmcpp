@@ -266,16 +266,16 @@ bool SseServerWrapper::start()
                           auto weak_conn = std::weak_ptr<ConnectionState>(conn);
                           conn->server_session = std::make_shared<ServerSession>(
                               session_id,
-                              [weak_conn, this](const Json& msg) {
-                                  if (auto c = weak_conn.lock()) {
+                              [weak_conn, this](const Json& msg)
+                              {
+                                  if (auto c = weak_conn.lock())
+                                  {
                                       std::lock_guard<std::mutex> ql(c->m);
-                                      if (c->queue.size() < MAX_QUEUE_SIZE) {
+                                      if (c->queue.size() < MAX_QUEUE_SIZE)
                                           c->queue.push_back(msg);
-                                      }
                                       c->cv.notify_one();
                                   }
-                              }
-                          );
+                              });
 
                           {
                               std::lock_guard<std::mutex> lock(conns_mutex_);

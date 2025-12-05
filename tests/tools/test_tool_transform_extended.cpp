@@ -14,24 +14,20 @@ Tool create_add_tool()
 {
     return Tool(
         "add",
-        Json{
-            {"type", "object"},
-            {"properties", {
-                {"x", {{"type", "integer"}, {"description", "First number"}}},
-                {"y", {{"type", "integer"}, {"description", "Second number"}}}
-            }},
-            {"required", Json::array({"x", "y"})}
-        },
+        Json{{"type", "object"},
+             {"properties",
+              {{"x", {{"type", "integer"}, {"description", "First number"}}},
+               {"y", {{"type", "integer"}, {"description", "Second number"}}}}},
+             {"required", Json::array({"x", "y"})}},
         Json::object(),
-        [](const Json& args) {
+        [](const Json& args)
+        {
             int x = args.value("x", 0);
             int y = args.value("y", 0);
             return Json{{"result", x + y}};
         },
-        std::optional<std::string>(),
-        std::string("Add two numbers"),
-        std::optional<std::vector<fastmcpp::Icon>>()
-    );
+        std::optional<std::string>(), std::string("Add two numbers"),
+        std::optional<std::vector<fastmcpp::Icon>>());
 }
 
 ArgTransform make_hidden(const Json& default_val)
@@ -160,7 +156,8 @@ void test_complex_transform()
     complex.examples = Json::array({0.5, 1.0, 2.5});
     transforms["x"] = complex;
 
-    auto transformed = TransformedTool::from_tool(add_tool, std::string("add_positive"), std::nullopt, transforms);
+    auto transformed =
+        TransformedTool::from_tool(add_tool, std::string("add_positive"), std::nullopt, transforms);
 
     auto schema = transformed.input_schema();
     assert(schema["properties"].contains("value"));

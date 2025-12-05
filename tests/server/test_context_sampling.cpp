@@ -61,10 +61,9 @@ void test_has_sampling()
     assert(!ctx.has_sampling());
 
     // Set callback
-    ctx.set_sampling_callback([](const std::vector<SamplingMessage>&,
-                                  const SamplingParams&) -> SamplingResult {
-        return {"text", "response", std::nullopt};
-    });
+    ctx.set_sampling_callback(
+        [](const std::vector<SamplingMessage>&, const SamplingParams&) -> SamplingResult
+        { return {"text", "response", std::nullopt}; });
 
     assert(ctx.has_sampling());
 
@@ -80,9 +79,12 @@ void test_sample_without_callback_throws()
     Context ctx(rm, pm);
 
     bool threw = false;
-    try {
+    try
+    {
         ctx.sample("Hello");
-    } catch (const std::runtime_error& e) {
+    }
+    catch (const std::runtime_error& e)
+    {
         threw = true;
         std::string msg = e.what();
         assert(msg.find("Sampling not available") != std::string::npos);
@@ -103,12 +105,14 @@ void test_sample_string_input()
     std::vector<SamplingMessage> captured_messages;
     SamplingParams captured_params;
 
-    ctx.set_sampling_callback([&](const std::vector<SamplingMessage>& msgs,
-                                   const SamplingParams& params) -> SamplingResult {
-        captured_messages = msgs;
-        captured_params = params;
-        return {"text", "Hello back!", std::nullopt};
-    });
+    ctx.set_sampling_callback(
+        [&](const std::vector<SamplingMessage>& msgs,
+            const SamplingParams& params) -> SamplingResult
+        {
+            captured_messages = msgs;
+            captured_params = params;
+            return {"text", "Hello back!", std::nullopt};
+        });
 
     auto result = ctx.sample("Hello");
 
@@ -134,17 +138,15 @@ void test_sample_message_vector()
 
     std::vector<SamplingMessage> captured_messages;
 
-    ctx.set_sampling_callback([&](const std::vector<SamplingMessage>& msgs,
-                                   const SamplingParams&) -> SamplingResult {
-        captured_messages = msgs;
-        return {"text", "Got it", std::nullopt};
-    });
+    ctx.set_sampling_callback(
+        [&](const std::vector<SamplingMessage>& msgs, const SamplingParams&) -> SamplingResult
+        {
+            captured_messages = msgs;
+            return {"text", "Got it", std::nullopt};
+        });
 
     std::vector<SamplingMessage> messages = {
-        {"user", "First message"},
-        {"assistant", "First response"},
-        {"user", "Follow up"}
-    };
+        {"user", "First message"}, {"assistant", "First response"}, {"user", "Follow up"}};
 
     auto result = ctx.sample(messages);
 
@@ -170,11 +172,12 @@ void test_sample_with_params()
 
     SamplingParams captured_params;
 
-    ctx.set_sampling_callback([&](const std::vector<SamplingMessage>&,
-                                   const SamplingParams& params) -> SamplingResult {
-        captured_params = params;
-        return {"text", "Response", std::nullopt};
-    });
+    ctx.set_sampling_callback(
+        [&](const std::vector<SamplingMessage>&, const SamplingParams& params) -> SamplingResult
+        {
+            captured_params = params;
+            return {"text", "Response", std::nullopt};
+        });
 
     SamplingParams params;
     params.system_prompt = "You are helpful";
@@ -205,10 +208,9 @@ void test_sample_text_convenience()
     prompts::PromptManager pm;
     Context ctx(rm, pm);
 
-    ctx.set_sampling_callback([](const std::vector<SamplingMessage>&,
-                                  const SamplingParams&) -> SamplingResult {
-        return {"text", "Just the text", std::nullopt};
-    });
+    ctx.set_sampling_callback(
+        [](const std::vector<SamplingMessage>&, const SamplingParams&) -> SamplingResult
+        { return {"text", "Just the text", std::nullopt}; });
 
     // sample_text returns just the content string
     std::string result = ctx.sample_text("What is 2+2?");
@@ -225,10 +227,9 @@ void test_sample_image_result()
     prompts::PromptManager pm;
     Context ctx(rm, pm);
 
-    ctx.set_sampling_callback([](const std::vector<SamplingMessage>&,
-                                  const SamplingParams&) -> SamplingResult {
-        return {"image", "base64encodeddata", std::string{"image/png"}};
-    });
+    ctx.set_sampling_callback(
+        [](const std::vector<SamplingMessage>&, const SamplingParams&) -> SamplingResult
+        { return {"image", "base64encodeddata", std::string{"image/png"}}; });
 
     auto result = ctx.sample("Generate an image");
     assert(result.type == "image");
@@ -247,10 +248,9 @@ void test_sample_audio_result()
     prompts::PromptManager pm;
     Context ctx(rm, pm);
 
-    ctx.set_sampling_callback([](const std::vector<SamplingMessage>&,
-                                  const SamplingParams&) -> SamplingResult {
-        return {"audio", "audiodata", std::string{"audio/mp3"}};
-    });
+    ctx.set_sampling_callback(
+        [](const std::vector<SamplingMessage>&, const SamplingParams&) -> SamplingResult
+        { return {"audio", "audiodata", std::string{"audio/mp3"}}; });
 
     auto result = ctx.sample("Read this aloud");
     assert(result.type == "audio");
@@ -270,21 +270,21 @@ void test_e2e_tool_uses_sampling()
 
     // Simulate LLM responses
     int call_count = 0;
-    ctx.set_sampling_callback([&](const std::vector<SamplingMessage>& msgs,
-                                   const SamplingParams&) -> SamplingResult {
-        call_count++;
-        // Return different responses based on input
-        if (msgs.back().content.find("summarize") != std::string::npos) {
-            return {"text", "Summary: The document discusses testing.", std::nullopt};
-        }
-        return {"text", "Default response", std::nullopt};
-    });
+    ctx.set_sampling_callback(
+        [&](const std::vector<SamplingMessage>& msgs, const SamplingParams&) -> SamplingResult
+        {
+            call_count++;
+            // Return different responses based on input
+            if (msgs.back().content.find("summarize") != std::string::npos)
+                return {"text", "Summary: The document discusses testing.", std::nullopt};
+            return {"text", "Default response", std::nullopt};
+        });
 
     // Simulate tool that uses sampling
-    auto analyze_document = [&ctx](const std::string& doc) -> std::string {
-        if (!ctx.has_sampling()) {
+    auto analyze_document = [&ctx](const std::string& doc) -> std::string
+    {
+        if (!ctx.has_sampling())
             return "Error: Sampling not available";
-        }
 
         // First ask LLM to summarize
         auto summary = ctx.sample_text("Please summarize: " + doc);

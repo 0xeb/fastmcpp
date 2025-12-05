@@ -71,18 +71,12 @@ class ResourceManager
                 // Merge explicit params with matched params (explicit takes precedence)
                 Json merged_params = Json::object();
                 for (const auto& [key, value] : *match_params)
-                {
                     merged_params[key] = value;
-                }
                 for (const auto& [key, value] : params.items())
-                {
                     merged_params[key] = value;
-                }
 
                 if (templ.provider)
-                {
                     return templ.provider(merged_params);
-                }
                 return ResourceContent{uri, templ.mime_type, std::string{}};
             }
         }
@@ -98,9 +92,7 @@ class ResourceManager
         {
             auto params = templ.match(uri);
             if (params)
-            {
                 return std::make_pair(&templ, *params);
-            }
         }
         return std::nullopt;
     }

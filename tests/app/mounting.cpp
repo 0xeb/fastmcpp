@@ -11,13 +11,11 @@ using namespace fastmcpp;
 // Helper: simple tool that returns its input
 tools::Tool make_echo_tool(const std::string& name)
 {
-    return tools::Tool{
-        name,
-        Json{{"type", "object"},
-             {"properties", Json{{"message", Json{{"type", "string"}}}}},
-             {"required", Json::array({"message"})}},
-        Json{{"type", "string"}},
-        [](const Json& in) { return in.at("message"); }};
+    return tools::Tool{name,
+                       Json{{"type", "object"},
+                            {"properties", Json{{"message", Json{{"type", "string"}}}}},
+                            {"required", Json::array({"message"})}},
+                       Json{{"type", "string"}}, [](const Json& in) { return in.at("message"); }};
 }
 
 // Helper: simple tool that adds two numbers
@@ -34,15 +32,14 @@ tools::Tool make_add_tool()
 
 // Helper: create a simple resource
 resources::Resource make_resource(const std::string& uri, const std::string& content,
-                                   const std::string& mime = "text/plain")
+                                  const std::string& mime = "text/plain")
 {
     resources::Resource res;
     res.uri = uri;
     res.name = uri;
     res.mime_type = mime;
-    res.provider = [uri, content, mime](const Json&) {
-        return resources::ResourceContent{uri, mime, content};
-    };
+    res.provider = [uri, content, mime](const Json&)
+    { return resources::ResourceContent{uri, mime, content}; };
     return res;
 }
 
@@ -52,9 +49,8 @@ prompts::Prompt make_prompt(const std::string& name, const std::string& message)
     prompts::Prompt p;
     p.name = name;
     p.description = "A test prompt";
-    p.generator = [message](const Json&) {
-        return std::vector<prompts::PromptMessage>{{"user", message}};
-    };
+    p.generator = [message](const Json&)
+    { return std::vector<prompts::PromptMessage>{{"user", message}}; };
     return p;
 }
 
@@ -118,8 +114,10 @@ void test_tool_aggregation()
     bool found_add = false, found_child_echo = false;
     for (const auto& [name, tool] : all_tools)
     {
-        if (name == "add") found_add = true;
-        if (name == "child_echo") found_child_echo = true;
+        if (name == "add")
+            found_add = true;
+        if (name == "child_echo")
+            found_child_echo = true;
     }
     assert(found_add);
     assert(found_child_echo);
@@ -186,8 +184,10 @@ void test_resource_aggregation()
     bool found_main = false, found_child = false;
     for (const auto& res : all_resources)
     {
-        if (res.uri == "file://main.txt") found_main = true;
-        if (res.uri == "file://child/child.txt") found_child = true;
+        if (res.uri == "file://main.txt")
+            found_main = true;
+        if (res.uri == "file://child/child.txt")
+            found_child = true;
     }
     assert(found_main);
     assert(found_child);
@@ -254,8 +254,10 @@ void test_prompt_aggregation()
     bool found_greeting = false, found_child_farewell = false;
     for (const auto& [name, prompt] : all_prompts)
     {
-        if (name == "greeting") found_greeting = true;
-        if (name == "child_farewell") found_child_farewell = true;
+        if (name == "greeting")
+            found_greeting = true;
+        if (name == "child_farewell")
+            found_child_farewell = true;
     }
     assert(found_greeting);
     assert(found_child_farewell);
@@ -315,9 +317,12 @@ void test_nested_mounting()
     bool found_main = false, found_l1 = false, found_l2 = false;
     for (const auto& [name, tool] : all_tools)
     {
-        if (name == "main_tool") found_main = true;
-        if (name == "l1_level1_tool") found_l1 = true;
-        if (name == "l1_l2_level2_tool") found_l2 = true;
+        if (name == "main_tool")
+            found_main = true;
+        if (name == "l1_level1_tool")
+            found_l1 = true;
+        if (name == "l1_l2_level2_tool")
+            found_l2 = true;
     }
     assert(found_main);
     assert(found_l1);
@@ -351,8 +356,10 @@ void test_no_prefix_mounting()
     bool found_add = false, found_echo = false;
     for (const auto& [name, tool] : all_tools)
     {
-        if (name == "add") found_add = true;
-        if (name == "echo") found_echo = true;
+        if (name == "add")
+            found_add = true;
+        if (name == "echo")
+            found_echo = true;
     }
     assert(found_add);
     assert(found_echo);
@@ -382,40 +389,30 @@ void test_mcp_handler_integration()
     auto handler = mcp::make_mcp_handler(main_app);
 
     // Test initialize
-    auto init_response = handler(Json{
-        {"jsonrpc", "2.0"},
-        {"id", 1},
-        {"method", "initialize"},
-        {"params", Json{
-            {"protocolVersion", "2024-11-05"},
-            {"capabilities", Json::object()},
-            {"clientInfo", Json{{"name", "test"}, {"version", "1.0"}}}
-        }}
-    });
+    auto init_response =
+        handler(Json{{"jsonrpc", "2.0"},
+                     {"id", 1},
+                     {"method", "initialize"},
+                     {"params", Json{{"protocolVersion", "2024-11-05"},
+                                     {"capabilities", Json::object()},
+                                     {"clientInfo", Json{{"name", "test"}, {"version", "1.0"}}}}}});
     assert(init_response.contains("result"));
     assert(init_response["result"]["serverInfo"]["name"] == "MainApp");
 
     // Test tools/list - should show both local and prefixed tools
-    auto tools_response = handler(Json{
-        {"jsonrpc", "2.0"},
-        {"id", 2},
-        {"method", "tools/list"},
-        {"params", Json::object()}
-    });
+    auto tools_response = handler(
+        Json{{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}, {"params", Json::object()}});
     assert(tools_response.contains("result"));
     auto& tools_list = tools_response["result"]["tools"];
     assert(tools_list.size() == 2);
 
     // Test tools/call - call prefixed tool
-    auto call_response = handler(Json{
-        {"jsonrpc", "2.0"},
-        {"id", 3},
-        {"method", "tools/call"},
-        {"params", Json{
-            {"name", "child_echo"},
-            {"arguments", Json{{"message", "hello via handler"}}}
-        }}
-    });
+    auto call_response =
+        handler(Json{{"jsonrpc", "2.0"},
+                     {"id", 3},
+                     {"method", "tools/call"},
+                     {"params", Json{{"name", "child_echo"},
+                                     {"arguments", Json{{"message", "hello via handler"}}}}}});
     assert(call_response.contains("result"));
     assert(call_response["result"]["content"][0]["text"] == "\"hello via handler\"");
 
@@ -499,8 +496,10 @@ void test_proxy_mode_tool_aggregation()
     bool found_add = false, found_child_echo = false;
     for (const auto& [name, tool] : all_tools)
     {
-        if (name == "add") found_add = true;
-        if (name == "child_echo") found_child_echo = true;
+        if (name == "add")
+            found_add = true;
+        if (name == "child_echo")
+            found_child_echo = true;
     }
     assert(found_add);
     assert(found_child_echo);
@@ -555,8 +554,10 @@ void test_proxy_mode_resource_aggregation()
     bool found_main = false, found_child = false;
     for (const auto& res : all_resources)
     {
-        if (res.uri == "file://main.txt") found_main = true;
-        if (res.uri == "file://child/child.txt") found_child = true;
+        if (res.uri == "file://main.txt")
+            found_main = true;
+        if (res.uri == "file://child/child.txt")
+            found_child = true;
     }
     assert(found_main);
     assert(found_child);
@@ -611,8 +612,10 @@ void test_proxy_mode_prompt_aggregation()
     bool found_greeting = false, found_child_farewell = false;
     for (const auto& [name, prompt] : all_prompts)
     {
-        if (name == "greeting") found_greeting = true;
-        if (name == "child_farewell") found_child_farewell = true;
+        if (name == "greeting")
+            found_greeting = true;
+        if (name == "child_farewell")
+            found_child_farewell = true;
     }
     assert(found_greeting);
     assert(found_child_farewell);
@@ -703,26 +706,19 @@ void test_proxy_mode_mcp_handler()
     auto handler = mcp::make_mcp_handler(main_app);
 
     // Test tools/list - should show both local and proxy tools
-    auto tools_response = handler(Json{
-        {"jsonrpc", "2.0"},
-        {"id", 1},
-        {"method", "tools/list"},
-        {"params", Json::object()}
-    });
+    auto tools_response = handler(
+        Json{{"jsonrpc", "2.0"}, {"id", 1}, {"method", "tools/list"}, {"params", Json::object()}});
     assert(tools_response.contains("result"));
     auto& tools_list = tools_response["result"]["tools"];
     assert(tools_list.size() == 2);
 
     // Test tools/call - call proxy tool
-    auto call_response = handler(Json{
-        {"jsonrpc", "2.0"},
-        {"id", 2},
-        {"method", "tools/call"},
-        {"params", Json{
-            {"name", "child_echo"},
-            {"arguments", Json{{"message", "hello via proxy handler"}}}
-        }}
-    });
+    auto call_response = handler(
+        Json{{"jsonrpc", "2.0"},
+             {"id", 2},
+             {"method", "tools/call"},
+             {"params", Json{{"name", "child_echo"},
+                             {"arguments", Json{{"message", "hello via proxy handler"}}}}}});
     assert(call_response.contains("result"));
     assert(call_response["result"]["content"][0]["text"] == "\"hello via proxy handler\"");
 

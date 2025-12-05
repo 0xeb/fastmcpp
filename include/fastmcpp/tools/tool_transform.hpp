@@ -48,13 +48,9 @@ struct ArgTransform
     void validate() const
     {
         if (hide && required.has_value() && *required)
-        {
             throw std::invalid_argument("Cannot hide a required argument");
-        }
         if (hide && !default_value.has_value())
-        {
             throw std::invalid_argument("Hidden argument must have a default value");
-        }
     }
 };
 
@@ -62,15 +58,15 @@ struct ArgTransform
 struct TransformResult
 {
     Json schema;
-    std::unordered_map<std::string, std::string> arg_mapping;      // new_name -> old_name
-    std::unordered_map<std::string, std::string> reverse_mapping;  // old_name -> new_name
-    std::unordered_map<std::string, Json> hidden_defaults;         // old_name -> default
+    std::unordered_map<std::string, std::string> arg_mapping;     // new_name -> old_name
+    std::unordered_map<std::string, std::string> reverse_mapping; // old_name -> new_name
+    std::unordered_map<std::string, Json> hidden_defaults;        // old_name -> default
 };
 
 /// Build a transformed schema from parent schema and transforms
-inline TransformResult build_transformed_schema(
-    const Json& parent_schema,
-    const std::unordered_map<std::string, ArgTransform>& transform_args)
+inline TransformResult
+build_transformed_schema(const Json& parent_schema,
+                         const std::unordered_map<std::string, ArgTransform>& transform_args)
 {
     TransformResult result;
 
@@ -82,12 +78,8 @@ inline TransformResult build_transformed_schema(
     if (parent_schema.contains("required") && parent_schema["required"].is_array())
     {
         for (const auto& r : parent_schema["required"])
-        {
             if (r.is_string())
-            {
                 required_set.insert(r.get<std::string>());
-            }
-        }
     }
 
     // Process transforms
@@ -118,27 +110,17 @@ inline TransformResult build_transformed_schema(
             Json new_prop = old_prop;
 
             if (transform.description.has_value())
-            {
                 new_prop["description"] = *transform.description;
-            }
 
             if (transform.type_schema.has_value())
-            {
                 for (auto& [k, v] : transform.type_schema->items())
-                {
                     new_prop[k] = v;
-                }
-            }
 
             if (transform.default_value.has_value())
-            {
                 new_prop["default"] = *transform.default_value;
-            }
 
             if (transform.examples.has_value())
-            {
                 new_prop["examples"] = *transform.examples;
-            }
 
             new_properties[new_name] = new_prop;
 
@@ -147,14 +129,10 @@ inline TransformResult build_transformed_schema(
             bool is_required = transform.required.value_or(was_required);
 
             if (transform.default_value.has_value() && !transform.required.has_value())
-            {
                 is_required = false;
-            }
 
             if (is_required)
-            {
                 new_required.insert(new_name);
-            }
         }
         else
         {
@@ -164,9 +142,7 @@ inline TransformResult build_transformed_schema(
             new_properties[old_name] = old_prop;
 
             if (required_set.count(old_name) > 0)
-            {
                 new_required.insert(old_name);
-            }
         }
     }
 
@@ -175,26 +151,22 @@ inline TransformResult build_transformed_schema(
     result.schema["properties"] = new_properties;
     result.schema["required"] = Json::array();
     for (const auto& r : new_required)
-    {
         result.schema["required"].push_back(r);
-    }
 
     return result;
 }
 
 /// Transform arguments from new names to parent's names
-inline Json transform_args_to_parent(
-    const Json& args,
-    const std::unordered_map<std::string, std::string>& arg_mapping,
-    const std::unordered_map<std::string, Json>& hidden_defaults)
+inline Json
+transform_args_to_parent(const Json& args,
+                         const std::unordered_map<std::string, std::string>& arg_mapping,
+                         const std::unordered_map<std::string, Json>& hidden_defaults)
 {
     Json parent_args = Json::object();
 
     // Add hidden defaults first
     for (const auto& [old_name, default_val] : hidden_defaults)
-    {
         parent_args[old_name] = default_val;
-    }
 
     // Map visible arguments
     if (args.is_object())
@@ -203,9 +175,7 @@ inline Json transform_args_to_parent(
         {
             auto it = arg_mapping.find(new_name);
             if (it != arg_mapping.end())
-            {
                 parent_args[it->second] = value;
-            }
         }
     }
 
@@ -218,17 +188,14 @@ inline Json transform_args_to_parent(
 /// @param new_description New description (optional)
 /// @param transform_args Argument transformations
 /// @return A new Tool with the transformations applied
-inline Tool create_transformed_tool(
-    const Tool& parent,
-    std::optional<std::string> new_name = std::nullopt,
-    std::optional<std::string> new_description = std::nullopt,
-    std::unordered_map<std::string, ArgTransform> transform_args = {})
+inline Tool
+create_transformed_tool(const Tool& parent, std::optional<std::string> new_name = std::nullopt,
+                        std::optional<std::string> new_description = std::nullopt,
+                        std::unordered_map<std::string, ArgTransform> transform_args = {})
 {
     // Validate transforms
     for (const auto& [arg_name, transform] : transform_args)
-    {
         transform.validate();
-    }
 
     // Build transformed schema
     auto transform_result = build_transformed_schema(parent.input_schema(), transform_args);
@@ -238,27 +205,20 @@ inline Tool create_transformed_tool(
     auto hidden_defaults = transform_result.hidden_defaults;
 
     // Create forwarding function that maps args and calls parent
-    Tool::Fn forwarding_fn = [&parent, arg_mapping, hidden_defaults](const Json& args) {
+    Tool::Fn forwarding_fn = [&parent, arg_mapping, hidden_defaults](const Json& args)
+    {
         Json parent_args = transform_args_to_parent(args, arg_mapping, hidden_defaults);
         return parent.invoke(parent_args);
     };
 
     // Get tool properties
     std::string tool_name = new_name.value_or(parent.name());
-    std::optional<std::string> tool_desc = new_description.has_value()
-        ? new_description
-        : parent.description();
+    std::optional<std::string> tool_desc =
+        new_description.has_value() ? new_description : parent.description();
 
     // Create new tool with transformed schema
-    return Tool(
-        tool_name,
-        transform_result.schema,
-        parent.output_schema(),
-        forwarding_fn,
-        parent.title(),
-        tool_desc,
-        parent.icons()
-    );
+    return Tool(tool_name, transform_result.schema, parent.output_schema(), forwarding_fn,
+                parent.title(), tool_desc, parent.icons());
 }
 
 /// Configuration for applying transformations via JSON/config
@@ -287,9 +247,7 @@ inline std::unordered_map<std::string, Tool> apply_transformations_to_tools(
 
     // Copy original tools
     for (const auto& [name, tool] : tools)
-    {
         result.emplace(name, tool);
-    }
 
     // Apply transformations
     for (const auto& [tool_name, config] : transforms)
@@ -314,11 +272,10 @@ class TransformedTool
 {
   public:
     /// Create a transformed tool from an existing tool
-    static TransformedTool from_tool(
-        const Tool& parent,
-        std::optional<std::string> new_name = std::nullopt,
-        std::optional<std::string> new_description = std::nullopt,
-        std::unordered_map<std::string, ArgTransform> transform_args = {})
+    static TransformedTool
+    from_tool(const Tool& parent, std::optional<std::string> new_name = std::nullopt,
+              std::optional<std::string> new_description = std::nullopt,
+              std::unordered_map<std::string, ArgTransform> transform_args = {})
     {
         TransformedTool result;
         result.parent_ = std::make_shared<Tool>(parent);
@@ -326,12 +283,11 @@ class TransformedTool
 
         // Validate transforms
         for (const auto& [arg_name, transform] : result.transform_args_)
-        {
             transform.validate();
-        }
 
         // Build transformed schema
-        auto transform_result = build_transformed_schema(parent.input_schema(), result.transform_args_);
+        auto transform_result =
+            build_transformed_schema(parent.input_schema(), result.transform_args_);
         result.arg_mapping_ = transform_result.arg_mapping;
         result.reverse_mapping_ = transform_result.reverse_mapping;
         result.hidden_defaults_ = transform_result.hidden_defaults;
@@ -341,42 +297,56 @@ class TransformedTool
         auto arg_mapping = result.arg_mapping_;
         auto hidden_defaults = result.hidden_defaults_;
 
-        Tool::Fn forwarding_fn = [parent_ptr, arg_mapping, hidden_defaults](const Json& args) {
+        Tool::Fn forwarding_fn = [parent_ptr, arg_mapping, hidden_defaults](const Json& args)
+        {
             Json parent_args = transform_args_to_parent(args, arg_mapping, hidden_defaults);
             return parent_ptr->invoke(parent_args);
         };
 
         // Build the tool
         std::string tool_name = new_name.value_or(parent.name());
-        std::optional<std::string> tool_desc = new_description.has_value()
-            ? new_description
-            : parent.description();
+        std::optional<std::string> tool_desc =
+            new_description.has_value() ? new_description : parent.description();
 
-        result.tool_ = Tool(
-            tool_name,
-            transform_result.schema,
-            parent.output_schema(),
-            forwarding_fn,
-            parent.title(),
-            tool_desc,
-            parent.icons()
-        );
+        result.tool_ = Tool(tool_name, transform_result.schema, parent.output_schema(),
+                            forwarding_fn, parent.title(), tool_desc, parent.icons());
 
         return result;
     }
 
     /// Get the underlying tool
-    const Tool& tool() const { return tool_; }
-    Tool& tool() { return tool_; }
+    const Tool& tool() const
+    {
+        return tool_;
+    }
+    Tool& tool()
+    {
+        return tool_;
+    }
 
     /// Convenience accessors that delegate to tool
-    const std::string& name() const { return tool_.name(); }
-    const std::optional<std::string>& description() const { return tool_.description(); }
-    Json input_schema() const { return tool_.input_schema(); }
-    Json invoke(const Json& args) const { return tool_.invoke(args); }
+    const std::string& name() const
+    {
+        return tool_.name();
+    }
+    const std::optional<std::string>& description() const
+    {
+        return tool_.description();
+    }
+    Json input_schema() const
+    {
+        return tool_.input_schema();
+    }
+    Json invoke(const Json& args) const
+    {
+        return tool_.invoke(args);
+    }
 
     /// Get the parent tool
-    std::shared_ptr<Tool> parent() const { return parent_; }
+    std::shared_ptr<Tool> parent() const
+    {
+        return parent_;
+    }
 
     /// Get the argument transformations
     const std::unordered_map<std::string, ArgTransform>& transform_args() const

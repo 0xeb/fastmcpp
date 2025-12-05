@@ -20,20 +20,14 @@ namespace fastmcpp::server
 class RequestTimeoutError : public std::runtime_error
 {
   public:
-    explicit RequestTimeoutError(const std::string& msg)
-        : std::runtime_error(msg)
-    {
-    }
+    explicit RequestTimeoutError(const std::string& msg) : std::runtime_error(msg) {}
 };
 
 /// Exception thrown when sampling is not supported by client
 class SamplingNotSupportedError : public std::runtime_error
 {
   public:
-    explicit SamplingNotSupportedError(const std::string& msg)
-        : std::runtime_error(msg)
-    {
-    }
+    explicit SamplingNotSupportedError(const std::string& msg) : std::runtime_error(msg) {}
 };
 
 /// Exception thrown when client returns an error response
@@ -41,14 +35,18 @@ class ClientError : public std::runtime_error
 {
   public:
     ClientError(int code, const std::string& msg, const Json& data = nullptr)
-        : std::runtime_error(msg)
-        , code_(code)
-        , data_(data)
+        : std::runtime_error(msg), code_(code), data_(data)
     {
     }
 
-    int code() const { return code_; }
-    const Json& data() const { return data_; }
+    int code() const
+    {
+        return code_;
+    }
+    const Json& data() const
+    {
+        return data_;
+    }
 
   private:
     int code_;
@@ -82,13 +80,15 @@ class ServerSession
      * @param send_callback Callback to send messages to the client
      */
     explicit ServerSession(std::string session_id, SendCallback send_callback)
-        : session_id_(std::move(session_id))
-        , send_callback_(std::move(send_callback))
+        : session_id_(std::move(session_id)), send_callback_(std::move(send_callback))
     {
     }
 
     /// Get the session ID
-    const std::string& session_id() const { return session_id_; }
+    const std::string& session_id() const
+    {
+        return session_id_;
+    }
 
     // ========================================================================
     // Client Capabilities
@@ -103,21 +103,12 @@ class ServerSession
         capabilities_ = capabilities;
 
         // Parse common capability flags
-        if (capabilities.contains("sampling") &&
-            capabilities["sampling"].is_object())
-        {
+        if (capabilities.contains("sampling") && capabilities["sampling"].is_object())
             supports_sampling_ = true;
-        }
-        if (capabilities.contains("elicitation") &&
-            capabilities["elicitation"].is_object())
-        {
+        if (capabilities.contains("elicitation") && capabilities["elicitation"].is_object())
             supports_elicitation_ = true;
-        }
-        if (capabilities.contains("roots") &&
-            capabilities["roots"].is_object())
-        {
+        if (capabilities.contains("roots") && capabilities["roots"].is_object())
             supports_roots_ = true;
-        }
     }
 
     /// Check if client supports sampling
@@ -162,10 +153,8 @@ class ServerSession
      * @throws RequestTimeoutError if timeout exceeded
      * @throws ClientError if client returns an error
      */
-    Json send_request(
-        const std::string& method,
-        const Json& params,
-        std::chrono::milliseconds timeout = DEFAULT_TIMEOUT)
+    Json send_request(const std::string& method, const Json& params,
+                      std::chrono::milliseconds timeout = DEFAULT_TIMEOUT)
     {
         // Generate request ID
         std::string request_id = generate_request_id();
@@ -182,16 +171,10 @@ class ServerSession
 
         // Build and send request
         Json request = {
-            {"jsonrpc", "2.0"},
-            {"id", request_id},
-            {"method", method},
-            {"params", params}
-        };
+            {"jsonrpc", "2.0"}, {"id", request_id}, {"method", method}, {"params", params}};
 
         if (send_callback_)
-        {
             send_callback_(request);
-        }
 
         // Wait for response with timeout
         auto status = future.wait_for(timeout);
@@ -204,9 +187,8 @@ class ServerSession
 
         if (status == std::future_status::timeout)
         {
-            throw RequestTimeoutError(
-                "Request '" + method + "' timed out after " +
-                std::to_string(timeout.count()) + "ms");
+            throw RequestTimeoutError("Request '" + method + "' timed out after " +
+                                      std::to_string(timeout.count()) + "ms");
         }
 
         return future.get();
@@ -224,23 +206,15 @@ class ServerSession
     {
         // Extract request ID
         if (!response.contains("id"))
-        {
-            return false;  // Not a response
-        }
+            return false; // Not a response
 
         std::string request_id;
         if (response["id"].is_string())
-        {
             request_id = response["id"].get<std::string>();
-        }
         else if (response["id"].is_number())
-        {
             request_id = std::to_string(response["id"].get<int>());
-        }
         else
-        {
-            return false;  // Invalid ID type
-        }
+            return false; // Invalid ID type
 
         // Find pending request
         std::shared_ptr<std::promise<Json>> promise;
@@ -248,9 +222,7 @@ class ServerSession
             std::lock_guard lock(pending_mutex_);
             auto it = pending_requests_.find(request_id);
             if (it == pending_requests_.end())
-            {
-                return false;  // No matching request
-            }
+                return false; // No matching request
             promise = it->second;
         }
 
@@ -261,10 +233,12 @@ class ServerSession
             std::string msg = response["error"].value("message", "Unknown error");
             Json data = response["error"].value("data", Json());
 
-            try {
-                promise->set_exception(
-                    std::make_exception_ptr(ClientError(code, msg, data)));
-            } catch (...) {
+            try
+            {
+                promise->set_exception(std::make_exception_ptr(ClientError(code, msg, data)));
+            }
+            catch (...)
+            {
                 // Promise may already be satisfied
             }
             return true;
@@ -272,9 +246,12 @@ class ServerSession
 
         // Handle success response
         Json result = response.value("result", Json());
-        try {
+        try
+        {
             promise->set_value(result);
-        } catch (...) {
+        }
+        catch (...)
+        {
             // Promise may already be satisfied
         }
         return true;

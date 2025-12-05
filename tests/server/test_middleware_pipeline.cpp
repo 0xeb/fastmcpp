@@ -43,9 +43,8 @@ void test_empty_pipeline()
     MiddlewareContext ctx;
     ctx.method = "tools/list";
 
-    auto result = pipeline.execute(ctx, [](const MiddlewareContext&) {
-        return Json{{"tools", Json::array()}};
-    });
+    auto result = pipeline.execute(ctx, [](const MiddlewareContext&)
+                                   { return Json{{"tools", Json::array()}}; });
 
     assert(result.contains("tools"));
 
@@ -76,9 +75,8 @@ void test_single_middleware()
     MiddlewareContext ctx;
     ctx.method = "tools/list";
 
-    auto result = pipeline.execute(ctx, [](const MiddlewareContext&) {
-        return Json{{"tools", Json::array()}};
-    });
+    auto result = pipeline.execute(ctx, [](const MiddlewareContext&)
+                                   { return Json{{"tools", Json::array()}}; });
 
     assert(result.contains("tools"));
     assert(result.contains("middleware_ran"));
@@ -102,7 +100,7 @@ void test_execution_order()
       protected:
         Json on_message(const MiddlewareContext& ctx, CallNext call_next) override
         {
-            order_->push_back(id_);  // Before
+            order_->push_back(id_); // Before
             auto result = call_next(ctx);
             order_->push_back(-id_); // After (negative)
             return result;
@@ -120,10 +118,12 @@ void test_execution_order()
     MiddlewareContext ctx;
     ctx.method = "test";
 
-    pipeline.execute(ctx, [&order](const MiddlewareContext&) {
-        order.push_back(0); // Handler
-        return Json::object();
-    });
+    pipeline.execute(ctx,
+                     [&order](const MiddlewareContext&)
+                     {
+                         order.push_back(0); // Handler
+                         return Json::object();
+                     });
 
     // Should execute: 1 -> 2 -> 3 -> handler -> -3 -> -2 -> -1
     assert(order.size() == 7);
@@ -143,9 +143,9 @@ void test_logging_middleware()
     std::cout << "  test_logging_middleware... " << std::flush;
 
     std::vector<std::string> logs;
-    auto logging = std::make_shared<LoggingMiddleware>(
-        [&logs](const std::string& msg) { logs.push_back(msg); },
-        false // Don't log payload
+    auto logging = std::make_shared<LoggingMiddleware>([&logs](const std::string& msg)
+                                                       { logs.push_back(msg); },
+                                                       false // Don't log payload
     );
 
     MiddlewarePipeline pipeline;
@@ -154,9 +154,7 @@ void test_logging_middleware()
     MiddlewareContext ctx;
     ctx.method = "tools/list";
 
-    pipeline.execute(ctx, [](const MiddlewareContext&) {
-        return Json{{"tools", Json::array()}};
-    });
+    pipeline.execute(ctx, [](const MiddlewareContext&) { return Json{{"tools", Json::array()}}; });
 
     assert(logs.size() == 2);
     assert(logs[0].find("REQUEST tools/list") != std::string::npos);
@@ -179,11 +177,7 @@ void test_timing_middleware()
 
     // Run a few times
     for (int i = 0; i < 5; i++)
-    {
-        pipeline.execute(ctx, [](const MiddlewareContext&) {
-            return Json::object();
-        });
-    }
+        pipeline.execute(ctx, [](const MiddlewareContext&) { return Json::object(); });
 
     auto stats = timing->get_stats("tools/call");
     assert(stats.request_count == 5);
@@ -207,18 +201,24 @@ void test_caching_middleware()
     ctx.method = "tools/list";
 
     // First call - cache miss
-    auto result1 = pipeline.execute(ctx, [&call_count](const MiddlewareContext&) {
-        call_count++;
-        return Json{{"tools", Json::array({Json{{"name", "tool1"}}})}};
-    });
+    auto result1 =
+        pipeline.execute(ctx,
+                         [&call_count](const MiddlewareContext&)
+                         {
+                             call_count++;
+                             return Json{{"tools", Json::array({Json{{"name", "tool1"}}})}};
+                         });
 
     // Second call - cache hit
-    auto result2 = pipeline.execute(ctx, [&call_count](const MiddlewareContext&) {
-        call_count++;
-        return Json{{"tools", Json::array({Json{{"name", "tool2"}}})}};
-    });
+    auto result2 =
+        pipeline.execute(ctx,
+                         [&call_count](const MiddlewareContext&)
+                         {
+                             call_count++;
+                             return Json{{"tools", Json::array({Json{{"name", "tool2"}}})}};
+                         });
 
-    assert(call_count == 1); // Handler only called once
+    assert(call_count == 1);    // Handler only called once
     assert(result1 == result2); // Same cached result
 
     auto stats = caching->stats();
@@ -246,19 +246,13 @@ void test_rate_limiting_middleware()
 
     // Should succeed for first 3 calls (bucket capacity)
     for (int i = 0; i < 3; i++)
-    {
-        pipeline.execute(ctx, [](const MiddlewareContext&) {
-            return Json::object();
-        });
-    }
+        pipeline.execute(ctx, [](const MiddlewareContext&) { return Json::object(); });
 
     // Fourth call should fail (bucket empty)
     bool threw = false;
     try
     {
-        pipeline.execute(ctx, [](const MiddlewareContext&) {
-            return Json::object();
-        });
+        pipeline.execute(ctx, [](const MiddlewareContext&) { return Json::object(); });
     }
     catch (const std::runtime_error& e)
     {
@@ -276,10 +270,8 @@ void test_error_handling_middleware()
 
     std::vector<std::string> errors;
     auto error_handler = std::make_shared<ErrorHandlingMiddleware>(
-        [&errors](const std::string& method, const std::exception& e) {
-            errors.push_back(method + ": " + e.what());
-        }
-    );
+        [&errors](const std::string& method, const std::exception& e)
+        { errors.push_back(method + ": " + e.what()); });
 
     MiddlewarePipeline pipeline;
     pipeline.add(error_handler);
@@ -288,9 +280,8 @@ void test_error_handling_middleware()
     ctx.method = "tools/call";
 
     // Test exception handling
-    auto result = pipeline.execute(ctx, [](const MiddlewareContext&) -> Json {
-        throw std::runtime_error("Test error");
-    });
+    auto result = pipeline.execute(ctx, [](const MiddlewareContext&) -> Json
+                                   { throw std::runtime_error("Test error"); });
 
     assert(result.contains("error"));
     assert(result["error"]["code"].get<int>() == -32603);
@@ -312,9 +303,8 @@ void test_combined_pipeline()
     std::vector<std::string> logs;
 
     auto error_handler = std::make_shared<ErrorHandlingMiddleware>();
-    auto logging = std::make_shared<LoggingMiddleware>(
-        [&logs](const std::string& msg) { logs.push_back(msg); }
-    );
+    auto logging = std::make_shared<LoggingMiddleware>([&logs](const std::string& msg)
+                                                       { logs.push_back(msg); });
     auto timing = std::make_shared<TimingMiddleware>();
     auto caching = std::make_shared<CachingMiddleware>();
 
@@ -328,12 +318,8 @@ void test_combined_pipeline()
     ctx.method = "tools/list";
 
     // Execute twice
-    pipeline.execute(ctx, [](const MiddlewareContext&) {
-        return Json{{"tools", Json::array()}};
-    });
-    pipeline.execute(ctx, [](const MiddlewareContext&) {
-        return Json{{"tools", Json::array()}};
-    });
+    pipeline.execute(ctx, [](const MiddlewareContext&) { return Json{{"tools", Json::array()}}; });
+    pipeline.execute(ctx, [](const MiddlewareContext&) { return Json{{"tools", Json::array()}}; });
 
     // Verify logging
     assert(logs.size() == 4); // 2 requests + 2 responses

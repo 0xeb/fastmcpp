@@ -47,18 +47,42 @@ class ProxyApp
                       std::string version = "1.0.0");
 
     // Metadata accessors
-    const std::string& name() const { return name_; }
-    const std::string& version() const { return version_; }
+    const std::string& name() const
+    {
+        return name_;
+    }
+    const std::string& version() const
+    {
+        return version_;
+    }
 
     // Local manager accessors (for adding local-only items)
-    tools::ToolManager& local_tools() { return local_tools_; }
-    const tools::ToolManager& local_tools() const { return local_tools_; }
+    tools::ToolManager& local_tools()
+    {
+        return local_tools_;
+    }
+    const tools::ToolManager& local_tools() const
+    {
+        return local_tools_;
+    }
 
-    resources::ResourceManager& local_resources() { return local_resources_; }
-    const resources::ResourceManager& local_resources() const { return local_resources_; }
+    resources::ResourceManager& local_resources()
+    {
+        return local_resources_;
+    }
+    const resources::ResourceManager& local_resources() const
+    {
+        return local_resources_;
+    }
 
-    prompts::PromptManager& local_prompts() { return local_prompts_; }
-    const prompts::PromptManager& local_prompts() const { return local_prompts_; }
+    prompts::PromptManager& local_prompts()
+    {
+        return local_prompts_;
+    }
+    const prompts::PromptManager& local_prompts() const
+    {
+        return local_prompts_;
+    }
 
     // =========================================================================
     // Aggregated Lists (local + remote, local takes precedence)
@@ -98,7 +122,10 @@ class ProxyApp
     // =========================================================================
 
     /// Get a fresh client from the factory
-    client::Client get_client() const { return client_factory_(); }
+    client::Client get_client() const
+    {
+        return client_factory_();
+    }
 
   private:
     ClientFactory client_factory_;

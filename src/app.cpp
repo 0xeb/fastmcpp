@@ -1,4 +1,5 @@
 #include "fastmcpp/app.hpp"
+
 #include "fastmcpp/client/client.hpp"
 #include "fastmcpp/client/types.hpp"
 #include "fastmcpp/exceptions.hpp"
@@ -21,10 +22,8 @@ void McpApp::mount(McpApp& app, const std::string& prefix, bool as_proxy)
         auto handler = mcp::make_mcp_handler(app);
 
         // Create client factory that uses in-process transport
-        auto client_factory = [handler]() {
-            return client::Client(
-                std::make_unique<client::InProcessMcpTransport>(handler));
-        };
+        auto client_factory = [handler]()
+        { return client::Client(std::make_unique<client::InProcessMcpTransport>(handler)); };
 
         // Create ProxyApp wrapper
         auto proxy = std::make_unique<ProxyApp>(client_factory, app.name(), app.version());
@@ -89,9 +88,7 @@ std::string McpApp::strip_resource_prefix(const std::string& uri, const std::str
     // Check if path starts with prefix/
     std::string prefix_with_slash = prefix + "/";
     if (path.substr(0, prefix_with_slash.size()) == prefix_with_slash)
-    {
         return scheme + "://" + path.substr(prefix_with_slash.size());
-    }
 
     return uri;
 }
@@ -121,9 +118,7 @@ std::vector<std::pair<std::string, const tools::Tool*>> McpApp::list_all_tools()
 
     // Add local tools first
     for (const auto& name : tools_.list_names())
-    {
         result.emplace_back(name, &tools_.get(name));
-    }
 
     // Add tools from directly mounted apps (in reverse order for precedence)
     for (auto it = mounted_.rbegin(); it != mounted_.rend(); ++it)
@@ -211,9 +206,7 @@ std::vector<resources::Resource> McpApp::list_all_resources() const
 
     // Add local resources first
     for (const auto& res : resources_.list())
-    {
         result.push_back(res);
-    }
 
     // Add resources from directly mounted apps
     for (auto it = mounted_.rbegin(); it != mounted_.rend(); ++it)
@@ -260,9 +253,7 @@ std::vector<resources::ResourceTemplate> McpApp::list_all_templates() const
 
     // Add local templates first
     for (const auto& templ : resources_.list_templates())
-    {
         result.push_back(templ);
-    }
 
     // Add templates from directly mounted apps
     for (auto it = mounted_.rbegin(); it != mounted_.rend(); ++it)
@@ -308,9 +299,7 @@ std::vector<std::pair<std::string, const prompts::Prompt*>> McpApp::list_all_pro
 
     // Add local prompts first
     for (const auto& prompt : prompts_.list())
-    {
         result.emplace_back(prompt.name, &prompts_.get(prompt.name));
-    }
 
     // Add prompts from directly mounted apps
     for (auto it = mounted_.rbegin(); it != mounted_.rend(); ++it)
@@ -573,7 +562,8 @@ resources::ResourceContent McpApp::read_resource(const std::string& uri, const J
     throw NotFoundError("resource not found: " + uri);
 }
 
-std::vector<prompts::PromptMessage> McpApp::get_prompt(const std::string& name, const Json& args) const
+std::vector<prompts::PromptMessage> McpApp::get_prompt(const std::string& name,
+                                                       const Json& args) const
 {
     // Try local prompts first
     try
@@ -641,9 +631,7 @@ std::vector<prompts::PromptMessage> McpApp::get_prompt(const std::string& name, 
                 if (!pm.content.empty())
                 {
                     if (auto* text = std::get_if<client::TextContent>(&pm.content[0]))
-                    {
                         msg.content = text->text;
-                    }
                 }
 
                 messages.push_back(msg);

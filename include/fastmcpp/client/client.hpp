@@ -78,9 +78,7 @@ class InProcessMcpTransport : public ITransport
 
         // Extract result or error
         if (response.contains("error"))
-        {
             throw fastmcpp::Error(response["error"].value("message", "Unknown error"));
-        }
 
         return response.value("result", fastmcpp::Json::object());
     }

@@ -1,4 +1,5 @@
 #include "fastmcpp/mcp/handler.hpp"
+
 #include "fastmcpp/app.hpp"
 #include "fastmcpp/proxy.hpp"
 #include "fastmcpp/server/sse_server.hpp"
@@ -719,16 +720,17 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 for (const auto& templ : resources.list_templates())
                 {
                     fastmcpp::Json templ_json = {{"uriTemplate", templ.uri_template},
-                                                  {"name", templ.name}};
+                                                 {"name", templ.name}};
                     if (templ.description)
                         templ_json["description"] = *templ.description;
                     if (templ.mime_type)
                         templ_json["mimeType"] = *templ.mime_type;
                     templates_array.push_back(templ_json);
                 }
-                return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                      {"id", id},
-                                      {"result", fastmcpp::Json{{"resourceTemplates", templates_array}}}};
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"},
+                    {"id", id},
+                    {"result", fastmcpp::Json{{"resourceTemplates", templates_array}}}};
             }
 
             if (method == "resources/read")
@@ -949,8 +951,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const McpA
                     else if (result.is_array())
                         content = result;
                     else if (result.is_string())
-                        content = fastmcpp::Json::array(
-                            {fastmcpp::Json{{"type", "text"}, {"text", result.get<std::string>()}}});
+                        content = fastmcpp::Json::array({fastmcpp::Json{
+                            {"type", "text"}, {"text", result.get<std::string>()}}});
                     else
                         content = fastmcpp::Json::array(
                             {fastmcpp::Json{{"type", "text"}, {"text", result.dump()}}});
@@ -988,16 +990,17 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const McpA
                 for (const auto& templ : app.list_all_templates())
                 {
                     fastmcpp::Json templ_json = {{"uriTemplate", templ.uri_template},
-                                                  {"name", templ.name}};
+                                                 {"name", templ.name}};
                     if (templ.description)
                         templ_json["description"] = *templ.description;
                     if (templ.mime_type)
                         templ_json["mimeType"] = *templ.mime_type;
                     templates_array.push_back(templ_json);
                 }
-                return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                      {"id", id},
-                                      {"result", fastmcpp::Json{{"resourceTemplates", templates_array}}}};
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"},
+                    {"id", id},
+                    {"result", fastmcpp::Json{{"resourceTemplates", templates_array}}}};
             }
 
             if (method == "resources/read")
@@ -1034,7 +1037,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const McpA
                                 n |= binary[i + 2];
                             b64.push_back(b64_chars[(n >> 18) & 0x3F]);
                             b64.push_back(b64_chars[(n >> 12) & 0x3F]);
-                            b64.push_back((i + 1 < binary.size()) ? b64_chars[(n >> 6) & 0x3F] : '=');
+                            b64.push_back((i + 1 < binary.size()) ? b64_chars[(n >> 6) & 0x3F]
+                                                                  : '=');
                             b64.push_back((i + 2 < binary.size()) ? b64_chars[n & 0x3F] : '=');
                         }
                         content_json["blob"] = b64;
@@ -1068,7 +1072,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const McpA
                         fastmcpp::Json args_array = fastmcpp::Json::array();
                         for (const auto& arg : prompt->arguments)
                         {
-                            fastmcpp::Json arg_json = {{"name", arg.name}, {"required", arg.required}};
+                            fastmcpp::Json arg_json = {{"name", arg.name},
+                                                       {"required", arg.required}};
                             if (arg.description)
                                 arg_json["description"] = *arg.description;
                             args_array.push_back(arg_json);
@@ -1159,7 +1164,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 fastmcpp::Json tools_array = fastmcpp::Json::array();
                 for (const auto& tool : app.list_all_tools())
                 {
-                    fastmcpp::Json tool_json = {{"name", tool.name}, {"inputSchema", tool.inputSchema}};
+                    fastmcpp::Json tool_json = {{"name", tool.name},
+                                                {"inputSchema", tool.inputSchema}};
                     if (tool.description)
                         tool_json["description"] = *tool.description;
                     if (tool.title)
@@ -1179,8 +1185,9 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                     }
                     tools_array.push_back(tool_json);
                 }
-                return fastmcpp::Json{
-                    {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json{{"tools", tools_array}}}};
+                return fastmcpp::Json{{"jsonrpc", "2.0"},
+                                      {"id", id},
+                                      {"result", fastmcpp::Json{{"tools", tools_array}}}};
             }
 
             if (method == "tools/call")
@@ -1203,8 +1210,9 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         }
                         else if (auto* img = std::get_if<client::ImageContent>(&content))
                         {
-                            fastmcpp::Json img_json = {
-                                {"type", "image"}, {"data", img->data}, {"mimeType", img->mimeType}};
+                            fastmcpp::Json img_json = {{"type", "image"},
+                                                       {"data", img->data},
+                                                       {"mimeType", img->mimeType}};
                             content_array.push_back(img_json);
                         }
                         else if (auto* res = std::get_if<client::EmbeddedResourceContent>(&content))
@@ -1226,7 +1234,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                     if (result.structuredContent)
                         response_result["structuredContent"] = *result.structuredContent;
 
-                    return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", response_result}};
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"}, {"id", id}, {"result", response_result}};
                 }
                 catch (const NotFoundError& e)
                 {
@@ -1261,16 +1270,18 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 fastmcpp::Json templates_array = fastmcpp::Json::array();
                 for (const auto& templ : app.list_all_resource_templates())
                 {
-                    fastmcpp::Json templ_json = {{"uriTemplate", templ.uriTemplate}, {"name", templ.name}};
+                    fastmcpp::Json templ_json = {{"uriTemplate", templ.uriTemplate},
+                                                 {"name", templ.name}};
                     if (templ.description)
                         templ_json["description"] = *templ.description;
                     if (templ.mimeType)
                         templ_json["mimeType"] = *templ.mimeType;
                     templates_array.push_back(templ_json);
                 }
-                return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                      {"id", id},
-                                      {"result", fastmcpp::Json{{"resourceTemplates", templates_array}}}};
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"},
+                    {"id", id},
+                    {"result", fastmcpp::Json{{"resourceTemplates", templates_array}}}};
             }
 
             if (method == "resources/read")
@@ -1293,7 +1304,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                             content_json["text"] = text_content->text;
                             contents_array.push_back(content_json);
                         }
-                        else if (auto* blob_content = std::get_if<client::BlobResourceContent>(&content))
+                        else if (auto* blob_content =
+                                     std::get_if<client::BlobResourceContent>(&content))
                         {
                             fastmcpp::Json content_json = {{"uri", blob_content->uri}};
                             if (blob_content->mimeType)
@@ -1303,8 +1315,9 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         }
                     }
 
-                    return fastmcpp::Json{
-                        {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json{{"contents", contents_array}}}};
+                    return fastmcpp::Json{{"jsonrpc", "2.0"},
+                                          {"id", id},
+                                          {"result", fastmcpp::Json{{"contents", contents_array}}}};
                 }
                 catch (const NotFoundError& e)
                 {
@@ -1330,7 +1343,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         fastmcpp::Json args_array = fastmcpp::Json::array();
                         for (const auto& arg : *prompt.arguments)
                         {
-                            fastmcpp::Json arg_json = {{"name", arg.name}, {"required", arg.required}};
+                            fastmcpp::Json arg_json = {{"name", arg.name},
+                                                       {"required", arg.required}};
                             if (arg.description)
                                 arg_json["description"] = *arg.description;
                             args_array.push_back(arg_json);
@@ -1339,8 +1353,9 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                     }
                     prompts_array.push_back(prompt_json);
                 }
-                return fastmcpp::Json{
-                    {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json{{"prompts", prompts_array}}}};
+                return fastmcpp::Json{{"jsonrpc", "2.0"},
+                                      {"id", id},
+                                      {"result", fastmcpp::Json{{"prompts", prompts_array}}}};
             }
 
             if (method == "prompts/get")
@@ -1365,10 +1380,12 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                             }
                             else if (auto* img = std::get_if<client::ImageContent>(&content))
                             {
-                                content_array.push_back(
-                                    {{"type", "image"}, {"data", img->data}, {"mimeType", img->mimeType}});
+                                content_array.push_back({{"type", "image"},
+                                                         {"data", img->data},
+                                                         {"mimeType", img->mimeType}});
                             }
-                            else if (auto* res = std::get_if<client::EmbeddedResourceContent>(&content))
+                            else if (auto* res =
+                                         std::get_if<client::EmbeddedResourceContent>(&content))
                             {
                                 fastmcpp::Json res_json = {{"type", "resource"}, {"uri", res->uri}};
                                 if (!res->text.empty())
@@ -1379,7 +1396,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                             }
                         }
 
-                        std::string role_str = (msg.role == client::Role::Assistant) ? "assistant" : "user";
+                        std::string role_str =
+                            (msg.role == client::Role::Assistant) ? "assistant" : "user";
                         messages_array.push_back({{"role", role_str}, {"content", content_array}});
                     }
 
@@ -1387,7 +1405,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                     if (result.description)
                         response_result["description"] = *result.description;
 
-                    return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", response_result}};
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"}, {"id", id}, {"result", response_result}};
                 }
                 catch (const NotFoundError& e)
                 {
@@ -1409,7 +1428,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
 }
 
 // Helper to create a SamplingCallback from a ServerSession
-static server::SamplingCallback make_sampling_callback(std::shared_ptr<server::ServerSession> session)
+static server::SamplingCallback
+make_sampling_callback(std::shared_ptr<server::ServerSession> session)
 {
     if (!session)
         return nullptr;
@@ -1421,10 +1441,8 @@ static server::SamplingCallback make_sampling_callback(std::shared_ptr<server::S
         fastmcpp::Json messages_json = fastmcpp::Json::array();
         for (const auto& msg : messages)
         {
-            messages_json.push_back({
-                {"role", msg.role},
-                {"content", {{"type", "text"}, {"text", msg.content}}}
-            });
+            messages_json.push_back(
+                {{"role", msg.role}, {"content", {{"type", "text"}, {"text", msg.content}}}});
         }
 
         fastmcpp::Json request_params = {{"messages", messages_json}};
@@ -1491,9 +1509,7 @@ make_mcp_handler_with_sampling(const McpApp& app, SessionAccessor session_access
                 {
                     auto session = session_accessor(session_id);
                     if (session && params.contains("capabilities"))
-                    {
                         session->set_capabilities(params["capabilities"]);
-                    }
                 }
 
                 fastmcpp::Json serverInfo = {{"name", app.name()}, {"version", app.version()}};
@@ -1514,7 +1530,7 @@ make_mcp_handler_with_sampling(const McpApp& app, SessionAccessor session_access
                 // Advertise capabilities including sampling
                 fastmcpp::Json capabilities = {
                     {"tools", fastmcpp::Json::object()},
-                    {"sampling", fastmcpp::Json::object()}  // We support sampling
+                    {"sampling", fastmcpp::Json::object()} // We support sampling
                 };
                 if (!app.list_all_resources().empty() || !app.list_all_templates().empty())
                     capabilities["resources"] = fastmcpp::Json::object();
@@ -1592,8 +1608,8 @@ make_mcp_handler_with_sampling(const McpApp& app, SessionAccessor session_access
                     else if (result.is_array())
                         content = result;
                     else if (result.is_string())
-                        content = fastmcpp::Json::array(
-                            {fastmcpp::Json{{"type", "text"}, {"text", result.get<std::string>()}}});
+                        content = fastmcpp::Json::array({fastmcpp::Json{
+                            {"type", "text"}, {"text", result.get<std::string>()}}});
                     else
                         content = fastmcpp::Json::array(
                             {fastmcpp::Json{{"type", "text"}, {"text", result.dump()}}});
@@ -1634,16 +1650,17 @@ make_mcp_handler_with_sampling(const McpApp& app, SessionAccessor session_access
                 for (const auto& templ : app.list_all_templates())
                 {
                     fastmcpp::Json templ_json = {{"uriTemplate", templ.uri_template},
-                                                  {"name", templ.name}};
+                                                 {"name", templ.name}};
                     if (templ.description)
                         templ_json["description"] = *templ.description;
                     if (templ.mime_type)
                         templ_json["mimeType"] = *templ.mime_type;
                     templates_array.push_back(templ_json);
                 }
-                return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                      {"id", id},
-                                      {"result", fastmcpp::Json{{"resourceTemplates", templates_array}}}};
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"},
+                    {"id", id},
+                    {"result", fastmcpp::Json{{"resourceTemplates", templates_array}}}};
             }
 
             if (method == "resources/read")
@@ -1680,7 +1697,8 @@ make_mcp_handler_with_sampling(const McpApp& app, SessionAccessor session_access
                                 n |= binary[i + 2];
                             b64.push_back(b64_chars[(n >> 18) & 0x3F]);
                             b64.push_back(b64_chars[(n >> 12) & 0x3F]);
-                            b64.push_back((i + 1 < binary.size()) ? b64_chars[(n >> 6) & 0x3F] : '=');
+                            b64.push_back((i + 1 < binary.size()) ? b64_chars[(n >> 6) & 0x3F]
+                                                                  : '=');
                             b64.push_back((i + 2 < binary.size()) ? b64_chars[n & 0x3F] : '=');
                         }
                         content_json["blob"] = b64;
@@ -1714,7 +1732,8 @@ make_mcp_handler_with_sampling(const McpApp& app, SessionAccessor session_access
                         fastmcpp::Json args_array = fastmcpp::Json::array();
                         for (const auto& arg : prompt->arguments)
                         {
-                            fastmcpp::Json arg_json = {{"name", arg.name}, {"required", arg.required}};
+                            fastmcpp::Json arg_json = {{"name", arg.name},
+                                                       {"required", arg.required}};
                             if (arg.description)
                                 arg_json["description"] = *arg.description;
                             args_array.push_back(arg_json);
@@ -1772,9 +1791,8 @@ make_mcp_handler_with_sampling(const McpApp& app, SessionAccessor session_access
 std::function<fastmcpp::Json(const fastmcpp::Json&)>
 make_mcp_handler_with_sampling(const McpApp& app, server::SseServerWrapper& sse_server)
 {
-    return make_mcp_handler_with_sampling(app, [&sse_server](const std::string& session_id) {
-        return sse_server.get_session(session_id);
-    });
+    return make_mcp_handler_with_sampling(app, [&sse_server](const std::string& session_id)
+                                          { return sse_server.get_session(session_id); });
 }
 
 } // namespace fastmcpp::mcp

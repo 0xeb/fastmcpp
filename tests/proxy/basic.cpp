@@ -47,13 +47,13 @@ std::function<Json(const Json&)> create_backend_handler()
     if (!initialized)
     {
         // Register tools
-        tools::Tool add_tool{
-            "backend_add",
-            Json{{"type", "object"},
-                 {"properties", Json{{"a", Json{{"type", "number"}}}, {"b", Json{{"type", "number"}}}}},
-                 {"required", Json::array({"a", "b"})}},
-            Json{{"type", "number"}},
-            [](const Json& args) { return args.at("a").get<int>() + args.at("b").get<int>(); }};
+        tools::Tool add_tool{"backend_add",
+                             Json{{"type", "object"},
+                                  {"properties", Json{{"a", Json{{"type", "number"}}},
+                                                      {"b", Json{{"type", "number"}}}}},
+                                  {"required", Json::array({"a", "b"})}},
+                             Json{{"type", "number"}}, [](const Json& args)
+                             { return args.at("a").get<int>() + args.at("b").get<int>(); }};
         tool_mgr.register_tool(add_tool);
 
         tools::Tool echo_tool{"backend_echo",
@@ -69,7 +69,8 @@ std::function<Json(const Json&)> create_backend_handler()
         readme.uri = "file://backend_readme.txt";
         readme.name = "Backend Readme";
         readme.mime_type = "text/plain";
-        readme.provider = [](const Json&) {
+        readme.provider = [](const Json&)
+        {
             return resources::ResourceContent{"file://backend_readme.txt", "text/plain",
                                               std::string("Content from backend")};
         };
@@ -79,9 +80,8 @@ std::function<Json(const Json&)> create_backend_handler()
         prompts::Prompt greeting;
         greeting.name = "backend_greeting";
         greeting.description = "A greeting from backend";
-        greeting.generator = [](const Json&) {
-            return std::vector<prompts::PromptMessage>{{"user", "Hello from backend!"}};
-        };
+        greeting.generator = [](const Json&)
+        { return std::vector<prompts::PromptMessage>{{"user", "Hello from backend!"}}; };
         prompt_mgr.register_prompt(greeting);
 
         initialized = true;
@@ -94,7 +94,8 @@ std::function<Json(const Json&)> create_backend_handler()
 // Helper: create client factory for backend
 ProxyApp::ClientFactory create_backend_factory()
 {
-    return []() {
+    return []()
+    {
         auto handler = create_backend_handler();
         return client::Client(std::make_unique<MockTransport>(handler));
     };
@@ -159,8 +160,8 @@ void test_proxy_local_override()
                           Json{{"type", "object"},
                                {"properties", Json{{"a", Json{{"type", "number"}}}}},
                                {"required", Json::array({"a"})}},
-                          Json{{"type", "number"}},
-                          [](const Json& args) {
+                          Json{{"type", "number"}}, [](const Json& args)
+                          {
                               // Local version multiplies by 10
                               return args.at("a").get<int>() * 10;
                           }};
@@ -233,7 +234,8 @@ void test_proxy_resources()
     local_res.uri = "file://local.txt";
     local_res.name = "Local File";
     local_res.mime_type = "text/plain";
-    local_res.provider = [](const Json&) {
+    local_res.provider = [](const Json&)
+    {
         return resources::ResourceContent{"file://local.txt", "text/plain",
                                           std::string("Local content")};
     };
@@ -264,9 +266,8 @@ void test_proxy_prompts()
     prompts::Prompt local_prompt;
     local_prompt.name = "local_prompt";
     local_prompt.description = "A local prompt";
-    local_prompt.generator = [](const Json&) {
-        return std::vector<prompts::PromptMessage>{{"user", "Local prompt message"}};
-    };
+    local_prompt.generator = [](const Json&)
+    { return std::vector<prompts::PromptMessage>{{"user", "Local prompt message"}}; };
     proxy.local_prompts().register_prompt(local_prompt);
 
     // Should see both prompts
@@ -291,23 +292,21 @@ void test_proxy_mcp_handler()
     ProxyApp proxy(create_backend_factory(), "TestProxy", "1.0.0");
 
     // Add a local tool
-    tools::Tool local_tool{"local_tool",
-                           Json{{"type", "object"}, {"properties", Json::object()}},
-                           Json{{"type", "string"}},
-                           [](const Json&) { return "local result"; }};
+    tools::Tool local_tool{"local_tool", Json{{"type", "object"}, {"properties", Json::object()}},
+                           Json{{"type", "string"}}, [](const Json&) { return "local result"; }};
     proxy.local_tools().register_tool(local_tool);
 
     // Create MCP handler
     auto handler = mcp::make_mcp_handler(proxy);
 
     // Test initialize
-    auto init_response = handler(Json{{"jsonrpc", "2.0"},
-                                      {"id", 1},
-                                      {"method", "initialize"},
-                                      {"params",
-                                       Json{{"protocolVersion", "2024-11-05"},
-                                            {"capabilities", Json::object()},
-                                            {"clientInfo", Json{{"name", "test"}, {"version", "1.0"}}}}}});
+    auto init_response =
+        handler(Json{{"jsonrpc", "2.0"},
+                     {"id", 1},
+                     {"method", "initialize"},
+                     {"params", Json{{"protocolVersion", "2024-11-05"},
+                                     {"capabilities", Json::object()},
+                                     {"clientInfo", Json{{"name", "test"}, {"version", "1.0"}}}}}});
     assert(init_response.contains("result"));
     assert(init_response["result"]["serverInfo"]["name"] == "TestProxy");
 
@@ -325,17 +324,12 @@ void test_proxy_backend_unavailable()
     std::cout << "test_proxy_backend_unavailable..." << std::endl;
 
     // Create proxy with failing backend
-    ProxyApp proxy(
-        []() -> client::Client {
-            throw std::runtime_error("Backend unavailable");
-        },
-        "TestProxy", "1.0.0");
+    ProxyApp proxy([]() -> client::Client { throw std::runtime_error("Backend unavailable"); },
+                   "TestProxy", "1.0.0");
 
     // Add local tool
-    tools::Tool local_tool{"local_only",
-                           Json{{"type", "object"}, {"properties", Json::object()}},
-                           Json{{"type", "string"}},
-                           [](const Json&) { return "works"; }};
+    tools::Tool local_tool{"local_only", Json{{"type", "object"}, {"properties", Json::object()}},
+                           Json{{"type", "string"}}, [](const Json&) { return "works"; }};
     proxy.local_tools().register_tool(local_tool);
 
     // Should still return local tools even if backend fails

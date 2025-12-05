@@ -64,9 +64,8 @@ void test_logging()
 
     std::vector<std::tuple<LogLevel, std::string, std::string>> logs;
 
-    ctx.set_log_callback([&logs](LogLevel level, const std::string& msg, const std::string& logger) {
-        logs.push_back({level, msg, logger});
-    });
+    ctx.set_log_callback([&logs](LogLevel level, const std::string& msg, const std::string& logger)
+                         { logs.push_back({level, msg, logger}); });
 
     ctx.debug("Debug message");
     ctx.info("Info message");
@@ -104,9 +103,8 @@ void test_progress_reporting()
     std::vector<std::tuple<std::string, double, double, std::string>> progress_events;
 
     ctx.set_progress_callback([&progress_events](const std::string& token, double progress,
-                                                   double total, const std::string& message) {
-        progress_events.push_back({token, progress, total, message});
-    });
+                                                 double total, const std::string& message)
+                              { progress_events.push_back({token, progress, total, message}); });
 
     ctx.report_progress(25, 100, "Quarter done");
     ctx.report_progress(50);
@@ -136,9 +134,8 @@ void test_progress_without_token()
     Context ctx(rm, pm);
 
     int call_count = 0;
-    ctx.set_progress_callback([&call_count](const std::string&, double, double, const std::string&) {
-        call_count++;
-    });
+    ctx.set_progress_callback([&call_count](const std::string&, double, double, const std::string&)
+                              { call_count++; });
 
     // Should not call callback without progress token
     ctx.report_progress(50);
@@ -157,9 +154,8 @@ void test_notifications()
 
     std::vector<std::pair<std::string, Json>> notifications;
 
-    ctx.set_notification_callback([&notifications](const std::string& method, const Json& params) {
-        notifications.push_back({method, params});
-    });
+    ctx.set_notification_callback([&notifications](const std::string& method, const Json& params)
+                                  { notifications.push_back({method, params}); });
 
     ctx.send_tool_list_changed();
     ctx.send_resource_list_changed();
@@ -243,39 +239,33 @@ void test_e2e_tool_logging_to_notifications()
     Context ctx(rm, pm, request_meta, std::string{"req_456"}, std::string{"session_789"});
 
     // Wire up log callback to generate MCP notifications/message format
-    ctx.set_log_callback([&mcp_notifications](LogLevel level, const std::string& message,
-                                               const std::string& logger_name) {
-        // Build MCP notifications/message payload
-        Json notification = {
-            {"jsonrpc", "2.0"},
-            {"method", "notifications/message"},
-            {"params", {
-                {"level", to_string(level)},
-                {"data", message},
-                {"logger", logger_name}
-            }}
-        };
-        mcp_notifications.push_back(notification);
-    });
+    ctx.set_log_callback(
+        [&mcp_notifications](LogLevel level, const std::string& message,
+                             const std::string& logger_name)
+        {
+            // Build MCP notifications/message payload
+            Json notification = {
+                {"jsonrpc", "2.0"},
+                {"method", "notifications/message"},
+                {"params",
+                 {{"level", to_string(level)}, {"data", message}, {"logger", logger_name}}}};
+            mcp_notifications.push_back(notification);
+        });
 
     // Wire up progress callback to generate MCP notifications/progress format
     std::vector<Json> progress_notifications;
-    ctx.set_progress_callback([&progress_notifications](const std::string& token, double progress,
-                                                         double total, const std::string& message) {
-        Json notification = {
-            {"jsonrpc", "2.0"},
-            {"method", "notifications/progress"},
-            {"params", {
-                {"progressToken", token},
-                {"progress", progress},
-                {"total", total}
-            }}
-        };
-        if (!message.empty()) {
-            notification["params"]["message"] = message;
-        }
-        progress_notifications.push_back(notification);
-    });
+    ctx.set_progress_callback(
+        [&progress_notifications](const std::string& token, double progress, double total,
+                                  const std::string& message)
+        {
+            Json notification = {
+                {"jsonrpc", "2.0"},
+                {"method", "notifications/progress"},
+                {"params", {{"progressToken", token}, {"progress", progress}, {"total", total}}}};
+            if (!message.empty())
+                notification["params"]["message"] = message;
+            progress_notifications.push_back(notification);
+        });
 
     // Simulate tool execution with logging and progress
     // (This is what would happen inside a tool handler)
@@ -338,19 +328,19 @@ void test_e2e_context_in_tool_handler()
 
     // Simulate a tool handler that receives a factory to create Context
     // This mirrors how real MCP servers pass Context to tools
-    auto tool_handler = [&](const Json& args,
-                            std::function<Context()> context_factory) -> Json {
+    auto tool_handler = [&](const Json& args, std::function<Context()> context_factory) -> Json
+    {
         // Tool creates context for this invocation
         Context ctx = context_factory();
 
         // Wire callbacks to notification sink
-        ctx.set_log_callback([&sent_notifications](LogLevel level, const std::string& msg,
-                                                    const std::string& logger) {
-            sent_notifications.emplace_back(
-                "notifications/message",
-                Json{{"level", to_string(level)}, {"data", msg}, {"logger", logger}}
-            );
-        });
+        ctx.set_log_callback(
+            [&sent_notifications](LogLevel level, const std::string& msg, const std::string& logger)
+            {
+                sent_notifications.emplace_back(
+                    "notifications/message",
+                    Json{{"level", to_string(level)}, {"data", msg}, {"logger", logger}});
+            });
 
         // Tool does work and logs
         ctx.info("Tool received: " + args.value("input", ""));
@@ -367,10 +357,13 @@ void test_e2e_context_in_tool_handler()
 
     // Invoke tool with factory
     Json tool_args = {{"input", "test_data"}};
-    auto result = tool_handler(tool_args, [&]() {
-        Json meta = Json{{"client_id", "test_client"}};
-        return Context(rm, pm, meta, std::string{"req_1"}, std::string{"sess_1"});
-    });
+    auto result =
+        tool_handler(tool_args,
+                     [&]()
+                     {
+                         Json meta = Json{{"client_id", "test_client"}};
+                         return Context(rm, pm, meta, std::string{"req_1"}, std::string{"sess_1"});
+                     });
 
     // Verify tool result
     assert(result["result"] == "success");

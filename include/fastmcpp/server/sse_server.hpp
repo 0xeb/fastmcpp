@@ -202,7 +202,7 @@ class SseServerWrapper
         std::mutex m;
         std::condition_variable cv;
         bool alive{true};
-        std::shared_ptr<ServerSession> server_session;  // For bidirectional requests
+        std::shared_ptr<ServerSession> server_session; // For bidirectional requests
     };
 
     void handle_sse_connection(httplib::DataSink& sink, std::shared_ptr<ConnectionState> conn,

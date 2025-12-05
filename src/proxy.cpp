@@ -1,4 +1,5 @@
 #include "fastmcpp/proxy.hpp"
+
 #include "fastmcpp/exceptions.hpp"
 
 #include <unordered_set>
@@ -7,7 +8,8 @@ namespace fastmcpp
 {
 
 ProxyApp::ProxyApp(ClientFactory client_factory, std::string name, std::string version)
-    : client_factory_(std::move(client_factory)), name_(std::move(name)), version_(std::move(version))
+    : client_factory_(std::move(client_factory)), name_(std::move(name)),
+      version_(std::move(version))
 {
 }
 
@@ -98,9 +100,7 @@ std::vector<client::ToolInfo> ProxyApp::list_all_tools() const
         {
             // Only add if not already present locally
             if (local_names.find(tool.name) == local_names.end())
-            {
                 result.push_back(tool);
-            }
         }
     }
     catch (const std::exception&)
@@ -130,12 +130,8 @@ std::vector<client::ResourceInfo> ProxyApp::list_all_resources() const
         auto remote_resources = client.list_resources();
 
         for (const auto& res : remote_resources)
-        {
             if (local_uris.find(res.uri) == local_uris.end())
-            {
                 result.push_back(res);
-            }
-        }
     }
     catch (const std::exception&)
     {
@@ -164,12 +160,8 @@ std::vector<client::ResourceTemplate> ProxyApp::list_all_resource_templates() co
         auto remote_templates = client.list_resource_templates();
 
         for (const auto& templ : remote_templates)
-        {
             if (local_templates.find(templ.uriTemplate) == local_templates.end())
-            {
                 result.push_back(templ);
-            }
-        }
     }
     catch (const std::exception&)
     {
@@ -198,12 +190,8 @@ std::vector<client::PromptInfo> ProxyApp::list_all_prompts() const
         auto remote_prompts = client.list_prompts();
 
         for (const auto& prompt : remote_prompts)
-        {
             if (local_names.find(prompt.name) == local_names.end())
-            {
                 result.push_back(prompt);
-            }
-        }
     }
     catch (const std::exception&)
     {

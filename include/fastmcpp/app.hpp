@@ -18,15 +18,15 @@ namespace fastmcpp
 /// Mounted app reference with prefix (direct mode)
 struct MountedApp
 {
-    std::string prefix;              // Prefix for tools/prompts (e.g., "weather")
-    class McpApp* app;               // Non-owning pointer to mounted app
+    std::string prefix; // Prefix for tools/prompts (e.g., "weather")
+    class McpApp* app;  // Non-owning pointer to mounted app
 };
 
 /// Proxy-mounted app with prefix (proxy mode)
 struct ProxyMountedApp
 {
-    std::string prefix;                   // Prefix for tools/prompts
-    std::unique_ptr<ProxyApp> proxy;      // Owning pointer to proxy wrapper
+    std::string prefix;              // Prefix for tools/prompts
+    std::unique_ptr<ProxyApp> proxy; // Owning pointer to proxy wrapper
 };
 
 /// MCP Application - bundles server metadata with managers
@@ -58,23 +58,59 @@ class McpApp
                     std::optional<std::vector<Icon>> icons = std::nullopt);
 
     // Metadata accessors
-    const std::string& name() const { return server_.name(); }
-    const std::string& version() const { return server_.version(); }
-    const std::optional<std::string>& website_url() const { return server_.website_url(); }
-    const std::optional<std::vector<Icon>>& icons() const { return server_.icons(); }
+    const std::string& name() const
+    {
+        return server_.name();
+    }
+    const std::string& version() const
+    {
+        return server_.version();
+    }
+    const std::optional<std::string>& website_url() const
+    {
+        return server_.website_url();
+    }
+    const std::optional<std::vector<Icon>>& icons() const
+    {
+        return server_.icons();
+    }
 
     // Manager accessors
-    tools::ToolManager& tools() { return tools_; }
-    const tools::ToolManager& tools() const { return tools_; }
+    tools::ToolManager& tools()
+    {
+        return tools_;
+    }
+    const tools::ToolManager& tools() const
+    {
+        return tools_;
+    }
 
-    resources::ResourceManager& resources() { return resources_; }
-    const resources::ResourceManager& resources() const { return resources_; }
+    resources::ResourceManager& resources()
+    {
+        return resources_;
+    }
+    const resources::ResourceManager& resources() const
+    {
+        return resources_;
+    }
 
-    prompts::PromptManager& prompts() { return prompts_; }
-    const prompts::PromptManager& prompts() const { return prompts_; }
+    prompts::PromptManager& prompts()
+    {
+        return prompts_;
+    }
+    const prompts::PromptManager& prompts() const
+    {
+        return prompts_;
+    }
 
-    server::Server& server() { return server_; }
-    const server::Server& server() const { return server_; }
+    server::Server& server()
+    {
+        return server_;
+    }
+    const server::Server& server() const
+    {
+        return server_;
+    }
 
     // =========================================================================
     // App Mounting
@@ -92,10 +128,16 @@ class McpApp
     void mount(McpApp& app, const std::string& prefix = "", bool as_proxy = false);
 
     /// Get list of directly mounted apps
-    const std::vector<MountedApp>& mounted() const { return mounted_; }
+    const std::vector<MountedApp>& mounted() const
+    {
+        return mounted_;
+    }
 
     /// Get list of proxy-mounted apps
-    const std::vector<ProxyMountedApp>& proxy_mounted() const { return proxy_mounted_; }
+    const std::vector<ProxyMountedApp>& proxy_mounted() const
+    {
+        return proxy_mounted_;
+    }
 
     // =========================================================================
     // Aggregated Lists (includes mounted apps)
@@ -125,7 +167,8 @@ class McpApp
     Json invoke_tool(const std::string& name, const Json& args) const;
 
     /// Read a resource by URI (handles prefixed routing)
-    resources::ResourceContent read_resource(const std::string& uri, const Json& params = Json::object()) const;
+    resources::ResourceContent read_resource(const std::string& uri,
+                                             const Json& params = Json::object()) const;
 
     /// Get prompt messages by name (handles prefixed routing)
     std::vector<prompts::PromptMessage> get_prompt(const std::string& name, const Json& args) const;

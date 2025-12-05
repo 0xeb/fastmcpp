@@ -16,8 +16,8 @@ namespace fastmcpp::resources
 struct TemplateParameter
 {
     std::string name;
-    bool is_wildcard{false};  // {var*} vs {var}
-    bool is_query{false};     // {?var} query param
+    bool is_wildcard{false}; // {var*} vs {var}
+    bool is_query{false};    // {?var} query param
 };
 
 /// MCP Resource Template definition
@@ -27,11 +27,11 @@ struct TemplateParameter
 ///   - {?a,b,c} - query parameters
 struct ResourceTemplate
 {
-    std::string uri_template;                               // e.g., "weather://{city}/current"
-    std::string name;                                       // Human-readable name
-    std::optional<std::string> description;                 // Optional description
-    std::optional<std::string> mime_type;                   // MIME type hint
-    Json parameters;                                        // JSON schema for parameters
+    std::string uri_template;               // e.g., "weather://{city}/current"
+    std::string name;                       // Human-readable name
+    std::optional<std::string> description; // Optional description
+    std::optional<std::string> mime_type;   // MIME type hint
+    Json parameters;                        // JSON schema for parameters
 
     // Provider function: takes extracted params, returns content
     std::function<ResourceContent(const Json& params)> provider;
@@ -48,7 +48,8 @@ struct ResourceTemplate
     std::optional<std::unordered_map<std::string, std::string>> match(const std::string& uri) const;
 
     /// Create a resource from the template with given parameters
-    Resource create_resource(const std::string& uri, const std::unordered_map<std::string, std::string>& params) const;
+    Resource create_resource(const std::string& uri,
+                             const std::unordered_map<std::string, std::string>& params) const;
 };
 
 /// Extract path parameters from URI template: {var}, {var*}

@@ -7,12 +7,12 @@
 /// - Multiple tool management
 /// - Schema retrieval
 
-#include "fastmcpp/tools/manager.hpp"
 #include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/tools/manager.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <iostream>
-#include <algorithm>
 
 using namespace fastmcpp;
 using namespace fastmcpp::tools;
@@ -20,64 +20,46 @@ using namespace fastmcpp::tools;
 /// Helper to create a simple add tool
 Tool create_add_tool()
 {
-    return Tool(
-        "add",
-        Json{
-            {"type", "object"},
-            {"properties", {
-                {"x", {{"type", "integer"}, {"description", "First number"}}},
-                {"y", {{"type", "integer"}, {"description", "Second number"}}}
-            }},
-            {"required", Json::array({"x", "y"})}
-        },
-        Json::object(),
-        [](const Json& args) {
-            int x = args.value("x", 0);
-            int y = args.value("y", 0);
-            return Json{{"result", x + y}};
-        }
-    );
+    return Tool("add",
+                Json{{"type", "object"},
+                     {"properties",
+                      {{"x", {{"type", "integer"}, {"description", "First number"}}},
+                       {"y", {{"type", "integer"}, {"description", "Second number"}}}}},
+                     {"required", Json::array({"x", "y"})}},
+                Json::object(),
+                [](const Json& args)
+                {
+                    int x = args.value("x", 0);
+                    int y = args.value("y", 0);
+                    return Json{{"result", x + y}};
+                });
 }
 
 /// Helper to create a multiply tool
 Tool create_multiply_tool()
 {
-    return Tool(
-        "multiply",
-        Json{
-            {"type", "object"},
-            {"properties", {
-                {"a", {{"type", "number"}}},
-                {"b", {{"type", "number"}}}
-            }},
-            {"required", Json::array({"a", "b"})}
-        },
-        Json::object(),
-        [](const Json& args) {
-            double a = args.value("a", 0.0);
-            double b = args.value("b", 0.0);
-            return Json{{"result", a * b}};
-        }
-    );
+    return Tool("multiply",
+                Json{{"type", "object"},
+                     {"properties", {{"a", {{"type", "number"}}}, {"b", {{"type", "number"}}}}},
+                     {"required", Json::array({"a", "b"})}},
+                Json::object(),
+                [](const Json& args)
+                {
+                    double a = args.value("a", 0.0);
+                    double b = args.value("b", 0.0);
+                    return Json{{"result", a * b}};
+                });
 }
 
 /// Helper to create an echo tool
 Tool create_echo_tool()
 {
-    return Tool(
-        "echo",
-        Json{
-            {"type", "object"},
-            {"properties", {
-                {"text", {{"type", "string"}}}
-            }},
-            {"required", Json::array({"text"})}
-        },
-        Json::object(),
-        [](const Json& args) {
-            return Json{{"echoed", args.value("text", "")}};
-        }
-    );
+    return Tool("echo",
+                Json{{"type", "object"},
+                     {"properties", {{"text", {{"type", "string"}}}}},
+                     {"required", Json::array({"text"})}},
+                Json::object(),
+                [](const Json& args) { return Json{{"echoed", args.value("text", "")}}; });
 }
 
 //------------------------------------------------------------------------------
@@ -126,12 +108,8 @@ void test_register_duplicate_replaces()
     tm.register_tool(create_add_tool());
 
     // Register another tool with same name but different behavior
-    Tool add_v2(
-        "add",
-        Json{{"type", "object"}, {"properties", Json::object()}},
-        Json::object(),
-        [](const Json&) { return Json{{"result", 999}}; }
-    );
+    Tool add_v2("add", Json{{"type", "object"}, {"properties", Json::object()}}, Json::object(),
+                [](const Json&) { return Json{{"result", 999}}; });
     tm.register_tool(add_v2);
 
     // Should have replaced
@@ -343,21 +321,17 @@ void test_schema_excludes_context_args()
     std::cout << "  test_schema_excludes_context_args... " << std::flush;
 
     // Tool with Context param that should be excluded from schema
-    Tool tool_with_context(
-        "greet",
-        Json{
-            {"type", "object"},
-            {"properties", {
-                {"name", {{"type", "string"}}},
-                {"ctx", {{"type", "object"}}}  // Context-like param
-            }},
-            {"required", Json::array({"name", "ctx"})}
-        },
-        Json::object(),
-        [](const Json& args) {
-            return Json{{"greeting", "Hello, " + args.value("name", "World")}};
-        },
-        {"ctx"}  // Exclude ctx from schema
+    Tool tool_with_context("greet",
+                           Json{{"type", "object"},
+                                {"properties",
+                                 {
+                                     {"name", {{"type", "string"}}},
+                                     {"ctx", {{"type", "object"}}} // Context-like param
+                                 }},
+                                {"required", Json::array({"name", "ctx"})}},
+                           Json::object(), [](const Json& args)
+                           { return Json{{"greeting", "Hello, " + args.value("name", "World")}}; },
+                           {"ctx"} // Exclude ctx from schema
     );
 
     ToolManager tm;
@@ -370,9 +344,7 @@ void test_schema_excludes_context_args()
 
     // ctx should be excluded from required
     for (const auto& r : schema["required"])
-    {
         assert(r.get<std::string>() != "ctx");
-    }
 
     std::cout << "PASSED\n";
 }

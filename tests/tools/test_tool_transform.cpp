@@ -60,23 +60,21 @@ Tool create_add_tool()
 {
     return Tool(
         "add",
-        Json{
-            {"type", "object"},
-            {"properties", {
-                {"x", {{"type", "integer"}, {"description", "First number"}}},
-                {"y", {{"type", "integer"}, {"description", "Second number"}}}
-            }},
-            {"required", Json::array({"x", "y"})}
-        },
-        Json::object(),  // output schema
-        [](const Json& args) {
+        Json{{"type", "object"},
+             {"properties",
+              {{"x", {{"type", "integer"}, {"description", "First number"}}},
+               {"y", {{"type", "integer"}, {"description", "Second number"}}}}},
+             {"required", Json::array({"x", "y"})}},
+        Json::object(), // output schema
+        [](const Json& args)
+        {
             int x = args.value("x", 0);
             int y = args.value("y", 0);
             return Json{{"result", x + y}};
         },
-        std::optional<std::string>(),  // title
-        std::string("Add two numbers"),  // description
-        std::optional<std::vector<fastmcpp::Icon>>()  // icons
+        std::optional<std::string>(),                // title
+        std::string("Add two numbers"),              // description
+        std::optional<std::vector<fastmcpp::Icon>>() // icons
     );
 }
 
@@ -106,11 +104,8 @@ void test_rename_tool()
 
     auto add_tool = create_add_tool();
 
-    auto transformed = TransformedTool::from_tool(
-        add_tool,
-        std::string("add_numbers"),
-        std::string("Add two integers together")
-    );
+    auto transformed = TransformedTool::from_tool(add_tool, std::string("add_numbers"),
+                                                  std::string("Add two integers together"));
 
     assert(transformed.name() == "add_numbers");
     assert(transformed.description().value_or("") == "Add two integers together");
@@ -132,12 +127,7 @@ void test_rename_argument()
     transforms["x"] = make_rename("first");
     transforms["y"] = make_rename("second");
 
-    auto transformed = TransformedTool::from_tool(
-        add_tool,
-        std::nullopt,
-        std::nullopt,
-        transforms
-    );
+    auto transformed = TransformedTool::from_tool(add_tool, std::nullopt, std::nullopt, transforms);
 
     // Check schema has new names
     auto schema = transformed.input_schema();
@@ -166,12 +156,7 @@ void test_change_description()
     std::unordered_map<std::string, ArgTransform> transforms;
     transforms["x"] = make_description("The first operand");
 
-    auto transformed = TransformedTool::from_tool(
-        add_tool,
-        std::nullopt,
-        std::nullopt,
-        transforms
-    );
+    auto transformed = TransformedTool::from_tool(add_tool, std::nullopt, std::nullopt, transforms);
 
     auto schema = transformed.input_schema();
     assert(schema["properties"]["x"]["description"].get<std::string>() == "The first operand");
@@ -189,12 +174,7 @@ void test_hide_argument()
     std::unordered_map<std::string, ArgTransform> transforms;
     transforms["y"] = make_hidden(10);
 
-    auto transformed = TransformedTool::from_tool(
-        add_tool,
-        std::nullopt,
-        std::nullopt,
-        transforms
-    );
+    auto transformed = TransformedTool::from_tool(add_tool, std::nullopt, std::nullopt, transforms);
 
     // Check schema - y should not be visible
     auto schema = transformed.input_schema();
@@ -221,12 +201,7 @@ void test_add_default()
     std::unordered_map<std::string, ArgTransform> transforms;
     transforms["y"] = make_default(100);
 
-    auto transformed = TransformedTool::from_tool(
-        add_tool,
-        std::nullopt,
-        std::nullopt,
-        transforms
-    );
+    auto transformed = TransformedTool::from_tool(add_tool, std::nullopt, std::nullopt, transforms);
 
     // Check schema has default
     auto schema = transformed.input_schema();
@@ -256,20 +231,13 @@ void test_make_optional()
     std::unordered_map<std::string, ArgTransform> transforms;
     transforms["y"] = make_optional_with_default(0);
 
-    auto transformed = TransformedTool::from_tool(
-        add_tool,
-        std::nullopt,
-        std::nullopt,
-        transforms
-    );
+    auto transformed = TransformedTool::from_tool(add_tool, std::nullopt, std::nullopt, transforms);
 
     auto schema = transformed.input_schema();
 
     // y should not be in required
     for (const auto& r : schema["required"])
-    {
         assert(r.get<std::string>() != "y");
-    }
 
     std::cout << "PASSED\n";
 }
@@ -285,17 +253,13 @@ void test_hide_validation_error()
     try
     {
         ArgTransform bad_transform;
-        bad_transform.hide = true;  // Missing default!
+        bad_transform.hide = true; // Missing default!
 
         std::unordered_map<std::string, ArgTransform> transforms;
         transforms["y"] = bad_transform;
 
-        auto transformed = TransformedTool::from_tool(
-            add_tool,
-            std::nullopt,
-            std::nullopt,
-            transforms
-        );
+        auto transformed =
+            TransformedTool::from_tool(add_tool, std::nullopt, std::nullopt, transforms);
     }
     catch (const std::invalid_argument& e)
     {
@@ -317,12 +281,9 @@ void test_combined_transforms()
     transforms["x"] = make_rename_with_desc("value", "The value to add to the base");
     transforms["y"] = make_hidden(0);
 
-    auto transformed = TransformedTool::from_tool(
-        add_tool,
-        std::string("smart_add"),
-        std::string("Adds numbers with smart defaults"),
-        transforms
-    );
+    auto transformed =
+        TransformedTool::from_tool(add_tool, std::string("smart_add"),
+                                   std::string("Adds numbers with smart defaults"), transforms);
 
     assert(transformed.name() == "smart_add");
     assert(transformed.description().value_or("") == "Adds numbers with smart defaults");
@@ -405,23 +366,13 @@ void test_chained_transforms()
     std::unordered_map<std::string, ArgTransform> transforms1;
     transforms1["x"] = make_rename("a");
 
-    auto first = TransformedTool::from_tool(
-        add_tool,
-        std::nullopt,
-        std::nullopt,
-        transforms1
-    );
+    auto first = TransformedTool::from_tool(add_tool, std::nullopt, std::nullopt, transforms1);
 
     // Second transformation: a -> alpha
     std::unordered_map<std::string, ArgTransform> transforms2;
     transforms2["a"] = make_rename("alpha");
 
-    auto second = TransformedTool::from_tool(
-        first.tool(),
-        std::nullopt,
-        std::nullopt,
-        transforms2
-    );
+    auto second = TransformedTool::from_tool(first.tool(), std::nullopt, std::nullopt, transforms2);
 
     // Verify chained schema
     auto schema = second.input_schema();

@@ -16,9 +16,12 @@ namespace fastmcpp
 {
 class McpApp;   // Forward declaration
 class ProxyApp; // Forward declaration
-}
+} // namespace fastmcpp
 
-namespace fastmcpp::server { class SseServerWrapper; }
+namespace fastmcpp::server
+{
+class SseServerWrapper;
+}
 
 namespace fastmcpp::mcp
 {
