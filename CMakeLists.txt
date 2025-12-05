@@ -153,6 +153,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_tools_transform_ext PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_tools_transform_ext COMMAND fastmcpp_tools_transform_ext)
 
+  add_executable(fastmcpp_tools_manager tests/tools/test_tool_manager.cpp)
+  target_link_libraries(fastmcpp_tools_manager PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_tools_manager COMMAND fastmcpp_tools_manager)
+
   add_executable(fastmcpp_integration tests/integration.cpp)
   target_link_libraries(fastmcpp_integration PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_integration COMMAND fastmcpp_integration)
