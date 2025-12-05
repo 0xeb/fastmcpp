@@ -1,11 +1,14 @@
 #pragma once
 #include "fastmcpp/prompts/manager.hpp"
 #include "fastmcpp/resources/manager.hpp"
+#include "fastmcpp/server/context.hpp"
 #include "fastmcpp/server/server.hpp"
+#include "fastmcpp/server/session.hpp"
 #include "fastmcpp/tools/manager.hpp"
 #include "fastmcpp/types.hpp"
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 
@@ -14,6 +17,8 @@ namespace fastmcpp
 class McpApp;   // Forward declaration
 class ProxyApp; // Forward declaration
 }
+
+namespace fastmcpp::server { class SseServerWrapper; }
 
 namespace fastmcpp::mcp
 {
@@ -57,5 +62,19 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const McpA
 // MCP handler from ProxyApp - supports proxying to backend server
 // Uses app's aggregated lists (local + remote) and routing
 std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const ProxyApp& app);
+
+/// Session accessor callback type - retrieves ServerSession for a session_id
+using SessionAccessor = std::function<std::shared_ptr<server::ServerSession>(const std::string&)>;
+
+/// MCP handler with sampling support
+/// The session_accessor callback is used to get ServerSession for sampling requests.
+/// Session ID is extracted from params._meta.session_id (injected by SSE server).
+std::function<fastmcpp::Json(const fastmcpp::Json&)>
+make_mcp_handler_with_sampling(const McpApp& app, SessionAccessor session_accessor);
+
+/// Convenience: create handler from McpApp + SseServerWrapper
+/// Uses the SSE server's get_session() method as the session accessor.
+std::function<fastmcpp::Json(const fastmcpp::Json&)>
+make_mcp_handler_with_sampling(const McpApp& app, server::SseServerWrapper& sse_server);
 
 } // namespace fastmcpp::mcp

@@ -365,6 +365,13 @@ bool SseServerWrapper::start()
                 // Parse JSON-RPC message
                 auto message = fastmcpp::util::json::parse(req.body);
 
+                // Inject session_id into request meta for handler access
+                if (!message.contains("params"))
+                    message["params"] = Json::object();
+                if (!message["params"].contains("_meta"))
+                    message["params"]["_meta"] = Json::object();
+                message["params"]["_meta"]["session_id"] = session_id;
+
                 // Check if this is a response to a server-initiated request
                 if (ServerSession::is_response(message))
                 {
