@@ -1486,6 +1486,16 @@ make_mcp_handler_with_sampling(const McpApp& app, SessionAccessor session_access
 
             if (method == "initialize")
             {
+                // Store client capabilities in session for later use
+                if (!session_id.empty())
+                {
+                    auto session = session_accessor(session_id);
+                    if (session && params.contains("capabilities"))
+                    {
+                        session->set_capabilities(params["capabilities"]);
+                    }
+                }
+
                 fastmcpp::Json serverInfo = {{"name", app.name()}, {"version", app.version()}};
                 if (app.website_url())
                     serverInfo["websiteUrl"] = *app.website_url();
