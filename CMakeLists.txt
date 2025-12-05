@@ -265,6 +265,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_server_context_full PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_context_full COMMAND fastmcpp_server_context_full)
 
+  add_executable(fastmcpp_server_context_sse_integration tests/server/test_context_sse_integration.cpp)
+  target_link_libraries(fastmcpp_server_context_sse_integration PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_context_sse_integration COMMAND fastmcpp_server_context_sse_integration)
+
   add_executable(fastmcpp_server_security_limits tests/server/security_limits.cpp)
   target_link_libraries(fastmcpp_server_security_limits PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_security_limits COMMAND fastmcpp_server_security_limits)

@@ -119,6 +119,31 @@ class SseServerWrapper
         return message_path_;
     }
 
+    /**
+     * Send a notification to a specific session.
+     *
+     * This allows server-initiated messages to be pushed to clients,
+     * useful for progress updates, log messages, and other notifications
+     * during long-running operations.
+     *
+     * @param session_id The session to send to
+     * @param notification The JSON-RPC notification (should have no "id" field)
+     */
+    void send_notification(const std::string& session_id, const fastmcpp::Json& notification)
+    {
+        send_event_to_session(session_id, notification);
+    }
+
+    /**
+     * Broadcast a notification to all connected sessions.
+     *
+     * @param notification The JSON-RPC notification to broadcast
+     */
+    void broadcast_notification(const fastmcpp::Json& notification)
+    {
+        send_event_to_all_clients(notification);
+    }
+
   private:
     void run_server();
     void send_event_to_all_clients(const fastmcpp::Json& event);

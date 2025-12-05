@@ -6,6 +6,7 @@
 #include "fastmcpp/server/context.hpp"
 
 #include <cassert>
+#include <functional>
 #include <iostream>
 #include <vector>
 
@@ -224,6 +225,166 @@ void test_log_level_to_string()
     std::cout << "PASSED\n";
 }
 
+/// End-to-end test: Tool handler logs via Context → MCP notification format
+/// This simulates what happens when a tool logs during execution and the
+/// server needs to send notifications to the client.
+void test_e2e_tool_logging_to_notifications()
+{
+    std::cout << "  test_e2e_tool_logging_to_notifications... " << std::flush;
+
+    resources::ResourceManager rm;
+    prompts::PromptManager pm;
+
+    // Storage for MCP notifications that would be sent to client
+    std::vector<Json> mcp_notifications;
+
+    // Create Context with metadata (simulating a real request)
+    Json request_meta = Json{{"progressToken", "progress_123"}};
+    Context ctx(rm, pm, request_meta, std::string{"req_456"}, std::string{"session_789"});
+
+    // Wire up log callback to generate MCP notifications/message format
+    ctx.set_log_callback([&mcp_notifications](LogLevel level, const std::string& message,
+                                               const std::string& logger_name) {
+        // Build MCP notifications/message payload
+        Json notification = {
+            {"jsonrpc", "2.0"},
+            {"method", "notifications/message"},
+            {"params", {
+                {"level", to_string(level)},
+                {"data", message},
+                {"logger", logger_name}
+            }}
+        };
+        mcp_notifications.push_back(notification);
+    });
+
+    // Wire up progress callback to generate MCP notifications/progress format
+    std::vector<Json> progress_notifications;
+    ctx.set_progress_callback([&progress_notifications](const std::string& token, double progress,
+                                                         double total, const std::string& message) {
+        Json notification = {
+            {"jsonrpc", "2.0"},
+            {"method", "notifications/progress"},
+            {"params", {
+                {"progressToken", token},
+                {"progress", progress},
+                {"total", total}
+            }}
+        };
+        if (!message.empty()) {
+            notification["params"]["message"] = message;
+        }
+        progress_notifications.push_back(notification);
+    });
+
+    // Simulate tool execution with logging and progress
+    // (This is what would happen inside a tool handler)
+    ctx.info("Starting processing...");
+    ctx.report_progress(0, 100, "Initializing");
+
+    ctx.debug("Processing step 1");
+    ctx.report_progress(33, 100, "Step 1 complete");
+
+    ctx.debug("Processing step 2");
+    ctx.report_progress(66, 100, "Step 2 complete");
+
+    ctx.info("Processing complete!");
+    ctx.report_progress(100, 100, "Done");
+
+    // Verify log notifications
+    assert(mcp_notifications.size() == 4);
+
+    // First log: info "Starting processing..."
+    assert(mcp_notifications[0]["method"] == "notifications/message");
+    assert(mcp_notifications[0]["params"]["level"] == "INFO");
+    assert(mcp_notifications[0]["params"]["data"] == "Starting processing...");
+    assert(mcp_notifications[0]["params"]["logger"] == "fastmcpp");
+
+    // Second log: debug "Processing step 1"
+    assert(mcp_notifications[1]["params"]["level"] == "DEBUG");
+    assert(mcp_notifications[1]["params"]["data"] == "Processing step 1");
+
+    // Fourth log: info "Processing complete!"
+    assert(mcp_notifications[3]["params"]["level"] == "INFO");
+    assert(mcp_notifications[3]["params"]["data"] == "Processing complete!");
+
+    // Verify progress notifications
+    assert(progress_notifications.size() == 4);
+
+    // First progress notification
+    assert(progress_notifications[0]["method"] == "notifications/progress");
+    assert(progress_notifications[0]["params"]["progressToken"] == "progress_123");
+    assert(progress_notifications[0]["params"]["progress"] == 0);
+    assert(progress_notifications[0]["params"]["total"] == 100);
+    assert(progress_notifications[0]["params"]["message"] == "Initializing");
+
+    // Final progress notification
+    assert(progress_notifications[3]["params"]["progress"] == 100);
+    assert(progress_notifications[3]["params"]["message"] == "Done");
+
+    std::cout << "PASSED\n";
+}
+
+/// Test that demonstrates Context can be used within a simulated tool handler
+void test_e2e_context_in_tool_handler()
+{
+    std::cout << "  test_e2e_context_in_tool_handler... " << std::flush;
+
+    resources::ResourceManager rm;
+    prompts::PromptManager pm;
+
+    // Simulate MCP notification sink (what would be sent to transport)
+    std::vector<std::pair<std::string, Json>> sent_notifications;
+
+    // Simulate a tool handler that receives a factory to create Context
+    // This mirrors how real MCP servers pass Context to tools
+    auto tool_handler = [&](const Json& args,
+                            std::function<Context()> context_factory) -> Json {
+        // Tool creates context for this invocation
+        Context ctx = context_factory();
+
+        // Wire callbacks to notification sink
+        ctx.set_log_callback([&sent_notifications](LogLevel level, const std::string& msg,
+                                                    const std::string& logger) {
+            sent_notifications.emplace_back(
+                "notifications/message",
+                Json{{"level", to_string(level)}, {"data", msg}, {"logger", logger}}
+            );
+        });
+
+        // Tool does work and logs
+        ctx.info("Tool received: " + args.value("input", ""));
+        ctx.debug("Processing...");
+
+        // Tool uses state for tracking
+        ctx.set_state("processed", true);
+        assert(ctx.get_state_or<bool>("processed", false) == true);
+
+        ctx.info("Tool complete");
+
+        return Json{{"result", "success"}};
+    };
+
+    // Invoke tool with factory
+    Json tool_args = {{"input", "test_data"}};
+    auto result = tool_handler(tool_args, [&]() {
+        Json meta = Json{{"client_id", "test_client"}};
+        return Context(rm, pm, meta, std::string{"req_1"}, std::string{"sess_1"});
+    });
+
+    // Verify tool result
+    assert(result["result"] == "success");
+
+    // Verify notifications were generated
+    assert(sent_notifications.size() == 3);
+    assert(sent_notifications[0].first == "notifications/message");
+    assert(sent_notifications[0].second["data"] == "Tool received: test_data");
+    assert(sent_notifications[1].second["data"] == "Processing...");
+    assert(sent_notifications[2].second["data"] == "Tool complete");
+
+    std::cout << "PASSED\n";
+}
+
 int main()
 {
     std::cout << "Context Full Features Tests\n";
@@ -239,6 +400,8 @@ int main()
         test_client_id();
         test_progress_token_types();
         test_log_level_to_string();
+        test_e2e_tool_logging_to_notifications();
+        test_e2e_context_in_tool_handler();
 
         std::cout << "\nAll tests passed!\n";
         return 0;
