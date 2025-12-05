@@ -57,11 +57,11 @@ void test_single_middleware()
 
     MiddlewarePipeline pipeline;
 
-    // Custom middleware that adds a marker
+    // Custom middleware that adds a marker (override operator() to intercept all requests)
     class MarkerMiddleware : public Middleware
     {
-      protected:
-        Json on_message(const MiddlewareContext& ctx, CallNext call_next) override
+      public:
+        Json operator()(const MiddlewareContext& ctx, CallNext call_next) override
         {
             auto result = call_next(ctx);
             result["middleware_ran"] = true;
@@ -97,8 +97,8 @@ void test_execution_order()
       public:
         OrderMiddleware(int id, std::vector<int>* vec) : id_(id), order_(vec) {}
 
-      protected:
-        Json on_message(const MiddlewareContext& ctx, CallNext call_next) override
+        // Override operator() to intercept all requests, bypassing dispatch
+        Json operator()(const MiddlewareContext& ctx, CallNext call_next) override
         {
             order_->push_back(id_); // Before
             auto result = call_next(ctx);
@@ -370,9 +370,10 @@ void test_method_specific_hooks()
     tool_ctx.method = "tools/call";
     pipeline.execute(tool_ctx, [](const MiddlewareContext&) { return Json::object(); });
 
-    // Call something else - should trigger on_message
+    // Call something else - should trigger on_message (set type to empty to bypass on_request)
     MiddlewareContext other_ctx;
     other_ctx.method = "other/method";
+    other_ctx.type = ""; // Bypass type-based dispatch to test on_message fallback
     pipeline.execute(other_ctx, [](const MiddlewareContext&) { return Json::object(); });
 
     assert(mw->tools_call_count == 1);

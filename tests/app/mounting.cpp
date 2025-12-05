@@ -414,7 +414,7 @@ void test_mcp_handler_integration()
                      {"params", Json{{"name", "child_echo"},
                                      {"arguments", Json{{"message", "hello via handler"}}}}}});
     assert(call_response.contains("result"));
-    assert(call_response["result"]["content"][0]["text"] == "\"hello via handler\"");
+    assert(call_response["result"]["content"][0]["text"] == "hello via handler");
 
     std::cout << "  PASSED" << std::endl;
 }
@@ -720,7 +720,7 @@ void test_proxy_mode_mcp_handler()
              {"params", Json{{"name", "child_echo"},
                              {"arguments", Json{{"message", "hello via proxy handler"}}}}}});
     assert(call_response.contains("result"));
-    assert(call_response["result"]["content"][0]["text"] == "\"hello via proxy handler\"");
+    assert(call_response["result"]["content"][0]["text"] == "hello via proxy handler");
 
     std::cout << "  PASSED" << std::endl;
 }

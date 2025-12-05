@@ -207,8 +207,8 @@ class LoggingMiddleware : public Middleware
         }
     }
 
-  protected:
-    Json on_message(const MiddlewareContext& ctx, CallNext call_next) override
+    /// Override operator() to intercept all requests (bypasses dispatch)
+    Json operator()(const MiddlewareContext& ctx, CallNext call_next) override
     {
         auto start = std::chrono::steady_clock::now();
 
@@ -284,8 +284,8 @@ class TimingMiddleware : public Middleware
         return stats_;
     }
 
-  protected:
-    Json on_message(const MiddlewareContext& ctx, CallNext call_next) override
+    /// Override operator() to intercept all requests (bypasses dispatch)
+    Json operator()(const MiddlewareContext& ctx, CallNext call_next) override
     {
         auto start = std::chrono::steady_clock::now();
 
@@ -466,8 +466,8 @@ class RateLimitingMiddleware : public Middleware
         return tokens_ < 1.0;
     }
 
-  protected:
-    Json on_message(const MiddlewareContext& ctx, CallNext call_next) override
+    /// Override operator() to intercept all requests (bypasses dispatch)
+    Json operator()(const MiddlewareContext& ctx, CallNext call_next) override
     {
         if (!try_acquire())
             throw std::runtime_error("Rate limit exceeded");
