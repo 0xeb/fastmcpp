@@ -333,9 +333,12 @@ class CachingMiddleware : public Middleware
         std::chrono::seconds item_ttl{3600}; // 1 hour for individual items
         size_t max_entries{1000};            // Max cache entries
         size_t max_entry_size{1024 * 1024};  // Max 1MB per entry
+
+        CacheConfig() = default;
     };
 
-    explicit CachingMiddleware(CacheConfig config = {}) : config_(std::move(config)) {}
+    CachingMiddleware() : config_() {}
+    explicit CachingMiddleware(CacheConfig config) : config_(std::move(config)) {}
 
     /// Clear all cache entries
     void clear()
@@ -442,9 +445,15 @@ class RateLimitingMiddleware : public Middleware
         double tokens_per_second{10.0}; // Refill rate
         double max_tokens{100.0};       // Bucket capacity
         bool per_method{false};         // Rate limit per method or global
+
+        Config() = default;
     };
 
-    explicit RateLimitingMiddleware(Config config = {})
+    RateLimitingMiddleware()
+        : config_(), tokens_(config_.max_tokens), last_refill_(std::chrono::steady_clock::now())
+    {
+    }
+    explicit RateLimitingMiddleware(Config config)
         : config_(std::move(config)), tokens_(config_.max_tokens),
           last_refill_(std::chrono::steady_clock::now())
     {
