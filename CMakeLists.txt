@@ -32,6 +32,7 @@ add_library(fastmcpp_core
     src/server/http_server.cpp
     src/server/stdio_server.cpp
     src/server/sse_server.cpp
+    src/server/streamable_http_server.cpp
     src/client/client.cpp
     src/client/transports.cpp
     src/util/json_schema.cpp
@@ -302,6 +303,11 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_server_sse_http_integration tests/server/sse_http_integration.cpp)
   target_link_libraries(fastmcpp_server_sse_http_integration PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_sse_http_integration COMMAND fastmcpp_server_sse_http_integration)
+
+  # Streamable HTTP integration (MCP spec 2025-03-26)
+  add_executable(fastmcpp_server_streamable_http_integration tests/server/streamable_http_integration.cpp)
+  target_link_libraries(fastmcpp_server_streamable_http_integration PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_streamable_http_integration COMMAND fastmcpp_server_streamable_http_integration)
 
   add_executable(fastmcpp_server_auth_cors_security tests/server/auth_cors_security.cpp)
   target_link_libraries(fastmcpp_server_auth_cors_security PRIVATE fastmcpp_core)

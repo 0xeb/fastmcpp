@@ -258,6 +258,41 @@ class ServerSession
     }
 
     /**
+     * Send a notification to the client (fire-and-forget, no response expected).
+     *
+     * @param method The JSON-RPC method name (e.g., "notifications/progress")
+     * @param params Notification parameters
+     */
+    void send_notification(const std::string& method, const Json& params = Json::object())
+    {
+        Json notification = {{"jsonrpc", "2.0"}, {"method", method}, {"params", params}};
+
+        if (send_callback_)
+            send_callback_(notification);
+    }
+
+    /**
+     * Send a progress notification to the client.
+     *
+     * @param progress_token Token identifying the operation (from request _meta.progressToken)
+     * @param progress Current progress value
+     * @param total Total progress value (optional)
+     * @param message Progress message (optional)
+     */
+    void send_progress(const std::string& progress_token, double progress, double total = 0.0,
+                       const std::string& message = "")
+    {
+        Json params = {{"progressToken", progress_token}, {"progress", progress}};
+
+        if (total > 0.0)
+            params["total"] = total;
+        if (!message.empty())
+            params["message"] = message;
+
+        send_notification("notifications/progress", params);
+    }
+
+    /**
      * Check if a JSON message is a response (has id, no method).
      */
     static bool is_response(const Json& msg)

@@ -137,4 +137,57 @@ class SseClientTransport : public ITransport
     std::unordered_map<int64_t, std::promise<fastmcpp::Json>> pending_requests_;
 };
 
+/// Streamable HTTP client transport for connecting to MCP servers using the
+/// Streamable HTTP protocol (MCP spec version 2025-03-26).
+///
+/// This transport is simpler than SSE:
+/// 1. Client sends POST requests to a single endpoint (default: /mcp)
+/// 2. Server responds with JSON or SSE stream
+/// 3. Session ID management via Mcp-Session-Id header
+///
+/// Reference: https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/
+class StreamableHttpTransport : public ITransport
+{
+  public:
+    /// Construct a Streamable HTTP client transport
+    /// @param base_url The base URL of the MCP server (e.g., "http://127.0.0.1:8080")
+    /// @param mcp_path Path for the MCP endpoint (default: "/mcp")
+    /// @param headers Additional headers to include in requests
+    explicit StreamableHttpTransport(std::string base_url, std::string mcp_path = "/mcp",
+                                     std::unordered_map<std::string, std::string> headers = {});
+
+    ~StreamableHttpTransport();
+
+    /// Send a JSON-RPC request and wait for response
+    fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload) override;
+
+    /// Get the session ID (set after successful initialize)
+    std::string session_id() const;
+
+    /// Check if a session ID has been set
+    bool has_session() const;
+
+    /// Set callback for handling server-initiated notifications during streaming responses
+    void set_notification_callback(std::function<void(const fastmcpp::Json&)> callback);
+
+  private:
+    void parse_session_id_from_response(const std::string& headers);
+    fastmcpp::Json parse_response(const std::string& body, const std::string& content_type);
+    void process_sse_line(const std::string& line, std::vector<fastmcpp::Json>& messages);
+
+    std::string base_url_;
+    std::string mcp_path_;
+    std::unordered_map<std::string, std::string> headers_;
+
+    // Session management
+    mutable std::mutex session_mutex_;
+    std::string session_id_;
+
+    // Notification handling
+    std::function<void(const fastmcpp::Json&)> notification_callback_;
+
+    // Request ID generation
+    std::atomic<int64_t> next_id_{1};
+};
+
 } // namespace fastmcpp::client

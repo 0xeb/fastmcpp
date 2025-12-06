@@ -15,16 +15,22 @@ fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp
 
 **Status:** Beta – core MCP features track the Python `fastmcp` reference.
 
-**Current version:** 2.13.0
+**Current version:** 2.14.0
 
 ## Features
 
 - Core MCP protocol implementation (JSON‑RPC).
-- Multiple transports: STDIO, HTTP (SSE), WebSocket.
+- Multiple transports: STDIO, HTTP (SSE), Streamable HTTP, WebSocket.
+- Streamable HTTP transport (MCP spec 2025-03-26) with session management.
 - Tool management and invocation.
 - Resources and prompts support.
+- Resource templates with URI pattern matching.
 - JSON Schema validation.
-- Middleware for request/response processing.
+- McpApp high-level application class.
+- ProxyApp for backend server proxying.
+- ServerSession for bidirectional communication, sampling, and server-initiated notifications.
+- Built-in middleware: Logging, Timing, Caching, RateLimiting, ErrorHandling.
+- Tool transforms for input/output processing.
 - Integration with MCP‑compatible CLI tools.
 - Cross‑platform: Windows, Linux, macOS.
 
@@ -105,12 +111,6 @@ ctest --test-dir build -C Release -R fastmcp_smoke --output-on-failure
 ctest --test-dir build -C Release -N
 ```
 
-Current status (CI / WSL configuration):
-
-- 24/24 tests passing (100% success rate).
-- 3 streaming tests disabled due to infrastructure dependencies.
-- C++ test line count is much smaller than the Python `fastmcp` suite (see CCSDK parity docs).
-
 ## Basic Usage
 
 ### STDIO MCP server
@@ -173,6 +173,61 @@ int main() {
     });
 
     std::cout << response.dump() << std::endl;
+    return 0;
+}
+```
+
+### Streamable HTTP server (MCP spec 2025-03-26)
+
+```cpp
+#include <fastmcpp/tools/manager.hpp>
+#include <fastmcpp/mcp/handler.hpp>
+#include <fastmcpp/server/streamable_http_server.hpp>
+
+int main() {
+    fastmcpp::tools::ToolManager tm;
+    // register tools on tm...
+
+    auto handler = fastmcpp::mcp::make_mcp_handler(
+        "myserver", "1.0.0", tm
+    );
+
+    // Streamable HTTP server on /mcp endpoint
+    fastmcpp::server::StreamableHttpServerWrapper server(
+        handler, "127.0.0.1", 8080, "/mcp"
+    );
+    server.start();  // non-blocking
+
+    std::this_thread::sleep_for(std::chrono::hours(1));
+    server.stop();
+    return 0;
+}
+```
+
+### Streamable HTTP client
+
+```cpp
+#include <fastmcpp/client/transports.hpp>
+
+int main() {
+    fastmcpp::client::StreamableHttpTransport transport(
+        "http://localhost:8080", "/mcp"
+    );
+
+    // Send initialize request
+    auto init_response = transport.request("mcp", {
+        {"jsonrpc", "2.0"},
+        {"id", 1},
+        {"method", "initialize"},
+        {"params", {
+            {"protocolVersion", "2024-11-05"},
+            {"capabilities", {}},
+            {"clientInfo", {{"name", "client"}, {"version", "1.0"}}}
+        }}
+    });
+
+    // Session ID is automatically managed via Mcp-Session-Id header
+    std::cout << "Session: " << transport.session_id() << std::endl;
     return 0;
 }
 ```

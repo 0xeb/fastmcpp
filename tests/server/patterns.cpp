@@ -26,7 +26,7 @@ void test_multiple_routes()
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18400};
     http.start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     client::HttpTransport client{"127.0.0.1:18400"};
 
@@ -52,7 +52,7 @@ void test_route_override()
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18401};
     http.start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     client::HttpTransport client{"127.0.0.1:18401"};
     assert(client.request("test", Json::object())["version"] == 1);
@@ -85,7 +85,7 @@ void test_large_response()
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18402};
     http.start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     client::HttpTransport client{"127.0.0.1:18402"};
 
@@ -115,7 +115,7 @@ void test_large_request()
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18403};
     http.start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     // Create large request
     Json values = Json::array();
@@ -160,7 +160,7 @@ void test_handler_with_state()
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18404};
     http.start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     client::HttpTransport client{"127.0.0.1:18404"};
 
@@ -199,7 +199,7 @@ void test_various_return_types()
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18405};
     http.start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     client::HttpTransport client{"127.0.0.1:18405"};
 
@@ -225,7 +225,7 @@ void test_unknown_route()
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18406};
     http.start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     client::HttpTransport client{"127.0.0.1:18406"};
 
@@ -264,7 +264,7 @@ void test_unicode_in_response()
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18407};
     http.start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     client::HttpTransport client{"127.0.0.1:18407"};
 
@@ -293,7 +293,7 @@ void test_nested_json_request()
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18408};
     http.start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     client::HttpTransport client{"127.0.0.1:18408"};
 
@@ -318,7 +318,7 @@ void test_sequential_requests()
 
     server::HttpServerWrapper http{srv, "127.0.0.1", 18409};
     http.start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     client::HttpTransport client{"127.0.0.1:18409"};
 

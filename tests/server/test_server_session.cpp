@@ -319,6 +319,64 @@ void test_request_id_generation()
     std::cout << "PASSED\n";
 }
 
+void test_send_notification()
+{
+    std::cout << "  test_send_notification... " << std::flush;
+
+    std::vector<Json> sent;
+    ServerSession session("sess_1", [&](const Json& msg) { sent.push_back(msg); });
+
+    // Send a generic notification
+    session.send_notification("notifications/tools/list_changed", {{"reason", "tool_added"}});
+
+    assert(sent.size() == 1);
+    assert(sent[0]["jsonrpc"] == "2.0");
+    assert(sent[0]["method"] == "notifications/tools/list_changed");
+    assert(sent[0]["params"]["reason"] == "tool_added");
+    assert(!sent[0].contains("id")); // Notifications have no id
+
+    std::cout << "PASSED\n";
+}
+
+void test_send_progress()
+{
+    std::cout << "  test_send_progress... " << std::flush;
+
+    std::vector<Json> sent;
+    ServerSession session("sess_1", [&](const Json& msg) { sent.push_back(msg); });
+
+    // Send progress without message
+    session.send_progress("token_123", 50, 100);
+
+    assert(sent.size() == 1);
+    assert(sent[0]["jsonrpc"] == "2.0");
+    assert(sent[0]["method"] == "notifications/progress");
+    assert(sent[0]["params"]["progressToken"] == "token_123");
+    assert(sent[0]["params"]["progress"] == 50);
+    assert(sent[0]["params"]["total"] == 100);
+    assert(!sent[0]["params"].contains("message"));
+
+    // Send progress with message
+    sent.clear();
+    session.send_progress("token_456", 75, 100, "Processing...");
+
+    assert(sent.size() == 1);
+    assert(sent[0]["params"]["progressToken"] == "token_456");
+    assert(sent[0]["params"]["progress"] == 75);
+    assert(sent[0]["params"]["total"] == 100);
+    assert(sent[0]["params"]["message"] == "Processing...");
+
+    // Send progress without total (omits total field)
+    sent.clear();
+    session.send_progress("token_789", 25);
+
+    assert(sent.size() == 1);
+    assert(sent[0]["params"]["progress"] == 25);
+    assert(!sent[0]["params"].contains("total"));
+
+    std::cout << "PASSED\n";
+}
+
 int main()
 {
     std::cout << "ServerSession Tests\n";
@@ -336,6 +394,8 @@ int main()
         test_numeric_request_id();
         test_multiple_concurrent_requests();
         test_request_id_generation();
+        test_send_notification();
+        test_send_progress();
 
         std::cout << "\nAll tests passed!\n";
         return 0;
