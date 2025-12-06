@@ -48,7 +48,8 @@ int main()
     std::thread sse_thread(
         [&, port]()
         {
-            // Create client inside thread - httplib::Client is not thread-safe across threads on Linux
+            // Create client inside thread - httplib::Client is not thread-safe across threads on
+            // Linux
             httplib::Client cli("127.0.0.1", port);
             cli.set_connection_timeout(std::chrono::seconds(10));
             cli.set_read_timeout(std::chrono::seconds(20));

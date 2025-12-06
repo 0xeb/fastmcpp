@@ -924,7 +924,7 @@ fastmcpp::Json StreamableHttpTransport::parse_response(const std::string& body,
     }
 }
 
-fastmcpp::Json StreamableHttpTransport::request(const std::string& /*route*/,
+fastmcpp::Json StreamableHttpTransport::request(const std::string& route,
                                                 const fastmcpp::Json& payload)
 {
     auto url = parse_url(base_url_);
@@ -951,11 +951,13 @@ fastmcpp::Json StreamableHttpTransport::request(const std::string& /*route*/,
             request_headers.emplace("Mcp-Session-Id", session_id_);
     }
 
-    // Payload is the full JSON-RPC request
-    // (StreamableHttp transport accepts complete JSON-RPC requests, unlike other transports)
+    // Build JSON-RPC request (route is method, payload is params)
+    int64_t id = next_id_.fetch_add(1, std::memory_order_relaxed);
+    fastmcpp::Json rpc_request = {
+        {"jsonrpc", "2.0"}, {"method", route}, {"params", payload}, {"id", id}};
 
     // Send request
-    auto res = cli.Post(mcp_path_.c_str(), request_headers, payload.dump(), "application/json");
+    auto res = cli.Post(mcp_path_.c_str(), request_headers, rpc_request.dump(), "application/json");
 
     if (!res)
         throw fastmcpp::TransportError("StreamableHttp request failed: no response");
@@ -982,8 +984,20 @@ fastmcpp::Json StreamableHttpTransport::request(const std::string& /*route*/,
     // Parse response
     auto rpc_response = parse_response(res->body, content_type);
 
-    // Return full JSON-RPC response (caller handles error/result extraction)
-    return rpc_response;
+    // Check for JSON-RPC error
+    if (rpc_response.contains("error"))
+    {
+        auto error = rpc_response["error"];
+        std::string message = error.value("message", "Unknown error");
+        throw fastmcpp::TransportError("JSON-RPC error: " + message);
+    }
+
+    // Extract result from JSON-RPC envelope
+    if (rpc_response.contains("result"))
+        return rpc_response["result"];
+
+    // If no result or error, return empty object
+    return fastmcpp::Json::object();
 }
 
 } // namespace fastmcpp::client
