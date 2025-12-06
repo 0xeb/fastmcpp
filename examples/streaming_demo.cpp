@@ -44,12 +44,15 @@ int main()
     std::atomic<bool> sse_connected{false};
     std::string session_id;
 
-    httplib::Client cli("127.0.0.1", port);
-    cli.set_connection_timeout(std::chrono::seconds(10));
-    cli.set_read_timeout(std::chrono::seconds(20));
+    // NOTE: httplib::Client must be created in the same thread that uses it on Linux
     std::thread sse_thread(
-        [&]()
+        [&, port]()
         {
+            // Create client inside thread - httplib::Client is not thread-safe across threads on Linux
+            httplib::Client cli("127.0.0.1", port);
+            cli.set_connection_timeout(std::chrono::seconds(10));
+            cli.set_read_timeout(std::chrono::seconds(20));
+
             auto receiver = [&](const char* data, size_t len)
             {
                 sse_connected = true;

@@ -55,11 +55,6 @@ int main()
         return 1;
     }
 
-    // Create HTTP clients: one dedicated to SSE stream, one for POST requests
-    httplib::Client sse_client("127.0.0.1", port);
-    sse_client.set_read_timeout(std::chrono::seconds(20));
-    sse_client.set_connection_timeout(std::chrono::seconds(10));
-
     std::atomic<bool> sse_connected{false};
     std::atomic<int> events_received{0};
     Json received_event;
@@ -67,9 +62,15 @@ int main()
     std::string session_id;
 
     // Start SSE connection in background thread (retry a few times for robustness)
+    // NOTE: httplib::Client must be created in the same thread that uses it on Linux
     std::thread sse_thread(
-        [&]()
+        [&, port]()
         {
+            // Create client inside thread - httplib::Client is not thread-safe across threads on Linux
+            httplib::Client sse_client("127.0.0.1", port);
+            sse_client.set_read_timeout(std::chrono::seconds(20));
+            sse_client.set_connection_timeout(std::chrono::seconds(10));
+
             // Give server a moment to fully initialize before first connection attempt
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
 

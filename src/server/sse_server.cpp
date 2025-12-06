@@ -479,18 +479,22 @@ bool SseServerWrapper::start()
 
     // Wait for server to be ready by probing the SSE endpoint briefly.
     // This reduces flakiness in constrained environments.
+    // NOTE: When the content receiver returns false to cancel, httplib reports the
+    // Result as an error even though data was received. Track actual data receipt.
     for (int attempt = 0; attempt < 20; ++attempt)
     {
+        bool received_data = false;
         httplib::Client probe(host_.c_str(), port_);
         probe.set_connection_timeout(std::chrono::seconds(2));
         probe.set_read_timeout(std::chrono::seconds(2));
-        auto res = probe.Get(sse_path_.c_str(),
-                             [&](const char*, size_t)
-                             {
-                                 // Cancel after first chunk to indicate readiness
-                                 return false;
-                             });
-        if (res)
+        probe.Get(sse_path_.c_str(),
+                  [&](const char*, size_t)
+                  {
+                      // Cancel after first chunk to indicate readiness
+                      received_data = true;
+                      return false;
+                  });
+        if (received_data)
             break;
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
