@@ -37,7 +37,8 @@ int main()
         return 1;
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    // Wait for server to be ready
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     std::cout << "[1/1] Test: HttpTransport with real HTTP server\n";
 

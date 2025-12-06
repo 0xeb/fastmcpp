@@ -38,7 +38,8 @@ int main()
         return 1;
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    // Wait for server to be ready - longer delay for compatibility
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
     // Test 1: Verify session_id is cryptographically random (not timestamp)
     {
@@ -137,7 +138,7 @@ int main()
 
     // Restart server between tests to ensure clean state
     sse_server.stop();
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
     if (!sse_server.start())
     {
@@ -145,7 +146,8 @@ int main()
         return 1;
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    // Wait for server to be ready
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
     // Test 2: POST without session_id should be rejected
     {

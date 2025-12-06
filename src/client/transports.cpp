@@ -810,4 +810,180 @@ fastmcpp::Json SseClientTransport::request(const std::string& route, const fastm
     return fastmcpp::Json::object();
 }
 
+// =============================================================================
+// StreamableHttpTransport implementation
+// =============================================================================
+
+StreamableHttpTransport::StreamableHttpTransport(
+    std::string base_url, std::string mcp_path,
+    std::unordered_map<std::string, std::string> headers)
+    : base_url_(std::move(base_url)), mcp_path_(std::move(mcp_path)), headers_(std::move(headers))
+{
+}
+
+StreamableHttpTransport::~StreamableHttpTransport() = default;
+
+std::string StreamableHttpTransport::session_id() const
+{
+    std::lock_guard<std::mutex> lock(session_mutex_);
+    return session_id_;
+}
+
+bool StreamableHttpTransport::has_session() const
+{
+    std::lock_guard<std::mutex> lock(session_mutex_);
+    return !session_id_.empty();
+}
+
+void StreamableHttpTransport::set_notification_callback(
+    std::function<void(const fastmcpp::Json&)> callback)
+{
+    notification_callback_ = std::move(callback);
+}
+
+void StreamableHttpTransport::parse_session_id_from_response(const std::string& header_value)
+{
+    // The header comes as "Mcp-Session-Id: <value>"
+    // We receive just the value from httplib
+    if (!header_value.empty())
+    {
+        std::lock_guard<std::mutex> lock(session_mutex_);
+        session_id_ = header_value;
+    }
+}
+
+void StreamableHttpTransport::process_sse_line(const std::string& line,
+                                               std::vector<fastmcpp::Json>& messages)
+{
+    // Parse SSE data lines (format: "data: {json}")
+    if (line.rfind("data:", 0) == 0)
+    {
+        std::string data_part = line.substr(5);
+        if (!data_part.empty() && data_part[0] == ' ')
+            data_part.erase(0, 1);
+        if (!data_part.empty())
+        {
+            try
+            {
+                auto json = fastmcpp::util::json::parse(data_part);
+                messages.push_back(std::move(json));
+            }
+            catch (...)
+            {
+                // Ignore parse errors
+            }
+        }
+    }
+}
+
+fastmcpp::Json StreamableHttpTransport::parse_response(const std::string& body,
+                                                       const std::string& content_type)
+{
+    // Check if response is SSE stream
+    bool is_sse = content_type.find("text/event-stream") != std::string::npos;
+
+    if (is_sse)
+    {
+        // Parse SSE events and collect all JSON messages
+        std::vector<fastmcpp::Json> messages;
+        std::istringstream stream(body);
+        std::string line;
+
+        while (std::getline(stream, line))
+        {
+            // Strip trailing \r for CRLF
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+
+            process_sse_line(line, messages);
+        }
+
+        // Process messages - notifications go to callback, find the main response
+        fastmcpp::Json response;
+        for (const auto& msg : messages)
+        {
+            // Check if this is a notification (has method, no id)
+            if (msg.contains("method") && !msg.contains("id"))
+            {
+                if (notification_callback_)
+                    notification_callback_(msg);
+            }
+            else if (msg.contains("id"))
+            {
+                // This is the response we're looking for
+                response = msg;
+            }
+        }
+
+        return response;
+    }
+    else
+    {
+        // Plain JSON response
+        return fastmcpp::util::json::parse(body);
+    }
+}
+
+fastmcpp::Json StreamableHttpTransport::request(const std::string& /*route*/,
+                                                const fastmcpp::Json& payload)
+{
+    auto url = parse_url(base_url_);
+
+    // Create client
+    std::string full_url = url.scheme + "://" + url.host + ":" + std::to_string(url.port);
+    httplib::Client cli(full_url.c_str());
+    cli.set_connection_timeout(10, 0);
+    cli.set_read_timeout(60, 0); // Longer timeout for streaming
+    cli.set_keep_alive(true);
+
+    // Build request headers
+    httplib::Headers request_headers = {{"Accept", "application/json, text/event-stream"},
+                                        {"Content-Type", "application/json"}};
+
+    // Add custom headers
+    for (const auto& [key, value] : headers_)
+        request_headers.emplace(key, value);
+
+    // Add session ID if we have one
+    {
+        std::lock_guard<std::mutex> lock(session_mutex_);
+        if (!session_id_.empty())
+            request_headers.emplace("Mcp-Session-Id", session_id_);
+    }
+
+    // Payload is the full JSON-RPC request
+    // (StreamableHttp transport accepts complete JSON-RPC requests, unlike other transports)
+
+    // Send request
+    auto res = cli.Post(mcp_path_.c_str(), request_headers, payload.dump(), "application/json");
+
+    if (!res)
+        throw fastmcpp::TransportError("StreamableHttp request failed: no response");
+
+    if (res->status < 200 || res->status >= 300)
+        throw fastmcpp::TransportError("StreamableHttp error: " + std::to_string(res->status));
+
+    // Check for session ID in response headers
+    auto session_header = res->headers.find("Mcp-Session-Id");
+    if (session_header != res->headers.end())
+        parse_session_id_from_response(session_header->second);
+
+    // Also check lowercase (some servers may use different casing)
+    session_header = res->headers.find("mcp-session-id");
+    if (session_header != res->headers.end())
+        parse_session_id_from_response(session_header->second);
+
+    // Get content type
+    std::string content_type = "application/json";
+    auto ct_header = res->headers.find("Content-Type");
+    if (ct_header != res->headers.end())
+        content_type = ct_header->second;
+
+    // Parse response
+    auto rpc_response = parse_response(res->body, content_type);
+
+    // Return full JSON-RPC response (caller handles error/result extraction)
+    return rpc_response;
+}
+
 } // namespace fastmcpp::client

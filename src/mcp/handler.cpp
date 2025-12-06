@@ -81,6 +81,12 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                      }}};
             }
 
+            if (method == "ping")
+            {
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json::object()}};
+            }
+
             if (method == "tools/list")
             {
                 fastmcpp::Json tools_array = fastmcpp::Json::array();
@@ -255,6 +261,12 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
                      {{"protocolVersion", "2024-11-05"},
                       {"capabilities", fastmcpp::Json{{"tools", fastmcpp::Json::object()}}},
                       {"serverInfo", serverInfo}}}};
+            }
+
+            if (method == "ping")
+            {
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json::object()}};
             }
 
             if (method == "tools/list")
@@ -473,6 +485,12 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                       {"serverInfo", serverInfo}}}};
             }
 
+            if (method == "ping")
+            {
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json::object()}};
+            }
+
             if (method == "tools/list")
             {
                 fastmcpp::Json tools_array = fastmcpp::Json::array();
@@ -630,6 +648,12 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                                        {{"protocolVersion", "2024-11-05"},
                                         {"capabilities", capabilities},
                                         {"serverInfo", serverInfo}}}};
+            }
+
+            if (method == "ping")
+            {
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json::object()}};
             }
 
             if (method == "tools/list")
@@ -904,6 +928,12 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const McpA
                                         {"serverInfo", serverInfo}}}};
             }
 
+            if (method == "ping")
+            {
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json::object()}};
+            }
+
             if (method == "tools/list")
             {
                 fastmcpp::Json tools_array = fastmcpp::Json::array();
@@ -1156,6 +1186,12 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                                        {{"protocolVersion", "2024-11-05"},
                                         {"capabilities", capabilities},
                                         {"serverInfo", serverInfo}}}};
+            }
+
+            if (method == "ping")
+            {
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json::object()}};
             }
 
             // Tools
@@ -1543,6 +1579,12 @@ make_mcp_handler_with_sampling(const McpApp& app, SessionAccessor session_access
                                        {{"protocolVersion", "2024-11-05"},
                                         {"capabilities", capabilities},
                                         {"serverInfo", serverInfo}}}};
+            }
+
+            if (method == "ping")
+            {
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json::object()}};
             }
 
             if (method == "tools/list")

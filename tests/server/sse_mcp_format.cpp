@@ -62,7 +62,8 @@ int main()
     }
 
     std::cout << "[OK] Server started on port " << port << "\n";
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    // Wait for server to be ready - longer delay for compatibility
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
     // Storage for captured SSE events
     std::vector<SSEEvent> captured_events;
