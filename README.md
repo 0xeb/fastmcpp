@@ -26,7 +26,7 @@ fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp
 - Resources and prompts support.
 - Resource templates with URI pattern matching.
 - JSON Schema validation.
-- McpApp high-level application class.
+- FastMCP high-level application class.
 - ProxyApp for backend server proxying.
 - ServerSession for bidirectional communication, sampling, and server-initiated notifications.
 - Built-in middleware: Logging, Timing, Caching, RateLimiting, ErrorHandling.

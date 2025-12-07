@@ -1,4 +1,4 @@
-// Unit tests for McpApp mounting functionality
+// Unit tests for FastMCP mounting functionality
 #include "fastmcpp/app.hpp"
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/mcp/handler.hpp"
@@ -58,7 +58,7 @@ void test_basic_app()
 {
     std::cout << "test_basic_app..." << std::endl;
 
-    McpApp app("TestApp", "1.0.0");
+    FastMCP app("TestApp", "1.0.0");
     assert(app.name() == "TestApp");
     assert(app.version() == "1.0.0");
 
@@ -76,8 +76,8 @@ void test_basic_mounting()
 {
     std::cout << "test_basic_mounting..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register tool on child
     child_app.tools().register_tool(make_echo_tool("say"));
@@ -96,8 +96,8 @@ void test_tool_aggregation()
 {
     std::cout << "test_tool_aggregation..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register tools
     main_app.tools().register_tool(make_add_tool());
@@ -129,8 +129,8 @@ void test_tool_routing()
 {
     std::cout << "test_tool_routing..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register tools
     main_app.tools().register_tool(make_add_tool());
@@ -166,8 +166,8 @@ void test_resource_aggregation()
 {
     std::cout << "test_resource_aggregation..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register resources
     main_app.resources().register_resource(make_resource("file://main.txt", "main content"));
@@ -199,8 +199,8 @@ void test_resource_routing()
 {
     std::cout << "test_resource_routing..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register resources
     main_app.resources().register_resource(make_resource("file://main.txt", "main content"));
@@ -236,8 +236,8 @@ void test_prompt_aggregation()
 {
     std::cout << "test_prompt_aggregation..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register prompts
     main_app.prompts().register_prompt(make_prompt("greeting", "Hello from main!"));
@@ -269,8 +269,8 @@ void test_prompt_routing()
 {
     std::cout << "test_prompt_routing..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register prompts
     main_app.prompts().register_prompt(make_prompt("greeting", "Hello from main!"));
@@ -296,9 +296,9 @@ void test_nested_mounting()
 {
     std::cout << "test_nested_mounting..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp level1_app("Level1App", "1.0.0");
-    McpApp level2_app("Level2App", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP level1_app("Level1App", "1.0.0");
+    FastMCP level2_app("Level2App", "1.0.0");
 
     // Register tools at each level
     main_app.tools().register_tool(make_echo_tool("main_tool"));
@@ -339,8 +339,8 @@ void test_no_prefix_mounting()
 {
     std::cout << "test_no_prefix_mounting..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register tools
     main_app.tools().register_tool(make_add_tool());
@@ -375,8 +375,8 @@ void test_mcp_handler_integration()
 {
     std::cout << "test_mcp_handler_integration..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register tools
     main_app.tools().register_tool(make_add_tool());
@@ -423,9 +423,9 @@ void test_multiple_mounts()
 {
     std::cout << "test_multiple_mounts..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp weather_app("WeatherApp", "1.0.0");
-    McpApp math_app("MathApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP weather_app("WeatherApp", "1.0.0");
+    FastMCP math_app("MathApp", "1.0.0");
 
     // Register tools
     weather_app.tools().register_tool(make_echo_tool("forecast"));
@@ -457,8 +457,8 @@ void test_proxy_mode_basic()
 {
     std::cout << "test_proxy_mode_basic..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register tool on child
     child_app.tools().register_tool(make_echo_tool("echo"));
@@ -478,8 +478,8 @@ void test_proxy_mode_tool_aggregation()
 {
     std::cout << "test_proxy_mode_tool_aggregation..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register tools
     main_app.tools().register_tool(make_add_tool());
@@ -511,8 +511,8 @@ void test_proxy_mode_tool_routing()
 {
     std::cout << "test_proxy_mode_tool_routing..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register tools
     main_app.tools().register_tool(make_add_tool());
@@ -536,8 +536,8 @@ void test_proxy_mode_resource_aggregation()
 {
     std::cout << "test_proxy_mode_resource_aggregation..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register resources
     main_app.resources().register_resource(make_resource("file://main.txt", "main content"));
@@ -569,8 +569,8 @@ void test_proxy_mode_resource_routing()
 {
     std::cout << "test_proxy_mode_resource_routing..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register resources
     main_app.resources().register_resource(make_resource("file://main.txt", "main content"));
@@ -594,8 +594,8 @@ void test_proxy_mode_prompt_aggregation()
 {
     std::cout << "test_proxy_mode_prompt_aggregation..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register prompts
     main_app.prompts().register_prompt(make_prompt("greeting", "Hello from main!"));
@@ -627,8 +627,8 @@ void test_proxy_mode_prompt_routing()
 {
     std::cout << "test_proxy_mode_prompt_routing..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register prompts
     main_app.prompts().register_prompt(make_prompt("greeting", "Hello from main!"));
@@ -654,9 +654,9 @@ void test_mixed_direct_and_proxy_mounts()
 {
     std::cout << "test_mixed_direct_and_proxy_mounts..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp direct_app("DirectApp", "1.0.0");
-    McpApp proxy_app("ProxyApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP direct_app("DirectApp", "1.0.0");
+    FastMCP proxy_app("ProxyApp", "1.0.0");
 
     // Register tools
     main_app.tools().register_tool(make_add_tool());
@@ -692,8 +692,8 @@ void test_proxy_mode_mcp_handler()
 {
     std::cout << "test_proxy_mode_mcp_handler..." << std::endl;
 
-    McpApp main_app("MainApp", "1.0.0");
-    McpApp child_app("ChildApp", "1.0.0");
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
 
     // Register tools
     main_app.tools().register_tool(make_add_tool());
@@ -727,7 +727,7 @@ void test_proxy_mode_mcp_handler()
 
 int main()
 {
-    std::cout << "=== McpApp Mounting Tests ===" << std::endl;
+    std::cout << "=== FastMCP Mounting Tests ===" << std::endl;
 
     test_basic_app();
     test_basic_mounting();
