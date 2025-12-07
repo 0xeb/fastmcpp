@@ -9,6 +9,7 @@
 /// - Simpler than SSE (no separate GET endpoint for events)
 
 #include "fastmcpp/client/transports.hpp"
+#include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/mcp/handler.hpp"
 #include "fastmcpp/server/streamable_http_server.hpp"
 #include "fastmcpp/tools/manager.hpp"
@@ -64,45 +65,32 @@ void test_basic_request_response()
         client::StreamableHttpTransport transport("http://" + host + ":" + std::to_string(port));
 
         // Initialize should work and create a session
-        Json init_request = {{"jsonrpc", "2.0"},
-                             {"id", 1},
-                             {"method", "initialize"},
-                             {"params",
-                              {{"protocolVersion", "2024-11-05"},
-                               {"capabilities", Json::object()},
-                               {"clientInfo", {{"name", "test_client"}, {"version", "1.0.0"}}}}}};
+        // Note: request() takes method name and params, returns unwrapped result
+        Json init_params = {{"protocolVersion", "2024-11-05"},
+                            {"capabilities", Json::object()},
+                            {"clientInfo", {{"name", "test_client"}, {"version", "1.0.0"}}}};
 
-        auto init_response = transport.request("mcp", init_request);
+        auto init_result = transport.request("initialize", init_params);
 
-        // Should have a valid response
-        assert(init_response.contains("result") && "Initialize should return result");
-        assert(init_response["result"].contains("serverInfo") && "Should have serverInfo");
+        // Should have a valid result (already unwrapped from JSON-RPC envelope)
+        assert(init_result.contains("serverInfo") && "Should have serverInfo");
         assert(transport.has_session() && "Should have session after initialize");
 
         // List tools
-        Json list_request = {
-            {"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}, {"params", {}}};
+        auto list_result = transport.request("tools/list", Json::object());
+        assert(list_result.contains("tools") && "Should have tools array");
 
-        auto list_response = transport.request("mcp", list_request);
-        assert(list_response.contains("result") && "tools/list should return result");
-        assert(list_response["result"].contains("tools") && "Should have tools array");
-
-        auto& tools = list_response["result"]["tools"];
+        auto& tools = list_result["tools"];
         assert(tools.is_array() && tools.size() == 1 && "Should have one tool");
         assert(tools[0]["name"] == "echo" && "Tool should be echo");
 
         // Call the echo tool
-        Json call_request = {
-            {"jsonrpc", "2.0"},
-            {"id", 3},
-            {"method", "tools/call"},
-            {"params", {{"name", "echo"}, {"arguments", {{"message", "Hello, World!"}}}}}};
+        Json call_params = {{"name", "echo"}, {"arguments", {{"message", "Hello, World!"}}}};
 
-        auto call_response = transport.request("mcp", call_request);
-        assert(call_response.contains("result") && "tools/call should return result");
-        assert(call_response["result"].contains("content") && "Should have content");
+        auto call_result = transport.request("tools/call", call_params);
+        assert(call_result.contains("content") && "Should have content");
 
-        auto& content = call_response["result"]["content"];
+        auto& content = call_result["content"];
         assert(content.is_array() && content.size() > 0 && "Should have content array");
         assert(content[0]["type"] == "text" && "Content should be text");
         assert(content[0]["text"] == "Hello, World!" && "Echo should return input");
@@ -156,16 +144,12 @@ void test_session_management()
         // Before initialize, should have no session
         assert(!transport.has_session() && "Should have no session before initialize");
 
-        // Initialize
-        Json init_request = {{"jsonrpc", "2.0"},
-                             {"id", 1},
-                             {"method", "initialize"},
-                             {"params",
-                              {{"protocolVersion", "2024-11-05"},
-                               {"capabilities", Json::object()},
-                               {"clientInfo", {{"name", "test"}, {"version", "1.0"}}}}}};
+        // Initialize - request() takes method name and params
+        Json init_params = {{"protocolVersion", "2024-11-05"},
+                            {"capabilities", Json::object()},
+                            {"clientInfo", {{"name", "test"}, {"version", "1.0"}}}};
 
-        transport.request("mcp", init_request);
+        transport.request("initialize", init_params);
 
         // After initialize, should have session
         assert(transport.has_session() && "Should have session after initialize");
@@ -176,10 +160,7 @@ void test_session_management()
         assert(server.session_count() == 1 && "Server should have 1 session");
 
         // Second request should reuse session
-        Json list_request = {
-            {"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}, {"params", {}}};
-
-        transport.request("mcp", list_request);
+        transport.request("tools/list", Json::object());
 
         // Session ID should still be the same
         assert(transport.session_id() == session_id && "Session ID should persist");
@@ -228,19 +209,13 @@ void test_server_info()
     {
         client::StreamableHttpTransport transport("http://" + host + ":" + std::to_string(port));
 
-        Json init_request = {{"jsonrpc", "2.0"},
-                             {"id", 1},
-                             {"method", "initialize"},
-                             {"params",
-                              {{"protocolVersion", "2024-11-05"},
-                               {"capabilities", Json::object()},
-                               {"clientInfo", {{"name", "test"}, {"version", "1.0"}}}}}};
+        Json init_params = {{"protocolVersion", "2024-11-05"},
+                            {"capabilities", Json::object()},
+                            {"clientInfo", {{"name", "test"}, {"version", "1.0"}}}};
 
-        auto response = transport.request("mcp", init_request);
+        auto result = transport.request("initialize", init_params);
 
-        assert(response.contains("result"));
-        auto& result = response["result"];
-
+        // Result is already unwrapped from JSON-RPC envelope
         // Check server info
         assert(result.contains("serverInfo"));
         auto& server_info = result["serverInfo"];
@@ -292,28 +267,32 @@ void test_error_handling()
         client::StreamableHttpTransport transport("http://" + host + ":" + std::to_string(port));
 
         // Initialize first
-        Json init_request = {{"jsonrpc", "2.0"},
-                             {"id", 1},
-                             {"method", "initialize"},
-                             {"params",
-                              {{"protocolVersion", "2024-11-05"},
-                               {"capabilities", Json::object()},
-                               {"clientInfo", {{"name", "test"}, {"version", "1.0"}}}}}};
+        Json init_params = {{"protocolVersion", "2024-11-05"},
+                            {"capabilities", Json::object()},
+                            {"clientInfo", {{"name", "test"}, {"version", "1.0"}}}};
 
-        transport.request("mcp", init_request);
+        transport.request("initialize", init_params);
 
-        // Call non-existent tool
-        Json bad_request = {{"jsonrpc", "2.0"},
-                            {"id", 2},
-                            {"method", "tools/call"},
-                            {"params", {{"name", "nonexistent"}, {"arguments", {}}}}};
+        // Call non-existent tool - should throw TransportError with JSON-RPC error
+        Json bad_params = {{"name", "nonexistent"}, {"arguments", Json::object()}};
 
-        auto error_response = transport.request("mcp", bad_request);
+        bool caught_error = false;
+        try
+        {
+            transport.request("tools/call", bad_params);
+            // Should not reach here
+            assert(false && "Should have thrown error for non-existent tool");
+        }
+        catch (const fastmcpp::TransportError& e)
+        {
+            // Expected - transport throws on JSON-RPC errors
+            std::string error_msg = e.what();
+            assert(error_msg.find("JSON-RPC error") != std::string::npos &&
+                   "Should be JSON-RPC error");
+            caught_error = true;
+        }
 
-        // Should have error, not result
-        assert(error_response.contains("error") && "Should have error response");
-        assert(error_response["error"].contains("code") && "Error should have code");
-        assert(error_response["error"].contains("message") && "Error should have message");
+        assert(caught_error && "Should have caught TransportError");
 
         std::cout << "PASSED\n";
     }
