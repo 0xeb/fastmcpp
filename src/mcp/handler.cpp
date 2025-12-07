@@ -885,8 +885,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
     };
 }
 
-// McpApp handler - supports mounted apps with aggregation
-std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const McpApp& app)
+// FastMCP handler - supports mounted apps with aggregation
+std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const FastMCP& app)
 {
     return [&app](const fastmcpp::Json& message) -> fastmcpp::Json
     {
@@ -1525,7 +1525,7 @@ static std::string extract_session_id(const fastmcpp::Json& params)
 }
 
 std::function<fastmcpp::Json(const fastmcpp::Json&)>
-make_mcp_handler_with_sampling(const McpApp& app, SessionAccessor session_accessor)
+make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_accessor)
 {
     return [&app, session_accessor](const fastmcpp::Json& message) -> fastmcpp::Json
     {
@@ -1831,7 +1831,7 @@ make_mcp_handler_with_sampling(const McpApp& app, SessionAccessor session_access
 }
 
 std::function<fastmcpp::Json(const fastmcpp::Json&)>
-make_mcp_handler_with_sampling(const McpApp& app, server::SseServerWrapper& sse_server)
+make_mcp_handler_with_sampling(const FastMCP& app, server::SseServerWrapper& sse_server)
 {
     return make_mcp_handler_with_sampling(app, [&sse_server](const std::string& session_id)
                                           { return sse_server.get_session(session_id); });

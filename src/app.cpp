@@ -8,13 +8,13 @@
 namespace fastmcpp
 {
 
-McpApp::McpApp(std::string name, std::string version, std::optional<std::string> website_url,
-               std::optional<std::vector<Icon>> icons)
+FastMCP::FastMCP(std::string name, std::string version, std::optional<std::string> website_url,
+                 std::optional<std::vector<Icon>> icons)
     : server_(std::move(name), std::move(version), std::move(website_url), std::move(icons))
 {
 }
 
-void McpApp::mount(McpApp& app, const std::string& prefix, bool as_proxy)
+void FastMCP::mount(FastMCP& app, const std::string& prefix, bool as_proxy)
 {
     if (as_proxy)
     {
@@ -40,14 +40,14 @@ void McpApp::mount(McpApp& app, const std::string& prefix, bool as_proxy)
 // Prefix Utilities
 // =========================================================================
 
-std::string McpApp::add_prefix(const std::string& name, const std::string& prefix)
+std::string FastMCP::add_prefix(const std::string& name, const std::string& prefix)
 {
     if (prefix.empty())
         return name;
     return prefix + "_" + name;
 }
 
-std::pair<std::string, std::string> McpApp::strip_prefix(const std::string& name)
+std::pair<std::string, std::string> FastMCP::strip_prefix(const std::string& name)
 {
     auto pos = name.find('_');
     if (pos == std::string::npos)
@@ -55,7 +55,7 @@ std::pair<std::string, std::string> McpApp::strip_prefix(const std::string& name
     return {name.substr(0, pos), name.substr(pos + 1)};
 }
 
-std::string McpApp::add_resource_prefix(const std::string& uri, const std::string& prefix)
+std::string FastMCP::add_resource_prefix(const std::string& uri, const std::string& prefix)
 {
     if (prefix.empty())
         return uri;
@@ -73,7 +73,7 @@ std::string McpApp::add_resource_prefix(const std::string& uri, const std::strin
     return scheme + "://" + prefix + "/" + path;
 }
 
-std::string McpApp::strip_resource_prefix(const std::string& uri, const std::string& prefix)
+std::string FastMCP::strip_resource_prefix(const std::string& uri, const std::string& prefix)
 {
     if (prefix.empty())
         return uri;
@@ -93,7 +93,7 @@ std::string McpApp::strip_resource_prefix(const std::string& uri, const std::str
     return uri;
 }
 
-bool McpApp::has_resource_prefix(const std::string& uri, const std::string& prefix)
+bool FastMCP::has_resource_prefix(const std::string& uri, const std::string& prefix)
 {
     if (prefix.empty())
         return true; // Empty prefix matches everything
@@ -112,7 +112,7 @@ bool McpApp::has_resource_prefix(const std::string& uri, const std::string& pref
 // Aggregated Lists
 // =========================================================================
 
-std::vector<std::pair<std::string, const tools::Tool*>> McpApp::list_all_tools() const
+std::vector<std::pair<std::string, const tools::Tool*>> FastMCP::list_all_tools() const
 {
     std::vector<std::pair<std::string, const tools::Tool*>> result;
 
@@ -153,7 +153,7 @@ std::vector<std::pair<std::string, const tools::Tool*>> McpApp::list_all_tools()
     return result;
 }
 
-std::vector<client::ToolInfo> McpApp::list_all_tools_info() const
+std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
 {
     std::vector<client::ToolInfo> result;
 
@@ -200,7 +200,7 @@ std::vector<client::ToolInfo> McpApp::list_all_tools_info() const
     return result;
 }
 
-std::vector<resources::Resource> McpApp::list_all_resources() const
+std::vector<resources::Resource> FastMCP::list_all_resources() const
 {
     std::vector<resources::Resource> result;
 
@@ -247,7 +247,7 @@ std::vector<resources::Resource> McpApp::list_all_resources() const
     return result;
 }
 
-std::vector<resources::ResourceTemplate> McpApp::list_all_templates() const
+std::vector<resources::ResourceTemplate> FastMCP::list_all_templates() const
 {
     std::vector<resources::ResourceTemplate> result;
 
@@ -293,7 +293,7 @@ std::vector<resources::ResourceTemplate> McpApp::list_all_templates() const
     return result;
 }
 
-std::vector<std::pair<std::string, const prompts::Prompt*>> McpApp::list_all_prompts() const
+std::vector<std::pair<std::string, const prompts::Prompt*>> FastMCP::list_all_prompts() const
 {
     std::vector<std::pair<std::string, const prompts::Prompt*>> result;
 
@@ -335,7 +335,7 @@ std::vector<std::pair<std::string, const prompts::Prompt*>> McpApp::list_all_pro
 // Routing
 // =========================================================================
 
-Json McpApp::invoke_tool(const std::string& name, const Json& args) const
+Json FastMCP::invoke_tool(const std::string& name, const Json& args) const
 {
     // Try local tools first
     try
@@ -437,7 +437,7 @@ Json McpApp::invoke_tool(const std::string& name, const Json& args) const
     throw NotFoundError("tool not found: " + name);
 }
 
-resources::ResourceContent McpApp::read_resource(const std::string& uri, const Json& params) const
+resources::ResourceContent FastMCP::read_resource(const std::string& uri, const Json& params) const
 {
     // Try local resources first
     try
@@ -562,8 +562,8 @@ resources::ResourceContent McpApp::read_resource(const std::string& uri, const J
     throw NotFoundError("resource not found: " + uri);
 }
 
-std::vector<prompts::PromptMessage> McpApp::get_prompt(const std::string& name,
-                                                       const Json& args) const
+std::vector<prompts::PromptMessage> FastMCP::get_prompt(const std::string& name,
+                                                        const Json& args) const
 {
     // Try local prompts first
     try

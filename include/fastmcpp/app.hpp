@@ -19,7 +19,7 @@ namespace fastmcpp
 struct MountedApp
 {
     std::string prefix; // Prefix for tools/prompts (e.g., "weather")
-    class McpApp* app;  // Non-owning pointer to mounted app
+    class FastMCP* app; // Non-owning pointer to mounted app
 };
 
 /// Proxy-mounted app with prefix (proxy mode)
@@ -31,15 +31,15 @@ struct ProxyMountedApp
 
 /// MCP Application - bundles server metadata with managers
 ///
-/// Similar to Python's FastMCP class. Provides:
+/// Equivalent to Python's FastMCP class. Provides:
 /// - Server metadata (name, version, icons, etc.)
 /// - Tool, Resource, and Prompt managers
 /// - App mounting support with prefixes
 ///
 /// Usage:
 /// ```cpp
-/// McpApp main_app("MainApp", "1.0");
-/// McpApp weather_app("WeatherApp", "1.0");
+/// FastMCP main_app("MainApp", "1.0");
+/// FastMCP weather_app("WeatherApp", "1.0");
 ///
 /// // Register tools on sub-app
 /// weather_app.tools().register_tool(get_forecast_tool);
@@ -49,13 +49,13 @@ struct ProxyMountedApp
 ///
 /// // Tools accessible as "weather_get_forecast"
 /// ```
-class McpApp
+class FastMCP
 {
   public:
     /// Construct app with metadata
-    explicit McpApp(std::string name = "fastmcpp_app", std::string version = "1.0.0",
-                    std::optional<std::string> website_url = std::nullopt,
-                    std::optional<std::vector<Icon>> icons = std::nullopt);
+    explicit FastMCP(std::string name = "fastmcpp_app", std::string version = "1.0.0",
+                     std::optional<std::string> website_url = std::nullopt,
+                     std::optional<std::vector<Icon>> icons = std::nullopt);
 
     // Metadata accessors
     const std::string& name() const
@@ -125,7 +125,7 @@ class McpApp
     /// @param app The app to mount (must outlive this app in direct mode)
     /// @param prefix Optional prefix (empty string = no prefix)
     /// @param as_proxy If true, mount in proxy mode (uses MCP handler for communication)
-    void mount(McpApp& app, const std::string& prefix = "", bool as_proxy = false);
+    void mount(FastMCP& app, const std::string& prefix = "", bool as_proxy = false);
 
     /// Get list of directly mounted apps
     const std::vector<MountedApp>& mounted() const
