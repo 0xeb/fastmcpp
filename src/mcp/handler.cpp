@@ -4,7 +4,14 @@
 #include "fastmcpp/proxy.hpp"
 #include "fastmcpp/server/sse_server.hpp"
 
+#include <atomic>
+#include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <mutex>
 #include <optional>
+#include <sstream>
+#include <unordered_map>
 
 namespace fastmcpp::mcp
 {
@@ -51,6 +58,116 @@ make_tool_entry(const std::string& name, const std::string& description,
     }
     return entry;
 }
+
+// ---------------------------------------------------------------------------
+// Simple in-process task registry (SEP-1686 subset)
+// ---------------------------------------------------------------------------
+
+namespace
+{
+struct TaskInfo
+{
+    std::string task_id;
+    std::string task_type;             // e.g., "tool"
+    std::string component_identifier;  // tool name, prompt name, or resource URI
+    std::string status;                // "working", "completed", "failed", "cancelled"
+    std::string status_message;
+    std::string created_at;            // ISO8601 string (best-effort)
+    std::string last_updated_at;       // ISO8601 string (best-effort)
+    int ttl_ms{60000};
+    fastmcpp::Json result_payload;     // Shape of method-specific result
+};
+
+inline std::string to_iso8601_now()
+{
+    using clock = std::chrono::system_clock;
+    auto now = clock::now();
+    std::time_t t = clock::to_time_t(now);
+#ifdef _WIN32
+    std::tm tm;
+    gmtime_s(&tm, &t);
+#else
+    std::tm tm;
+    gmtime_r(&t, &tm);
+#endif
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+    return oss.str();
+}
+
+class TaskRegistry
+{
+  public:
+    std::string add_completed_task(const std::string& task_type,
+                                   const std::string& component_identifier,
+                                   fastmcpp::Json result_payload, int ttl_ms)
+    {
+        TaskInfo info;
+        info.task_id = generate_task_id();
+        info.task_type = task_type;
+        info.component_identifier = component_identifier;
+        info.status = "completed";
+        info.ttl_ms = ttl_ms;
+        info.created_at = to_iso8601_now();
+        info.last_updated_at = info.created_at;
+        info.result_payload = std::move(result_payload);
+
+        std::lock_guard<std::mutex> lock(mutex_);
+        tasks_[info.task_id] = info;
+        return info.task_id;
+    }
+
+    std::optional<TaskInfo> get_task(const std::string& task_id) const
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = tasks_.find(task_id);
+        if (it == tasks_.end())
+            return std::nullopt;
+        return it->second;
+    }
+
+    std::vector<TaskInfo> list_tasks() const
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::vector<TaskInfo> result;
+        result.reserve(tasks_.size());
+        for (const auto& kv : tasks_)
+            result.push_back(kv.second);
+        return result;
+    }
+
+  private:
+    std::string generate_task_id()
+    {
+        uint64_t id = next_id_.fetch_add(1, std::memory_order_relaxed) + 1;
+        return "task-" + std::to_string(id);
+    }
+
+    mutable std::mutex mutex_;
+    std::unordered_map<std::string, TaskInfo> tasks_;
+    std::atomic<uint64_t> next_id_{0};
+};
+
+// Helper: convert FastMCP::invoke_tool() result JSON into the MCP
+// CallToolResult payload shape: { "content": [...] } where content is
+// a list of ContentBlock objects.
+fastmcpp::Json build_fastmcp_tool_result(const fastmcpp::Json& result)
+{
+    fastmcpp::Json content = fastmcpp::Json::array();
+    if (result.is_object() && result.contains("content"))
+        content = result.at("content");
+    else if (result.is_array())
+        content = result;
+    else if (result.is_string())
+        content = fastmcpp::Json::array(
+            {fastmcpp::Json{{"type", "text"}, {"text", result.get<std::string>()}}});
+    else
+        content = fastmcpp::Json::array(
+            {fastmcpp::Json{{"type", "text"}, {"text", result.dump()}}});
+
+    return fastmcpp::Json{{"content", content}};
+}
+} // namespace
 
 std::function<fastmcpp::Json(const fastmcpp::Json&)>
 make_mcp_handler(const std::string& server_name, const std::string& version,
@@ -888,7 +1005,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
 // FastMCP handler - supports mounted apps with aggregation
 std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const FastMCP& app)
 {
-    return [&app](const fastmcpp::Json& message) -> fastmcpp::Json
+    auto tasks = std::make_shared<TaskRegistry>();
+    return [&app, tasks](const fastmcpp::Json& message) -> fastmcpp::Json
     {
         try
         {
@@ -974,26 +1092,168 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                     return jsonrpc_error(id, -32602, "Missing tool name");
                 try
                 {
-                    auto result = app.invoke_tool(name, args);
-                    fastmcpp::Json content = fastmcpp::Json::array();
-                    if (result.is_object() && result.contains("content"))
-                        content = result.at("content");
-                    else if (result.is_array())
-                        content = result;
-                    else if (result.is_string())
-                        content = fastmcpp::Json::array({fastmcpp::Json{
-                            {"type", "text"}, {"text", result.get<std::string>()}}});
-                    else
-                        content = fastmcpp::Json::array(
-                            {fastmcpp::Json{{"type", "text"}, {"text", result.dump()}}});
-                    return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                          {"id", id},
-                                          {"result", fastmcpp::Json{{"content", content}}}};
+                    // Detect SEP-1686 task metadata via params._meta
+                    int ttl_ms = 60000;
+                    bool has_task_meta = false;
+                    if (params.contains("_meta") && params["_meta"].is_object())
+                    {
+                        const auto& meta = params["_meta"];
+                        auto it = meta.find("modelcontextprotocol.io/task");
+                        if (it != meta.end() && it->is_object())
+                        {
+                            has_task_meta = true;
+                            const auto& task_meta = *it;
+                            if (task_meta.contains("ttl") && task_meta["ttl"].is_number_integer())
+                                ttl_ms = task_meta["ttl"].get<int>();
+                        }
+                    }
+
+                    if (has_task_meta)
+                    {
+                        // Minimal server-side tasks support: execute synchronously but expose
+                        // result via tasks/get and tasks/result. The initial stub reports a
+                        // taskId and completed status so clients can poll if desired.
+                        auto invoke_result = app.invoke_tool(name, args);
+                        fastmcpp::Json result_payload = build_fastmcp_tool_result(invoke_result);
+
+                        std::string task_id =
+                            tasks->add_completed_task("tool", name, std::move(result_payload),
+                                                      ttl_ms);
+
+                        fastmcpp::Json task_meta = {{"taskId", task_id},
+                                                    {"status", "completed"},
+                                                    {"ttl", ttl_ms}};
+
+                        fastmcpp::Json response_result = {
+                            {"content", fastmcpp::Json::array()},
+                            {"_meta",
+                             fastmcpp::Json{
+                                 {"modelcontextprotocol.io/task", task_meta},
+                             }},
+                        };
+
+                        return fastmcpp::Json{
+                            {"jsonrpc", "2.0"},
+                            {"id", id},
+                            {"result", response_result},
+                        };
+                    }
+
+                    // Synchronous execution (no task metadata)
+                    auto invoke_result = app.invoke_tool(name, args);
+                    fastmcpp::Json result_payload = build_fastmcp_tool_result(invoke_result);
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"},
+                        {"id", id},
+                        {"result", result_payload},
+                    };
                 }
                 catch (const std::exception& e)
                 {
                     return jsonrpc_error(id, -32603, e.what());
                 }
+            }
+
+            // Tasks protocol (SEP-1686 subset)
+            if (method == "tasks/get")
+            {
+                std::string task_id = params.value("taskId", "");
+                if (task_id.empty())
+                    return jsonrpc_error(id, -32602, "Missing taskId");
+
+                auto info = tasks->get_task(task_id);
+                if (!info)
+                    return jsonrpc_error(id, -32602, "Invalid taskId");
+
+                fastmcpp::Json status_json = {
+                    {"taskId", info->task_id},
+                    {"status", info->status},
+                };
+                if (!info->created_at.empty())
+                    status_json["createdAt"] = info->created_at;
+                if (!info->last_updated_at.empty())
+                    status_json["lastUpdatedAt"] = info->last_updated_at;
+                status_json["ttl"] = info->ttl_ms;
+                status_json["pollInterval"] = 1000;
+                if (!info->status_message.empty())
+                    status_json["statusMessage"] = info->status_message;
+
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"},
+                    {"id", id},
+                    {"result", status_json},
+                };
+            }
+
+            if (method == "tasks/result")
+            {
+                std::string task_id = params.value("taskId", "");
+                if (task_id.empty())
+                    return jsonrpc_error(id, -32602, "Missing taskId");
+
+                auto info = tasks->get_task(task_id);
+                if (!info)
+                    return jsonrpc_error(id, -32602, "Invalid taskId");
+
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"},
+                    {"id", id},
+                    {"result", info->result_payload},
+                };
+            }
+
+            if (method == "tasks/list")
+            {
+                fastmcpp::Json tasks_array = fastmcpp::Json::array();
+                for (const auto& t : tasks->list_tasks())
+                {
+                    fastmcpp::Json t_json = {{"taskId", t.task_id}, {"status", t.status}};
+                    if (!t.created_at.empty())
+                        t_json["createdAt"] = t.created_at;
+                    if (!t.last_updated_at.empty())
+                        t_json["lastUpdatedAt"] = t.last_updated_at;
+                    t_json["ttl"] = t.ttl_ms;
+                    t_json["pollInterval"] = 1000;
+                    if (!t.status_message.empty())
+                        t_json["statusMessage"] = t.status_message;
+                    tasks_array.push_back(t_json);
+                }
+
+                fastmcpp::Json result = {{"tasks", tasks_array}, {"nextCursor", nullptr}};
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"},
+                    {"id", id},
+                    {"result", result},
+                };
+            }
+
+            if (method == "tasks/cancel")
+            {
+                std::string task_id = params.value("taskId", "");
+                if (task_id.empty())
+                    return jsonrpc_error(id, -32602, "Missing taskId");
+
+                auto info = tasks->get_task(task_id);
+                if (!info)
+                    return jsonrpc_error(id, -32602, "Invalid taskId");
+
+                fastmcpp::Json result = {
+                    {"taskId", info->task_id},
+                    {"status", "cancelled"},
+                };
+                if (!info->created_at.empty())
+                    result["createdAt"] = info->created_at;
+                result["lastUpdatedAt"] = to_iso8601_now();
+                result["ttl"] = info->ttl_ms;
+                result["pollInterval"] = 1000;
+                result["statusMessage"] =
+                    "Cancellation acknowledged (no-op for completed tasks)";
+
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"},
+                    {"id", id},
+                    {"result", result},
+                };
             }
 
             // Resources

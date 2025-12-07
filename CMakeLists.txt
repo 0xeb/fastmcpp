@@ -25,6 +25,7 @@ add_library(fastmcpp_core
     src/prompts/manager.cpp
     src/tools/tool.cpp
     src/tools/manager.cpp
+    src/server/elicitation.cpp
     src/server/server.cpp
     src/server/context.cpp
     src/server/middleware.cpp
@@ -282,6 +283,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_server_context_sampling PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_context_sampling COMMAND fastmcpp_server_context_sampling)
 
+  add_executable(fastmcpp_server_elicitation_defaults tests/server/test_elicitation_defaults.cpp)
+  target_link_libraries(fastmcpp_server_elicitation_defaults PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_elicitation_defaults COMMAND fastmcpp_server_elicitation_defaults)
+
   add_executable(fastmcpp_server_session tests/server/test_server_session.cpp)
   target_link_libraries(fastmcpp_server_session PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_session COMMAND fastmcpp_server_session)
@@ -336,6 +341,10 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_client_api_icons tests/client/api_icons.cpp)
   target_link_libraries(fastmcpp_client_api_icons PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_client_api_icons COMMAND fastmcpp_client_api_icons)
+
+  add_executable(fastmcpp_client_tasks tests/client/tasks.cpp)
+  target_link_libraries(fastmcpp_client_tasks PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_tasks COMMAND fastmcpp_client_tasks)
 
   add_executable(fastmcpp_server_middleware tests/server/middleware.cpp)
   target_link_libraries(fastmcpp_server_middleware PRIVATE fastmcpp_core)
@@ -436,6 +445,10 @@ if(FASTMCPP_BUILD_EXAMPLES)
   # Context API example (v2.13.0+)
   add_executable(fastmcpp_example_context_introspection examples/context_introspection.cpp)
   target_link_libraries(fastmcpp_example_context_introspection PRIVATE fastmcpp_core)
+
+  # Context elicitation example (schema defaults + client callback)
+  add_executable(fastmcpp_example_context_elicitation examples/context_elicitation.cpp)
+  target_link_libraries(fastmcpp_example_context_elicitation PRIVATE fastmcpp_core)
 
   # StdioTransport log_file example (v2.13.0+)
   add_executable(fastmcpp_example_stdio_log_file examples/stdio_log_file.cpp)

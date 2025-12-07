@@ -503,4 +503,36 @@ inline ResourceContent parse_resource_content(const fastmcpp::Json& j)
     return j.get<TextResourceContent>();
 }
 
+// ============================================================================
+// Task Types (SEP-1686 subset for client)
+// ============================================================================
+
+/// Task status information as returned by tasks/get or tasks/cancel
+struct TaskStatus
+{
+    std::string taskId;
+    std::string status;
+    std::string createdAt;
+    std::string lastUpdatedAt;
+    std::optional<int> ttl;
+    std::optional<int> pollInterval;
+    std::optional<std::string> statusMessage;
+};
+
+inline void from_json(const fastmcpp::Json& j, TaskStatus& s)
+{
+    s.taskId = j.at("taskId").get<std::string>();
+    s.status = j.at("status").get<std::string>();
+    if (j.contains("createdAt"))
+        s.createdAt = j["createdAt"].get<std::string>();
+    if (j.contains("lastUpdatedAt"))
+        s.lastUpdatedAt = j["lastUpdatedAt"].get<std::string>();
+    if (j.contains("ttl"))
+        s.ttl = j["ttl"].get<int>();
+    if (j.contains("pollInterval"))
+        s.pollInterval = j["pollInterval"].get<int>();
+    if (j.contains("statusMessage"))
+        s.statusMessage = j["statusMessage"].get<std::string>();
+}
+
 } // namespace fastmcpp::client

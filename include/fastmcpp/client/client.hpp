@@ -11,15 +11,21 @@
 #include "fastmcpp/util/json_schema.hpp"
 #include "fastmcpp/util/json_schema_type.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <future>
 #include <memory>
 #include <string>
+#include <thread>
 #include <unordered_map>
 
 namespace fastmcpp::client
 {
+
+class ToolTask;
+class PromptTask;
+class ResourceTask;
 
 // ============================================================================
 // Transport Interface
@@ -316,6 +322,61 @@ class Client
     }
 
     // ==========================================================================
+    // Task Operations (experimental, SEP-1686 subset)
+    // ==========================================================================
+
+    /// Call a tool as a background task (if supported by server).
+    /// When the server accepts background execution, returns a ToolTask that
+    /// polls 'tasks/get' and 'tasks/result'. When the server executes
+    /// synchronously (no task support), ToolTask wraps the immediate result.
+    /// @param name Tool name
+    /// @param arguments Tool arguments
+    /// @param ttl_ms Time to keep results available in milliseconds (hint to server)
+    /// @return Shared pointer to ToolTask wrapper
+    std::shared_ptr<ToolTask>
+    call_tool_task(const std::string& name, const fastmcpp::Json& arguments,
+                   int ttl_ms = 60000);
+
+    /// Query status of a background task via MCP 'tasks/get'.
+    /// @throws fastmcpp::Error if server does not support tasks or returns error
+    TaskStatus get_task_status(const std::string& task_id)
+    {
+        fastmcpp::Json response = call("tasks/get", {{"taskId", task_id}});
+        TaskStatus status;
+        from_json(response, status);
+        return status;
+    }
+
+    /// Retrieve raw task result via MCP 'tasks/result' (tool/prompt/resource specific).
+    /// Callers are responsible for parsing into appropriate result type.
+    fastmcpp::Json get_task_result_raw(const std::string& task_id)
+    {
+        return call("tasks/result", {{"taskId", task_id}});
+    }
+
+    /// List tasks via MCP 'tasks/list'. Returns raw JSON as provided by server.
+    fastmcpp::Json list_tasks_raw(const std::optional<std::string>& cursor = std::nullopt,
+                                  int limit = 50)
+    {
+        fastmcpp::Json params = fastmcpp::Json::object();
+        if (cursor)
+            params["cursor"] = *cursor;
+        if (limit > 0)
+            params["limit"] = limit;
+        return call("tasks/list", params);
+    }
+
+    /// Cancel a background task via MCP 'tasks/cancel'. Returns final task status.
+    /// @throws fastmcpp::Error if task does not exist or server returns error
+    TaskStatus cancel_task(const std::string& task_id)
+    {
+        fastmcpp::Json response = call("tasks/cancel", {{"taskId", task_id}});
+        TaskStatus status;
+        from_json(response, status);
+        return status;
+    }
+
+    // ==========================================================================
     // Resource Operations
     // ==========================================================================
 
@@ -561,6 +622,8 @@ class Client
     }
 
   private:
+    friend class ToolTask;
+
     std::shared_ptr<ITransport> transport_;
     std::function<fastmcpp::Json()> roots_callback_;
     std::function<fastmcpp::Json(const fastmcpp::Json&)> sampling_callback_;
@@ -910,5 +973,181 @@ class Client
         return result;
     }
 };
+
+// ============================================================================
+// Task Wrapper Types (client-side)
+// ============================================================================
+
+/// Wrapper for tool background tasks (SEP-1686 subset).
+/// Provides a synchronous interface that works for both background-executed
+/// and immediate (graceful degradation) executions.
+class ToolTask
+{
+  public:
+    ToolTask(Client* client, std::string task_id, std::string tool_name,
+             std::optional<CallToolResult> immediate_result)
+        : client_(client), tool_name_(std::move(tool_name)),
+          immediate_result_(std::move(immediate_result))
+    {
+        if (!client_)
+            throw fastmcpp::Error("ToolTask requires non-null client");
+
+        if (!task_id.empty())
+        {
+            task_id_ = std::move(task_id);
+        }
+        else
+        {
+            // Generate synthetic ID for immediate tasks
+            auto id = ++next_synthetic_id_;
+            task_id_ = "local_task_" + std::to_string(id);
+        }
+    }
+
+    /// Get the task identifier.
+    const std::string& task_id() const
+    {
+        return task_id_;
+    }
+
+    /// True if server executed synchronously and we have an immediate result.
+    bool returned_immediately() const
+    {
+        return immediate_result_.has_value();
+    }
+
+    /// Query current status. For immediate tasks this returns a synthetic
+    /// completed status without contacting the server.
+    TaskStatus status() const
+    {
+        if (!client_)
+            throw fastmcpp::Error("ToolTask: client is null");
+
+        if (returned_immediately())
+        {
+            TaskStatus s;
+            s.taskId = task_id_;
+            s.status = "completed";
+            s.createdAt = "";
+            s.lastUpdatedAt = "";
+            return s;
+        }
+
+        return client_->get_task_status(task_id_);
+    }
+
+    /// Wait until the task reaches the desired state or timeout elapses.
+    /// If timeout_ms == 0, waits until terminal state.
+    TaskStatus wait(const std::string& desired_state = "completed",
+                    std::chrono::milliseconds timeout_ms =
+                        std::chrono::milliseconds(60000)) const
+    {
+        auto start = std::chrono::steady_clock::now();
+
+        while (true)
+        {
+            auto s = status();
+            if (s.status == desired_state || s.status == "failed" || s.status == "cancelled")
+                return s;
+
+            if (timeout_ms.count() > 0 &&
+                std::chrono::steady_clock::now() - start >= timeout_ms)
+                return s;
+
+            int poll_ms = s.pollInterval.value_or(1000);
+            if (poll_ms <= 0)
+                poll_ms = 1000;
+            std::this_thread::sleep_for(std::chrono::milliseconds(poll_ms));
+        }
+    }
+
+    /// Retrieve the tool result. Blocks until completion for background tasks.
+    /// If raise_on_error is true, throws fastmcpp::Error on tool error.
+    CallToolResult result(bool raise_on_error = true) const
+    {
+        if (!client_)
+            throw fastmcpp::Error("ToolTask: client is null");
+
+        if (returned_immediately())
+        {
+            auto res = *immediate_result_;
+            if (res.isError && raise_on_error)
+            {
+                std::string msg = "Tool task error";
+                if (!res.content.empty())
+                {
+                    if (const auto* text = std::get_if<TextContent>(&res.content.front()))
+                        msg = text->text;
+                }
+                throw fastmcpp::Error(msg);
+            }
+            return res;
+        }
+
+        // Wait for completion
+        auto s = wait("completed");
+        if (s.status == "failed" && raise_on_error)
+        {
+            std::string msg = s.statusMessage.value_or("Tool task failed");
+            throw fastmcpp::Error(msg);
+        }
+
+        // Retrieve raw result via tasks/result and parse like tools/call
+        fastmcpp::Json raw = client_->get_task_result_raw(task_id_);
+        CallToolResult res = client_->parse_call_tool_result(raw, tool_name_);
+        if (res.structuredContent)
+            res.data = res.structuredContent;
+
+        if (res.isError && raise_on_error)
+        {
+            std::string msg = "Tool task error";
+            if (!res.content.empty())
+            {
+                if (const auto* text = std::get_if<TextContent>(&res.content.front()))
+                    msg = text->text;
+            }
+            throw fastmcpp::Error(msg);
+        }
+
+        return res;
+    }
+
+  private:
+    Client* client_;
+    std::string task_id_;
+    std::string tool_name_;
+    std::optional<CallToolResult> immediate_result_;
+
+    inline static std::atomic<uint64_t> next_synthetic_id_{0};
+};
+
+inline std::shared_ptr<ToolTask>
+Client::call_tool_task(const std::string& name, const fastmcpp::Json& arguments, int ttl_ms)
+{
+    CallToolOptions opts;
+    opts.timeout = std::chrono::milliseconds{0};
+    opts.progress_handler = nullptr;
+
+    // Attach task metadata in _meta (mirrors Python fastmcp)
+    fastmcpp::Json task_meta = {{"ttl", ttl_ms}};
+    opts.meta = fastmcpp::Json{
+        {"modelcontextprotocol.io/task", std::move(task_meta)}};
+
+    auto result = call_tool_mcp(name, arguments, opts);
+
+    // Server-accepted background execution if result.meta contains task info
+    if (result.meta && result.meta->contains("modelcontextprotocol.io/task"))
+    {
+        const auto& task_obj = (*result.meta)["modelcontextprotocol.io/task"];
+        if (task_obj.contains("taskId"))
+        {
+            std::string task_id = task_obj["taskId"].get<std::string>();
+            return std::make_shared<ToolTask>(this, std::move(task_id), name, std::nullopt);
+        }
+    }
+
+    // Graceful degradation: server executed synchronously (no taskId present)
+    return std::make_shared<ToolTask>(this, std::string{}, name, std::move(result));
+}
 
 } // namespace fastmcpp::client

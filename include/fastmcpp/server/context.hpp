@@ -2,6 +2,7 @@
 #include "fastmcpp/prompts/prompt.hpp"
 #include "fastmcpp/resources/resource.hpp"
 #include "fastmcpp/types.hpp"
+#include "fastmcpp/server/elicitation.hpp"
 
 #include <any>
 #include <functional>
@@ -65,6 +66,30 @@ struct SamplingResult
 /// Callback type for sampling: takes messages + params, returns result
 using SamplingCallback =
     std::function<SamplingResult(const std::vector<SamplingMessage>&, const SamplingParams&)>;
+
+// ============================================================================
+// Elicitation types (for Context.elicit())
+// ============================================================================
+
+struct AcceptedElicitation
+{
+    fastmcpp::Json data;
+};
+
+struct DeclinedElicitation
+{
+};
+
+struct CancelledElicitation
+{
+};
+
+using ElicitationResult = std::variant<AcceptedElicitation, DeclinedElicitation, CancelledElicitation>;
+
+/// Callback type for elicitation: takes user-facing message and elicitation schema,
+/// returns an ElicitationResult describing the user response.
+using ElicitationCallback =
+    std::function<ElicitationResult(const std::string&, const fastmcpp::Json&)>;
 
 inline std::string to_string(LogLevel level)
 {
@@ -289,6 +314,38 @@ class Context
         return result.content;
     }
 
+    // ========================================================================
+    // Elicitation API
+    // ========================================================================
+
+    /// Set the elicitation callback (typically injected by server).
+    void set_elicitation_callback(ElicitationCallback callback)
+    {
+        elicitation_callback_ = std::move(callback);
+    }
+
+    /// Check if elicitation is available.
+    bool has_elicitation() const
+    {
+        return static_cast<bool>(elicitation_callback_);
+    }
+
+    /// Request structured user input from client via elicitation.
+    ///
+    /// The base_schema should describe the desired response object; defaults are
+    /// preserved and required fields are recomputed by get_elicitation_schema().
+    ///
+    /// @throws std::runtime_error if elicitation is not available.
+    ElicitationResult elicit(const std::string& message,
+                             const fastmcpp::Json& base_schema = fastmcpp::Json::object()) const
+    {
+        if (!elicitation_callback_)
+            throw std::runtime_error("Elicitation not available: no elicitation callback set");
+
+        fastmcpp::Json schema = get_elicitation_schema(base_schema);
+        return elicitation_callback_(message, schema);
+    }
+
   private:
     void send_notification(const std::string& method, const Json& params) const
     {
@@ -306,6 +363,7 @@ class Context
     ProgressCallback progress_callback_;
     NotificationCallback notification_callback_;
     SamplingCallback sampling_callback_;
+    ElicitationCallback elicitation_callback_;
 };
 
 } // namespace fastmcpp::server
