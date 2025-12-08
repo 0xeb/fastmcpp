@@ -34,4 +34,3 @@ void validate_elicitation_json_schema(const fastmcpp::Json& schema);
 fastmcpp::Json get_elicitation_schema(const fastmcpp::Json& base_schema);
 
 } // namespace fastmcpp::server
-

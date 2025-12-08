@@ -68,14 +68,14 @@ namespace
 struct TaskInfo
 {
     std::string task_id;
-    std::string task_type;             // e.g., "tool"
-    std::string component_identifier;  // tool name, prompt name, or resource URI
-    std::string status;                // "working", "completed", "failed", "cancelled"
+    std::string task_type;            // e.g., "tool"
+    std::string component_identifier; // tool name, prompt name, or resource URI
+    std::string status;               // "working", "completed", "failed", "cancelled"
     std::string status_message;
-    std::string created_at;            // ISO8601 string (best-effort)
-    std::string last_updated_at;       // ISO8601 string (best-effort)
+    std::string created_at;      // ISO8601 string (best-effort)
+    std::string last_updated_at; // ISO8601 string (best-effort)
     int ttl_ms{60000};
-    fastmcpp::Json result_payload;     // Shape of method-specific result
+    fastmcpp::Json result_payload; // Shape of method-specific result
 };
 
 inline std::string to_iso8601_now()
@@ -162,8 +162,8 @@ fastmcpp::Json build_fastmcp_tool_result(const fastmcpp::Json& result)
         content = fastmcpp::Json::array(
             {fastmcpp::Json{{"type", "text"}, {"text", result.get<std::string>()}}});
     else
-        content = fastmcpp::Json::array(
-            {fastmcpp::Json{{"type", "text"}, {"text", result.dump()}}});
+        content =
+            fastmcpp::Json::array({fastmcpp::Json{{"type", "text"}, {"text", result.dump()}}});
 
     return fastmcpp::Json{{"content", content}};
 }
@@ -1132,13 +1132,11 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                         auto invoke_result = app.invoke_tool(name, args);
                         fastmcpp::Json result_payload = build_fastmcp_tool_result(invoke_result);
 
-                        std::string task_id =
-                            tasks->add_completed_task("tool", name, std::move(result_payload),
-                                                      ttl_ms);
+                        std::string task_id = tasks->add_completed_task(
+                            "tool", name, std::move(result_payload), ttl_ms);
 
-                        fastmcpp::Json task_meta = {{"taskId", task_id},
-                                                    {"status", "completed"},
-                                                    {"ttl", ttl_ms}};
+                        fastmcpp::Json task_meta = {
+                            {"taskId", task_id}, {"status", "completed"}, {"ttl", ttl_ms}};
 
                         fastmcpp::Json response_result = {
                             {"content", fastmcpp::Json::array()},
@@ -1262,8 +1260,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                 result["lastUpdatedAt"] = to_iso8601_now();
                 result["ttl"] = info->ttl_ms;
                 result["pollInterval"] = 1000;
-                result["statusMessage"] =
-                    "Cancellation acknowledged (no-op for completed tasks)";
+                result["statusMessage"] = "Cancellation acknowledged (no-op for completed tasks)";
 
                 return fastmcpp::Json{
                     {"jsonrpc", "2.0"},
@@ -1361,9 +1358,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                         std::string task_id = tasks->add_completed_task(
                             "resource", uri, std::move(result_payload), ttl_ms);
 
-                        fastmcpp::Json task_meta = {{"taskId", task_id},
-                                                    {"status", "completed"},
-                                                    {"ttl", ttl_ms}};
+                        fastmcpp::Json task_meta = {
+                            {"taskId", task_id}, {"status", "completed"}, {"ttl", ttl_ms}};
 
                         fastmcpp::Json response_result = {
                             {"contents", fastmcpp::Json::array()},
@@ -1373,14 +1369,12 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                              }},
                         };
 
-                        return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                              {"id", id},
-                                              {"result", response_result}};
+                        return fastmcpp::Json{
+                            {"jsonrpc", "2.0"}, {"id", id}, {"result", response_result}};
                     }
 
-                    return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                          {"id", id},
-                                          {"result", result_payload}};
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"}, {"id", id}, {"result", result_payload}};
                 }
                 catch (const NotFoundError& e)
                 {
@@ -1439,21 +1433,18 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                     {
                         messages_array.push_back(
                             {{"role", msg.role},
-                             {"content",
-                              fastmcpp::Json{{"type", "text"}, {"text", msg.content}}}});
+                             {"content", fastmcpp::Json{{"type", "text"}, {"text", msg.content}}}});
                     }
 
-                    fastmcpp::Json result_payload =
-                        fastmcpp::Json{{"messages", messages_array}};
+                    fastmcpp::Json result_payload = fastmcpp::Json{{"messages", messages_array}};
 
                     if (as_task)
                     {
                         std::string task_id = tasks->add_completed_task(
                             "prompt", name, std::move(result_payload), ttl_ms);
 
-                        fastmcpp::Json task_meta = {{"taskId", task_id},
-                                                    {"status", "completed"},
-                                                    {"ttl", ttl_ms}};
+                        fastmcpp::Json task_meta = {
+                            {"taskId", task_id}, {"status", "completed"}, {"ttl", ttl_ms}};
 
                         fastmcpp::Json response_result = {
                             {"messages", fastmcpp::Json::array()},
@@ -1463,14 +1454,12 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                              }},
                         };
 
-                        return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                              {"id", id},
-                                              {"result", response_result}};
+                        return fastmcpp::Json{
+                            {"jsonrpc", "2.0"}, {"id", id}, {"result", response_result}};
                     }
 
-                    return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                          {"id", id},
-                                          {"result", result_payload}};
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"}, {"id", id}, {"result", result_payload}};
                 }
                 catch (const NotFoundError& e)
                 {

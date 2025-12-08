@@ -17,8 +17,8 @@
 #include "fastmcpp/app.hpp"
 #include "fastmcpp/mcp/handler.hpp"
 #include "fastmcpp/server/context.hpp"
-#include "fastmcpp/server/sse_server.hpp"
 #include "fastmcpp/server/session.hpp"
+#include "fastmcpp/server/sse_server.hpp"
 #include "fastmcpp/tools/manager.hpp"
 #include "fastmcpp/util/json.hpp"
 
@@ -29,11 +29,11 @@
 #include <string>
 #include <thread>
 
-using fastmcpp::Json;
 using fastmcpp::FastMCP;
+using fastmcpp::Json;
 using fastmcpp::server::Context;
-using fastmcpp::server::SseServerWrapper;
 using fastmcpp::server::ServerSession;
+using fastmcpp::server::SseServerWrapper;
 
 static std::atomic<bool> g_running{true};
 
@@ -79,14 +79,12 @@ int main(int argc, char* argv[])
         Json{{"type", "object"},
              {"properties",
               Json{{"prompt",
-                    Json{{"type", "string"},
-                         {"description", "Prompt to display to the user"}}}}},
+                    Json{{"type", "string"}, {"description", "Prompt to display to the user"}}}}},
              {"required", Json::array({"prompt"})}},
         Json{{"type", "object"},
-             {"properties",
-              Json{{"name", Json{{"type", "string"}}},
-                   {"age", Json{{"type", "integer"}}},
-                   {"newsletter", Json{{"type", "boolean"}}}}},
+             {"properties", Json{{"name", Json{{"type", "string"}}},
+                                 {"age", Json{{"type", "integer"}}},
+                                 {"newsletter", Json{{"type", "boolean"}}}}},
              {"required", Json::array({"name", "age"})}},
         // Tool implementation; actual elicitation wiring is done in the MCP handler
         [](const Json& args) -> Json
@@ -94,8 +92,8 @@ int main(int argc, char* argv[])
             // This body will be replaced by the MCP handler's Context-based path.
             // If invoked directly, just echo the prompt for debugging.
             std::string prompt = args.value("prompt", std::string("Please fill in your profile"));
-            return Json{{"content",
-                        Json::array({Json{{"type", "text"}, {"text", "Prompt: " + prompt}}})}};
+            return Json{
+                {"content", Json::array({Json{{"type", "text"}, {"text", "Prompt: " + prompt}}})}};
         }};
 
     app.tools().register_tool(ask_user_profile);
@@ -141,9 +139,7 @@ int main(int argc, char* argv[])
             }
 
             if (method == "ping")
-            {
                 return Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", Json::object()}};
-            }
 
             if (method == "tools/list")
             {
@@ -154,9 +150,8 @@ int main(int argc, char* argv[])
                     Json entry = {{"name", tool.name()}, {"inputSchema", tool.input_schema()}};
                     tools_array.push_back(entry);
                 }
-                return Json{{"jsonrpc", "2.0"},
-                            {"id", id},
-                            {"result", Json{{"tools", tools_array}}}};
+                return Json{
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", Json{{"tools", tools_array}}}};
             }
 
             if (method == "tools/call")
@@ -165,10 +160,10 @@ int main(int argc, char* argv[])
                 Json args = params.value("arguments", Json::object());
                 if (name.empty())
                 {
-                    return Json{{"jsonrpc", "2.0"},
-                                {"id", id},
-                                {"error",
-                                 Json{{"code", -32602}, {"message", "Missing tool name"}}}};
+                    return Json{
+                        {"jsonrpc", "2.0"},
+                        {"id", id},
+                        {"error", Json{{"code", -32602}, {"message", "Missing tool name"}}}};
                 }
 
                 if (name == "ask_user_profile")
@@ -203,13 +198,11 @@ int main(int argc, char* argv[])
                     if (!ctx.has_elicitation())
                     {
                         // No client-side elicitation support; degrade gracefully.
-                        Json content = Json::array({Json{
-                            {"type", "text"},
-                            {"text",
-                             "Elicitation not available; prompt was: " + prompt}}});
-                        return Json{{"jsonrpc", "2.0"},
-                                    {"id", id},
-                                    {"result", Json{{"content", content}}}};
+                        Json content = Json::array(
+                            {Json{{"type", "text"},
+                                  {"text", "Elicitation not available; prompt was: " + prompt}}});
+                        return Json{
+                            {"jsonrpc", "2.0"}, {"id", id}, {"result", Json{{"content", content}}}};
                     }
 
                     auto result = ctx.elicit(prompt, base_schema);
@@ -218,9 +211,9 @@ int main(int argc, char* argv[])
                     if (auto* accepted =
                             std::get_if<fastmcpp::server::AcceptedElicitation>(&result))
                     {
-                        content.push_back(Json{
-                            {"type", "text"},
-                            {"text", std::string("User profile: ") + accepted->data.dump()}});
+                        content.push_back(
+                            Json{{"type", "text"},
+                                 {"text", std::string("User profile: ") + accepted->data.dump()}});
                     }
                     else if (std::holds_alternative<fastmcpp::server::DeclinedElicitation>(result))
                     {
@@ -233,9 +226,8 @@ int main(int argc, char* argv[])
                             Json{{"type", "text"}, {"text", "User cancelled elicitation"}});
                     }
 
-                    return Json{{"jsonrpc", "2.0"},
-                                {"id", id},
-                                {"result", Json{{"content", content}}}};
+                    return Json{
+                        {"jsonrpc", "2.0"}, {"id", id}, {"result", Json{{"content", content}}}};
                 }
 
                 // Fallback: direct FastMCP invoke_tool
@@ -246,21 +238,19 @@ int main(int argc, char* argv[])
                 else if (result.is_array())
                     content = result;
                 else if (result.is_string())
-                    content = Json::array(
-                        {Json{{"type", "text"}, {"text", result.get<std::string>()}}});
+                    content =
+                        Json::array({Json{{"type", "text"}, {"text", result.get<std::string>()}}});
                 else
                     content = Json::array({Json{{"type", "text"}, {"text", result.dump()}}});
 
-                return Json{{"jsonrpc", "2.0"},
-                            {"id", id},
-                            {"result", Json{{"content", content}}}};
+                return Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", Json{{"content", content}}}};
             }
 
-            return Json{{"jsonrpc", "2.0"},
-                        {"id", id},
-                        {"error",
-                         Json{{"code", -32601},
-                              {"message", std::string("Method '") + method + "' not found"}}}};
+            return Json{
+                {"jsonrpc", "2.0"},
+                {"id", id},
+                {"error", Json{{"code", -32601},
+                               {"message", std::string("Method '") + method + "' not found"}}}};
         }
         catch (const std::exception& e)
         {

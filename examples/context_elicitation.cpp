@@ -108,8 +108,7 @@ int main()
 
     std::cout << "[server] Calling Context::elicit()...\n\n";
 
-    ElicitationResult result =
-        ctx.elicit("Please confirm your profile information:", base_schema);
+    ElicitationResult result = ctx.elicit("Please confirm your profile information:", base_schema);
 
     if (auto* accepted = std::get_if<AcceptedElicitation>(&result))
     {
@@ -128,4 +127,3 @@ int main()
     std::cout << "=== Example Complete ===\n";
     return 0;
 }
-

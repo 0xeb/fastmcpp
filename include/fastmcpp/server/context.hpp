@@ -1,9 +1,9 @@
 #pragma once
 #include "fastmcpp/prompts/prompt.hpp"
 #include "fastmcpp/resources/resource.hpp"
-#include "fastmcpp/types.hpp"
 #include "fastmcpp/server/elicitation.hpp"
 #include "fastmcpp/server/session.hpp"
+#include "fastmcpp/types.hpp"
 
 #include <any>
 #include <functional>
@@ -85,7 +85,8 @@ struct CancelledElicitation
 {
 };
 
-using ElicitationResult = std::variant<AcceptedElicitation, DeclinedElicitation, CancelledElicitation>;
+using ElicitationResult =
+    std::variant<AcceptedElicitation, DeclinedElicitation, CancelledElicitation>;
 
 /// Callback type for elicitation: takes user-facing message and elicitation schema,
 /// returns an ElicitationResult describing the user response.
@@ -104,8 +105,8 @@ make_elicitation_callback(std::shared_ptr<ServerSession> session,
     if (!session)
         return {};
 
-    return [session, related_request_id,
-            timeout](const std::string& message, const fastmcpp::Json& schema) -> ElicitationResult
+    return [session, related_request_id, timeout](const std::string& message,
+                                                  const fastmcpp::Json& schema) -> ElicitationResult
     {
         fastmcpp::Json params = {{"message", message}, {"requestedSchema", schema}};
         if (related_request_id && !related_request_id->empty())

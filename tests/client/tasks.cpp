@@ -1,9 +1,9 @@
 /// @file tests/client/tasks.cpp
 /// @brief Client Task API tests (SEP-1686 subset).
 
-#include "test_helpers.hpp"
 #include "fastmcpp/app.hpp"
 #include "fastmcpp/mcp/handler.hpp"
+#include "test_helpers.hpp"
 
 using namespace fastmcpp;
 
@@ -61,25 +61,21 @@ void test_call_tool_task_with_server_tasks()
     // Build a FastMCP app with a simple add tool
     FastMCP app("tasks-app", "1.0.0");
 
-    Json input_schema = {
-        {"type", "object"},
-        {"properties",
-         Json::object({{"a", Json{{"type", "number"}}}, {"b", Json{{"type", "number"}}}})}};
+    Json input_schema = {{"type", "object"},
+                         {"properties", Json::object({{"a", Json{{"type", "number"}}},
+                                                      {"b", Json{{"type", "number"}}}})}};
 
-    tools::Tool add_tool{
-        "add", input_schema, Json{{"type", "number"}},
-        [](const Json& in)
-        {
-            double a = in.at("a").get<double>();
-            double b = in.at("b").get<double>();
-            return Json(a + b);
-        }};
+    tools::Tool add_tool{"add", input_schema, Json{{"type", "number"}}, [](const Json& in)
+                         {
+                             double a = in.at("a").get<double>();
+                             double b = in.at("b").get<double>();
+                             return Json(a + b);
+                         }};
 
     app.tools().register_tool(add_tool);
 
     auto handler = mcp::make_mcp_handler(app);
-    client::Client c(
-        std::make_unique<client::InProcessMcpTransport>(std::move(handler)));
+    client::Client c(std::make_unique<client::InProcessMcpTransport>(std::move(handler)));
 
     // Ensure tools/list works via MCP handler
     auto tools_list = c.list_tools_mcp();
@@ -134,12 +130,10 @@ void test_prompt_and_resource_tasks_with_server_tasks()
     app.prompts().add("greeting", greeting);
 
     auto handler = mcp::make_mcp_handler(app);
-    client::Client c(
-        std::make_unique<client::InProcessMcpTransport>(std::move(handler)));
+    client::Client c(std::make_unique<client::InProcessMcpTransport>(std::move(handler)));
 
     // Prompt task
-    auto prompt_task =
-        c.get_prompt_task("greeting", Json{{"name", "Alice"}}, 60000);
+    auto prompt_task = c.get_prompt_task("greeting", Json{{"name", "Alice"}}, 60000);
     assert(prompt_task);
     assert(!prompt_task->returned_immediately());
     auto prompt_status = prompt_task->status();

@@ -1,10 +1,10 @@
 /// @file test_elicitation_defaults.cpp
 /// @brief Tests for elicitation JSON schema default handling and validation.
 
-#include "fastmcpp/server/elicitation.hpp"
-#include "fastmcpp/server/context.hpp"
-#include "fastmcpp/resources/manager.hpp"
 #include "fastmcpp/prompts/manager.hpp"
+#include "fastmcpp/resources/manager.hpp"
+#include "fastmcpp/server/context.hpp"
+#include "fastmcpp/server/elicitation.hpp"
 
 #include <cassert>
 #include <iostream>
@@ -120,9 +120,8 @@ static void test_all_defaults_preserved_together()
     props["integer_field"] = Json{{"type", "integer"}, {"default", 50}};
     props["number_field"] = Json{{"type", "number"}, {"default", 3.14}};
     props["boolean_field"] = Json{{"type", "boolean"}, {"default", false}};
-    props["enum_field"] = Json{{"type", "string"},
-                               {"enum", Json::array({"A", "B"})},
-                               {"default", "A"}};
+    props["enum_field"] =
+        Json{{"type", "string"}, {"enum", Json::array({"A", "B"})}, {"default", "A"}};
 
     Json schema = Json{{"type", "object"}, {"properties", props}};
 
@@ -143,8 +142,7 @@ static void test_mixed_defaults_and_required()
     std::cout << "  test_mixed_defaults_and_required... " << std::flush;
 
     Json props = Json::object();
-    props["required_field"] = Json{{"type", "string"},
-                                   {"description", "Required field"}};
+    props["required_field"] = Json{{"type", "string"}, {"description", "Required field"}};
     props["optional_with_default"] = Json{{"type", "integer"}, {"default", 42}};
 
     Json schema = Json{{"type", "object"}, {"properties", props}};
@@ -152,9 +150,9 @@ static void test_mixed_defaults_and_required()
     Json result = get_elicitation_schema(schema);
 
     const auto& out_props = result["properties"];
-    const Json& required =
-        result.contains("required") && result["required"].is_array() ? result["required"]
-                                                                     : Json::array();
+    const Json& required = result.contains("required") && result["required"].is_array()
+                               ? result["required"]
+                               : Json::array();
 
     bool has_required_field = false;
     bool has_optional_with_default = false;
@@ -243,10 +241,8 @@ static void test_context_elicit_uses_schema_helper()
     if (received_schema.contains("required") && received_schema["required"].is_array())
     {
         for (const auto& v : received_schema["required"])
-        {
             if (v.is_string())
                 assert(v.get<std::string>() != "value");
-        }
     }
 
     // Result should be accepted with provided data

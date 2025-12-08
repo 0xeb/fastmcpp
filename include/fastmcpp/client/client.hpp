@@ -333,9 +333,8 @@ class Client
     /// @param arguments Tool arguments
     /// @param ttl_ms Time to keep results available in milliseconds (hint to server)
     /// @return Shared pointer to ToolTask wrapper
-    std::shared_ptr<ToolTask>
-    call_tool_task(const std::string& name, const fastmcpp::Json& arguments,
-                   int ttl_ms = 60000);
+    std::shared_ptr<ToolTask> call_tool_task(const std::string& name,
+                                             const fastmcpp::Json& arguments, int ttl_ms = 60000);
 
     /// Query status of a background task via MCP 'tasks/get'.
     /// @throws fastmcpp::Error if server does not support tasks or returns error
@@ -424,8 +423,7 @@ class Client
     /// that polls 'tasks/get' and 'tasks/result'. When the server executes
     /// synchronously (no task support), ResourceTask wraps the immediate
     /// contents result.
-    std::shared_ptr<ResourceTask> read_resource_task(const std::string& uri,
-                                                     int ttl_ms = 60000);
+    std::shared_ptr<ResourceTask> read_resource_task(const std::string& uri, int ttl_ms = 60000);
 
     // ==========================================================================
     // Prompt Operations
@@ -479,8 +477,7 @@ class Client
     /// synchronously (no task support), PromptTask wraps the immediate result.
     std::shared_ptr<PromptTask>
     get_prompt_task(const std::string& name,
-                    const fastmcpp::Json& arguments = fastmcpp::Json::object(),
-                    int ttl_ms = 60000);
+                    const fastmcpp::Json& arguments = fastmcpp::Json::object(), int ttl_ms = 60000);
 
     // ==========================================================================
     // Completion Operations
@@ -1058,8 +1055,7 @@ class ToolTask
     /// Wait until the task reaches the desired state or timeout elapses.
     /// If timeout_ms == 0, waits until terminal state.
     TaskStatus wait(const std::string& desired_state = "completed",
-                    std::chrono::milliseconds timeout_ms =
-                        std::chrono::milliseconds(60000)) const
+                    std::chrono::milliseconds timeout_ms = std::chrono::milliseconds(60000)) const
     {
         auto start = std::chrono::steady_clock::now();
 
@@ -1069,8 +1065,7 @@ class ToolTask
             if (s.status == desired_state || s.status == "failed" || s.status == "cancelled")
                 return s;
 
-            if (timeout_ms.count() > 0 &&
-                std::chrono::steady_clock::now() - start >= timeout_ms)
+            if (timeout_ms.count() > 0 && std::chrono::steady_clock::now() - start >= timeout_ms)
                 return s;
 
             int poll_ms = s.pollInterval.value_or(1000);
@@ -1140,8 +1135,8 @@ class ToolTask
     inline static std::atomic<uint64_t> next_synthetic_id_{0};
 };
 
-inline std::shared_ptr<ToolTask>
-Client::call_tool_task(const std::string& name, const fastmcpp::Json& arguments, int ttl_ms)
+inline std::shared_ptr<ToolTask> Client::call_tool_task(const std::string& name,
+                                                        const fastmcpp::Json& arguments, int ttl_ms)
 {
     CallToolOptions opts;
     opts.timeout = std::chrono::milliseconds{0};
@@ -1149,8 +1144,7 @@ Client::call_tool_task(const std::string& name, const fastmcpp::Json& arguments,
 
     // Attach task metadata in _meta (mirrors Python fastmcp)
     fastmcpp::Json task_meta = {{"ttl", ttl_ms}};
-    opts.meta = fastmcpp::Json{
-        {"modelcontextprotocol.io/task", std::move(task_meta)}};
+    opts.meta = fastmcpp::Json{{"modelcontextprotocol.io/task", std::move(task_meta)}};
 
     auto result = call_tool_mcp(name, arguments, opts);
 
@@ -1222,8 +1216,7 @@ class PromptTask
     }
 
     TaskStatus wait(const std::string& desired_state = "completed",
-                    std::chrono::milliseconds timeout_ms =
-                        std::chrono::milliseconds(60000)) const
+                    std::chrono::milliseconds timeout_ms = std::chrono::milliseconds(60000)) const
     {
         auto start = std::chrono::steady_clock::now();
 
@@ -1233,8 +1226,7 @@ class PromptTask
             if (s.status == desired_state || s.status == "failed" || s.status == "cancelled")
                 return s;
 
-            if (timeout_ms.count() > 0 &&
-                std::chrono::steady_clock::now() - start >= timeout_ms)
+            if (timeout_ms.count() > 0 && std::chrono::steady_clock::now() - start >= timeout_ms)
                 return s;
 
             int poll_ms = s.pollInterval.value_or(1000);
@@ -1280,8 +1272,7 @@ class ResourceTask
   public:
     ResourceTask(Client* client, std::string task_id, std::string uri,
                  std::optional<std::vector<ResourceContent>> immediate_contents)
-        : client_(client), uri_(std::move(uri)),
-          immediate_contents_(std::move(immediate_contents))
+        : client_(client), uri_(std::move(uri)), immediate_contents_(std::move(immediate_contents))
     {
         if (!client_)
             throw fastmcpp::Error("ResourceTask requires non-null client");
@@ -1326,8 +1317,7 @@ class ResourceTask
     }
 
     TaskStatus wait(const std::string& desired_state = "completed",
-                    std::chrono::milliseconds timeout_ms =
-                        std::chrono::milliseconds(60000)) const
+                    std::chrono::milliseconds timeout_ms = std::chrono::milliseconds(60000)) const
     {
         auto start = std::chrono::steady_clock::now();
 
@@ -1337,8 +1327,7 @@ class ResourceTask
             if (s.status == desired_state || s.status == "failed" || s.status == "cancelled")
                 return s;
 
-            if (timeout_ms.count() > 0 &&
-                std::chrono::steady_clock::now() - start >= timeout_ms)
+            if (timeout_ms.count() > 0 && std::chrono::steady_clock::now() - start >= timeout_ms)
                 return s;
 
             int poll_ms = s.pollInterval.value_or(1000);
@@ -1377,32 +1366,27 @@ class ResourceTask
     inline static std::atomic<uint64_t> next_synthetic_id_{0};
 };
 
-inline std::shared_ptr<ResourceTask>
-Client::read_resource_task(const std::string& uri, int ttl_ms)
+inline std::shared_ptr<ResourceTask> Client::read_resource_task(const std::string& uri, int ttl_ms)
 {
     fastmcpp::Json payload = {{"uri", uri}};
 
     fastmcpp::Json task_meta = {{"ttl", ttl_ms}};
-    payload["_meta"] = fastmcpp::Json{
-        {"modelcontextprotocol.io/task", std::move(task_meta)}};
+    payload["_meta"] = fastmcpp::Json{{"modelcontextprotocol.io/task", std::move(task_meta)}};
 
     auto response = call("resources/read", payload);
 
-    if (response.contains("_meta") &&
-        response["_meta"].contains("modelcontextprotocol.io/task"))
+    if (response.contains("_meta") && response["_meta"].contains("modelcontextprotocol.io/task"))
     {
         const auto& task_obj = response["_meta"]["modelcontextprotocol.io/task"];
         if (task_obj.contains("taskId"))
         {
             std::string task_id = task_obj["taskId"].get<std::string>();
-            return std::make_shared<ResourceTask>(this, std::move(task_id), uri,
-                                                  std::nullopt);
+            return std::make_shared<ResourceTask>(this, std::move(task_id), uri, std::nullopt);
         }
     }
 
     ReadResourceResult result = parse_read_resource_result(response);
-    return std::make_shared<ResourceTask>(this, std::string{}, uri,
-                                          std::move(result.contents));
+    return std::make_shared<ResourceTask>(this, std::string{}, uri, std::move(result.contents));
 }
 
 inline std::shared_ptr<PromptTask>
@@ -1421,20 +1405,17 @@ Client::get_prompt_task(const std::string& name, const fastmcpp::Json& arguments
     }
 
     fastmcpp::Json task_meta = {{"ttl", ttl_ms}};
-    payload["_meta"] = fastmcpp::Json{
-        {"modelcontextprotocol.io/task", std::move(task_meta)}};
+    payload["_meta"] = fastmcpp::Json{{"modelcontextprotocol.io/task", std::move(task_meta)}};
 
     auto response = call("prompts/get", payload);
 
-    if (response.contains("_meta") &&
-        response["_meta"].contains("modelcontextprotocol.io/task"))
+    if (response.contains("_meta") && response["_meta"].contains("modelcontextprotocol.io/task"))
     {
         const auto& task_obj = response["_meta"]["modelcontextprotocol.io/task"];
         if (task_obj.contains("taskId"))
         {
             std::string task_id = task_obj["taskId"].get<std::string>();
-            return std::make_shared<PromptTask>(this, std::move(task_id), name,
-                                                std::nullopt);
+            return std::make_shared<PromptTask>(this, std::move(task_id), name, std::nullopt);
         }
     }
 

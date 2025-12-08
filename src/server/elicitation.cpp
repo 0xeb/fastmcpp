@@ -21,10 +21,8 @@ bool type_list_allows_null(const fastmcpp::Json& type_field)
     if (!type_field.is_array())
         return false;
     for (const auto& t : type_field)
-    {
         if (t.is_string() && t.get<std::string>() == "null")
             return true;
-    }
     return false;
 }
 
@@ -40,8 +38,7 @@ bool union_allows_null(const fastmcpp::Json& schema)
             if (branch.contains("type"))
             {
                 const auto& t = branch["type"];
-                if ((t.is_string() && t.get<std::string>() == "null") ||
-                    type_list_allows_null(t))
+                if ((t.is_string() && t.get<std::string>() == "null") || type_list_allows_null(t))
                     return true;
             }
         }
@@ -54,8 +51,7 @@ bool union_allows_null(const fastmcpp::Json& schema)
             if (branch.contains("type"))
             {
                 const auto& t = branch["type"];
-                if ((t.is_string() && t.get<std::string>() == "null") ||
-                    type_list_allows_null(t))
+                if ((t.is_string() && t.get<std::string>() == "null") || type_list_allows_null(t))
                     return true;
             }
         }
@@ -89,8 +85,8 @@ void validate_elicitation_json_schema(const fastmcpp::Json& schema)
 
     for (const auto& [prop_name, prop_schema] : properties.items())
     {
-        fastmcpp::Json prop_type = prop_schema.contains("type") ? prop_schema["type"]
-                                                                : fastmcpp::Json();
+        fastmcpp::Json prop_type =
+            prop_schema.contains("type") ? prop_schema["type"] : fastmcpp::Json();
 
         // Handle nullable types: type: ["string","null"] -> "string"
         if (prop_type.is_array())
@@ -129,12 +125,12 @@ void validate_elicitation_json_schema(const fastmcpp::Json& schema)
             if (ref_path.rfind("#/$defs/", 0) == 0)
             {
                 std::string def_name = ref_path.substr(8);
-                const auto& defs =
-                    schema.contains("$defs") && schema["$defs"].is_object() ? schema["$defs"]
-                                                                             : fastmcpp::Json{};
-                const auto& ref_def =
-                    (defs.is_object() && defs.contains(def_name)) ? defs[def_name]
-                                                                  : fastmcpp::Json::object();
+                const auto& defs = schema.contains("$defs") && schema["$defs"].is_object()
+                                       ? schema["$defs"]
+                                       : fastmcpp::Json{};
+                const auto& ref_def = (defs.is_object() && defs.contains(def_name))
+                                          ? defs[def_name]
+                                          : fastmcpp::Json::object();
 
                 if (ref_def.contains("enum"))
                     continue;
@@ -148,8 +144,7 @@ void validate_elicitation_json_schema(const fastmcpp::Json& schema)
             }
 
             throw fastmcpp::ValidationError(
-                "Elicitation schema field '" + prop_name + "' contains a reference '" +
-                ref_path +
+                "Elicitation schema field '" + prop_name + "' contains a reference '" + ref_path +
                 "' that could not be validated. Only references to enum types or primitive "
                 "types are allowed.");
         }
@@ -183,8 +178,8 @@ void validate_elicitation_json_schema(const fastmcpp::Json& schema)
                 if (allowed.count(union_type) == 0)
                 {
                     throw fastmcpp::ValidationError(
-                        "Elicitation schema field '" + prop_name +
-                        "' has union type '" + union_type +
+                        "Elicitation schema field '" + prop_name + "' has union type '" +
+                        union_type +
                         "' which is not a primitive type. Only primitive types are allowed in "
                         "elicitation schemas.");
                 }
@@ -250,9 +245,9 @@ fastmcpp::Json get_elicitation_schema(const fastmcpp::Json& base_schema)
         {
             bool has_default = prop_schema.contains("default");
 
-            bool is_nullable = (prop_schema.contains("nullable") &&
-                                prop_schema["nullable"].is_boolean() &&
-                                prop_schema["nullable"].get<bool>());
+            bool is_nullable =
+                (prop_schema.contains("nullable") && prop_schema["nullable"].is_boolean() &&
+                 prop_schema["nullable"].get<bool>());
 
             bool type_allows_null =
                 (prop_schema.contains("type") && type_list_allows_null(prop_schema["type"])) ||
@@ -273,4 +268,3 @@ fastmcpp::Json get_elicitation_schema(const fastmcpp::Json& base_schema)
 }
 
 } // namespace fastmcpp::server
-
