@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(fastmcpp VERSION 2.13.0 LANGUAGES CXX)
+project(fastmcpp VERSION 2.14.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -449,6 +449,10 @@ if(FASTMCPP_BUILD_EXAMPLES)
   # Context elicitation example (schema defaults + client callback)
   add_executable(fastmcpp_example_context_elicitation examples/context_elicitation.cpp)
   target_link_libraries(fastmcpp_example_context_elicitation PRIVATE fastmcpp_core)
+
+  # SSE elicitation server example (Context::elicit over ServerSession)
+  add_executable(fastmcpp_example_sse_elicitation_server examples/sse_elicitation_server.cpp)
+  target_link_libraries(fastmcpp_example_sse_elicitation_server PRIVATE fastmcpp_core)
 
   # StdioTransport log_file example (v2.13.0+)
   add_executable(fastmcpp_example_stdio_log_file examples/stdio_log_file.cpp)

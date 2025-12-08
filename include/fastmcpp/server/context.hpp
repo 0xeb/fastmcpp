@@ -3,6 +3,7 @@
 #include "fastmcpp/resources/resource.hpp"
 #include "fastmcpp/types.hpp"
 #include "fastmcpp/server/elicitation.hpp"
+#include "fastmcpp/server/session.hpp"
 
 #include <any>
 #include <functional>
@@ -90,6 +91,42 @@ using ElicitationResult = std::variant<AcceptedElicitation, DeclinedElicitation,
 /// returns an ElicitationResult describing the user response.
 using ElicitationCallback =
     std::function<ElicitationResult(const std::string&, const fastmcpp::Json&)>;
+
+/// Thin helper: build an ElicitationCallback that forwards requests
+/// over a ServerSession using the MCP \"elicitation/request\" method.
+/// Mirrors the Python Context.elicit -> session.elicit flow, but leaves
+/// type adaptation to the caller.
+inline ElicitationCallback
+make_elicitation_callback(std::shared_ptr<ServerSession> session,
+                          std::optional<std::string> related_request_id = std::nullopt,
+                          std::chrono::milliseconds timeout = ServerSession::DEFAULT_TIMEOUT)
+{
+    if (!session)
+        return {};
+
+    return [session, related_request_id,
+            timeout](const std::string& message, const fastmcpp::Json& schema) -> ElicitationResult
+    {
+        fastmcpp::Json params = {{"message", message}, {"requestedSchema", schema}};
+        if (related_request_id && !related_request_id->empty())
+            params["related_request_id"] = *related_request_id;
+
+        fastmcpp::Json response = session->send_request("elicitation/request", params, timeout);
+
+        std::string action = response.value("action", std::string("accept"));
+        fastmcpp::Json content =
+            response.contains("content") ? response["content"] : fastmcpp::Json::object();
+
+        if (action == "accept")
+            return AcceptedElicitation{content};
+        if (action == "decline")
+            return DeclinedElicitation{};
+        if (action == "cancel")
+            return CancelledElicitation{};
+
+        throw std::runtime_error("Unexpected elicitation action: " + action);
+    };
+}
 
 inline std::string to_string(LogLevel level)
 {

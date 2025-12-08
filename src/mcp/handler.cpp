@@ -167,6 +167,22 @@ fastmcpp::Json build_fastmcp_tool_result(const fastmcpp::Json& result)
 
     return fastmcpp::Json{{"content", content}};
 }
+
+// Extract SEP-1686 task TTL from request params._meta if present.
+inline bool extract_task_ttl(const fastmcpp::Json& params, int& ttl_ms_out)
+{
+    ttl_ms_out = 60000;
+    if (!params.contains("_meta") || !params["_meta"].is_object())
+        return false;
+    const auto& meta = params["_meta"];
+    auto it = meta.find("modelcontextprotocol.io/task");
+    if (it == meta.end() || !it->is_object())
+        return false;
+    const auto& task_meta = *it;
+    if (task_meta.contains("ttl") && task_meta["ttl"].is_number_integer())
+        ttl_ms_out = task_meta["ttl"].get<int>();
+    return true;
+}
 } // namespace
 
 std::function<fastmcpp::Json(const fastmcpp::Json&)>
@@ -1302,6 +1318,9 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                     uri.pop_back();
                 try
                 {
+                    int ttl_ms = 60000;
+                    bool as_task = extract_task_ttl(params, ttl_ms);
+
                     auto content = app.read_resource(uri, params);
                     fastmcpp::Json content_json = {{"uri", content.uri}};
                     if (content.mime_type)
@@ -1334,9 +1353,34 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                         content_json["blob"] = b64;
                     }
 
+                    fastmcpp::Json result_payload =
+                        fastmcpp::Json{{"contents", fastmcpp::Json::array({content_json})}};
+
+                    if (as_task)
+                    {
+                        std::string task_id = tasks->add_completed_task(
+                            "resource", uri, std::move(result_payload), ttl_ms);
+
+                        fastmcpp::Json task_meta = {{"taskId", task_id},
+                                                    {"status", "completed"},
+                                                    {"ttl", ttl_ms}};
+
+                        fastmcpp::Json response_result = {
+                            {"contents", fastmcpp::Json::array()},
+                            {"_meta",
+                             fastmcpp::Json{
+                                 {"modelcontextprotocol.io/task", task_meta},
+                             }},
+                        };
+
+                        return fastmcpp::Json{{"jsonrpc", "2.0"},
+                                              {"id", id},
+                                              {"result", response_result}};
+                    }
+
                     return fastmcpp::Json{{"jsonrpc", "2.0"},
                                           {"id", id},
-                                          {"result", fastmcpp::Json{{"contents", {content_json}}}}};
+                                          {"result", result_payload}};
                 }
                 catch (const NotFoundError& e)
                 {
@@ -1384,6 +1428,9 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                     return jsonrpc_error(id, -32602, "Missing prompt name");
                 try
                 {
+                    int ttl_ms = 60000;
+                    bool as_task = extract_task_ttl(params, ttl_ms);
+
                     fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
                     auto messages = app.get_prompt(name, args);
 
@@ -1392,12 +1439,38 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                     {
                         messages_array.push_back(
                             {{"role", msg.role},
-                             {"content", fastmcpp::Json{{"type", "text"}, {"text", msg.content}}}});
+                             {"content",
+                              fastmcpp::Json{{"type", "text"}, {"text", msg.content}}}});
+                    }
+
+                    fastmcpp::Json result_payload =
+                        fastmcpp::Json{{"messages", messages_array}};
+
+                    if (as_task)
+                    {
+                        std::string task_id = tasks->add_completed_task(
+                            "prompt", name, std::move(result_payload), ttl_ms);
+
+                        fastmcpp::Json task_meta = {{"taskId", task_id},
+                                                    {"status", "completed"},
+                                                    {"ttl", ttl_ms}};
+
+                        fastmcpp::Json response_result = {
+                            {"messages", fastmcpp::Json::array()},
+                            {"_meta",
+                             fastmcpp::Json{
+                                 {"modelcontextprotocol.io/task", task_meta},
+                             }},
+                        };
+
+                        return fastmcpp::Json{{"jsonrpc", "2.0"},
+                                              {"id", id},
+                                              {"result", response_result}};
                     }
 
                     return fastmcpp::Json{{"jsonrpc", "2.0"},
                                           {"id", id},
-                                          {"result", fastmcpp::Json{{"messages", messages_array}}}};
+                                          {"result", result_payload}};
                 }
                 catch (const NotFoundError& e)
                 {
