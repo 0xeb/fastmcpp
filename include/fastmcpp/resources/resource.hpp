@@ -26,6 +26,7 @@ struct Resource
     std::optional<std::string> description;               // Optional description
     std::optional<std::string> mime_type;                 // MIME type hint
     std::function<ResourceContent(const Json&)> provider; // Content provider function
+    fastmcpp::TaskSupport task_support{fastmcpp::TaskSupport::Forbidden}; // SEP-1686 task mode
 
     // Legacy fields (for backwards compatibility)
     fastmcpp::Id id;

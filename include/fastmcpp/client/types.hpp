@@ -60,6 +60,7 @@ struct ToolInfo
     std::optional<std::string> description;
     fastmcpp::Json inputSchema;                       ///< JSON Schema for tool input
     std::optional<fastmcpp::Json> outputSchema;       ///< JSON Schema for structured output
+    std::optional<fastmcpp::Json> execution;          ///< Execution config (SEP-1686)
     std::optional<std::vector<fastmcpp::Icon>> icons; ///< Icons for UI display
 };
 
@@ -323,6 +324,8 @@ inline void to_json(fastmcpp::Json& j, const ToolInfo& t)
         j["description"] = *t.description;
     if (t.outputSchema)
         j["outputSchema"] = *t.outputSchema;
+    if (t.execution)
+        j["execution"] = *t.execution;
     if (t.icons)
         j["icons"] = *t.icons;
 }
@@ -337,6 +340,8 @@ inline void from_json(const fastmcpp::Json& j, ToolInfo& t)
     t.inputSchema = j.value("inputSchema", fastmcpp::Json::object());
     if (j.contains("outputSchema"))
         t.outputSchema = j["outputSchema"];
+    if (j.contains("execution"))
+        t.execution = j["execution"];
     if (j.contains("icons"))
         t.icons = j["icons"].get<std::vector<fastmcpp::Icon>>();
 }

@@ -25,6 +25,8 @@ client::ToolInfo ProxyApp::tool_to_info(const tools::Tool& tool)
     info.inputSchema = tool.input_schema();
     if (!tool.output_schema().is_null())
         info.outputSchema = tool.output_schema();
+    if (tool.task_support() != TaskSupport::Forbidden)
+        info.execution = fastmcpp::Json{{"taskSupport", to_string(tool.task_support())}};
     info.title = tool.title();
     info.icons = tool.icons();
     return info;

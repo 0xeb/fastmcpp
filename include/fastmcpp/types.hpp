@@ -9,6 +9,38 @@ namespace fastmcpp
 
 using Json = nlohmann::json;
 
+/// Background task execution support mode (SEP-1686).
+/// Mirrors fastmcp.server.tasks.TaskConfig.mode / MCP ToolExecution.taskSupport.
+enum class TaskSupport
+{
+    Forbidden, ///< No task augmentation allowed
+    Optional,  ///< Task augmentation supported but not required
+    Required   ///< Task augmentation required
+};
+
+inline std::string to_string(TaskSupport support)
+{
+    switch (support)
+    {
+    case TaskSupport::Forbidden:
+        return "forbidden";
+    case TaskSupport::Optional:
+        return "optional";
+    case TaskSupport::Required:
+        return "required";
+    }
+    return "forbidden";
+}
+
+inline TaskSupport task_support_from_string(const std::string& s)
+{
+    if (s == "optional")
+        return TaskSupport::Optional;
+    if (s == "required")
+        return TaskSupport::Required;
+    return TaskSupport::Forbidden;
+}
+
 struct Id
 {
     std::string value;

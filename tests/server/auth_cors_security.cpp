@@ -23,7 +23,7 @@ int main()
         auto srv = std::make_shared<Server>();
         srv->route("test", [](const Json&) { return Json{{"result", "ok"}}; });
 
-        HttpServerWrapper http_server(srv, "127.0.0.1", 18399); // No auth token
+        HttpServerWrapper http_server(srv, "127.0.0.1", 18599); // No auth token
         if (!http_server.start())
         {
             std::cerr << "Failed to start HTTP server\n";
@@ -32,7 +32,7 @@ int main()
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        httplib::Client client("127.0.0.1", 18399);
+        httplib::Client client("127.0.0.1", 18599);
         Json request = {{"jsonrpc", "2.0"}, {"id", 1}, {"method", "test"}};
         auto res = client.Post("/test", request.dump(), "application/json");
 
@@ -54,7 +54,7 @@ int main()
         auto srv = std::make_shared<Server>();
         srv->route("test", [](const Json&) { return Json{{"result", "ok"}}; });
 
-        HttpServerWrapper http_server(srv, "127.0.0.1", 18400, "secret_token_123");
+        HttpServerWrapper http_server(srv, "127.0.0.1", 18600, "secret_token_123");
         if (!http_server.start())
         {
             std::cerr << "Failed to start HTTP server with auth\n";
@@ -63,7 +63,7 @@ int main()
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        httplib::Client client("127.0.0.1", 18400);
+        httplib::Client client("127.0.0.1", 18600);
         Json request = {{"jsonrpc", "2.0"}, {"id", 1}, {"method", "test"}};
         auto res = client.Post("/test", request.dump(), "application/json");
 
@@ -86,7 +86,7 @@ int main()
         auto srv = std::make_shared<Server>();
         srv->route("test", [](const Json&) { return Json{{"result", "ok"}}; });
 
-        HttpServerWrapper http_server(srv, "127.0.0.1", 18401, "secret_token_123");
+        HttpServerWrapper http_server(srv, "127.0.0.1", 18601, "secret_token_123");
         if (!http_server.start())
         {
             std::cerr << "Failed to start HTTP server with auth\n";
@@ -95,7 +95,7 @@ int main()
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        httplib::Client client("127.0.0.1", 18401);
+        httplib::Client client("127.0.0.1", 18601);
         httplib::Headers headers = {{"Authorization", "Bearer secret_token_123"}};
         Json request = {{"jsonrpc", "2.0"}, {"id", 1}, {"method", "test"}};
         auto res = client.Post("/test", headers, request.dump(), "application/json");
@@ -119,7 +119,7 @@ int main()
         auto srv = std::make_shared<Server>();
         srv->route("test", [](const Json&) { return Json{{"result", "ok"}}; });
 
-        HttpServerWrapper http_server(srv, "127.0.0.1", 18402); // No CORS origin
+        HttpServerWrapper http_server(srv, "127.0.0.1", 18602); // No CORS origin
         if (!http_server.start())
         {
             std::cerr << "Failed to start HTTP server\n";
@@ -128,7 +128,7 @@ int main()
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        httplib::Client client("127.0.0.1", 18402);
+        httplib::Client client("127.0.0.1", 18602);
         Json request = {{"jsonrpc", "2.0"}, {"id", 1}, {"method", "test"}};
         auto res = client.Post("/test", request.dump(), "application/json");
 
@@ -158,7 +158,7 @@ int main()
         auto srv = std::make_shared<Server>();
         srv->route("test", [](const Json&) { return Json{{"result", "ok"}}; });
 
-        HttpServerWrapper http_server(srv, "127.0.0.1", 18403, "", "https://example.com");
+        HttpServerWrapper http_server(srv, "127.0.0.1", 18603, "", "https://example.com");
         if (!http_server.start())
         {
             std::cerr << "Failed to start HTTP server\n";
@@ -167,7 +167,7 @@ int main()
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        httplib::Client client("127.0.0.1", 18403);
+        httplib::Client client("127.0.0.1", 18603);
         Json request = {{"jsonrpc", "2.0"}, {"id", 1}, {"method", "test"}};
         auto res = client.Post("/test", request.dump(), "application/json");
 
@@ -198,7 +198,7 @@ int main()
         auto handler = [](const Json& req) -> Json
         { return Json{{"jsonrpc", "2.0"}, {"id", req["id"]}, {"result", {}}}; };
 
-        SseServerWrapper sse_server(handler, "127.0.0.1", 18404, "/sse", "/messages",
+        SseServerWrapper sse_server(handler, "127.0.0.1", 18604, "/sse", "/messages",
                                     "secret_sse_token");
         if (!sse_server.start())
         {
@@ -208,7 +208,7 @@ int main()
 
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
-        httplib::Client client("127.0.0.1", 18404);
+        httplib::Client client("127.0.0.1", 18604);
         auto res = client.Get("/sse");
 
         if (!res || res->status != 401)
