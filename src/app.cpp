@@ -166,7 +166,11 @@ std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
         info.inputSchema = tool.input_schema();
         info.title = tool.title();
         info.description = tool.description();
-        info.outputSchema = tool.output_schema();
+        auto out_schema = tool.output_schema();
+        if (!out_schema.is_null())
+            info.outputSchema = out_schema;
+        if (tool.task_support() != TaskSupport::Forbidden)
+            info.execution = Json{{"taskSupport", to_string(tool.task_support())}};
         info.icons = tool.icons();
         result.push_back(info);
     }

@@ -38,6 +38,11 @@ int main()
                  {"params", Json{{"name", "add"}, {"arguments", Json{{"a", 2}, {"b", 3}}}}}};
     auto call_resp = handler(call);
     assert(call_resp["result"]["content"].size() == 1);
+    assert(call_resp["result"].contains("structuredContent"));
+    assert(call_resp["result"]["structuredContent"].is_object());
+    assert(call_resp["result"]["structuredContent"].contains("result"));
+    assert(call_resp["result"]["structuredContent"]["result"].is_number());
+    assert(call_resp["result"]["structuredContent"]["result"].get<double>() == 5.0);
     auto item = call_resp["result"]["content"][0];
     assert(item["type"] == "text");
     assert(item["text"].get<std::string>().find("5") != std::string::npos);

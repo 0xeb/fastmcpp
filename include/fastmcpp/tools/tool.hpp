@@ -18,10 +18,11 @@ class Tool
 
     // Original constructor (backward compatible)
     Tool(std::string name, fastmcpp::Json input_schema, fastmcpp::Json output_schema, Fn fn,
-         std::vector<std::string> exclude_args = {})
+         std::vector<std::string> exclude_args = {},
+         fastmcpp::TaskSupport task_support = fastmcpp::TaskSupport::Forbidden)
         : name_(std::move(name)), input_schema_(std::move(input_schema)),
           output_schema_(std::move(output_schema)), fn_(std::move(fn)),
-          exclude_args_(std::move(exclude_args))
+          exclude_args_(std::move(exclude_args)), task_support_(task_support)
     {
     }
 
@@ -29,10 +30,12 @@ class Tool
     Tool(std::string name, fastmcpp::Json input_schema, fastmcpp::Json output_schema, Fn fn,
          std::optional<std::string> title, std::optional<std::string> description,
          std::optional<std::vector<fastmcpp::Icon>> icons,
-         std::vector<std::string> exclude_args = {})
+         std::vector<std::string> exclude_args = {},
+         fastmcpp::TaskSupport task_support = fastmcpp::TaskSupport::Forbidden)
         : name_(std::move(name)), title_(std::move(title)), description_(std::move(description)),
           input_schema_(std::move(input_schema)), output_schema_(std::move(output_schema)),
-          icons_(std::move(icons)), fn_(std::move(fn)), exclude_args_(std::move(exclude_args))
+          icons_(std::move(icons)), fn_(std::move(fn)), exclude_args_(std::move(exclude_args)),
+          task_support_(task_support)
     {
     }
 
@@ -67,6 +70,11 @@ class Tool
         return fn_(input);
     }
 
+    fastmcpp::TaskSupport task_support() const
+    {
+        return task_support_;
+    }
+
     // Setters for optional fields (builder pattern)
     Tool& set_title(std::string title)
     {
@@ -81,6 +89,11 @@ class Tool
     Tool& set_icons(std::vector<fastmcpp::Icon> icons)
     {
         icons_ = std::move(icons);
+        return *this;
+    }
+    Tool& set_task_support(fastmcpp::TaskSupport support)
+    {
+        task_support_ = support;
         return *this;
     }
 
@@ -126,6 +139,7 @@ class Tool
     std::optional<std::vector<fastmcpp::Icon>> icons_;
     Fn fn_;
     std::vector<std::string> exclude_args_;
+    fastmcpp::TaskSupport task_support_{fastmcpp::TaskSupport::Forbidden};
 };
 
 } // namespace fastmcpp::tools

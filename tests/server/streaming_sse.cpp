@@ -6,6 +6,7 @@
 #include <chrono>
 #include <httplib.h>
 #include <iostream>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -44,8 +45,11 @@ int main()
 
     // Start SSE receiver
     std::atomic<bool> sse_connected{false};
+    std::atomic<bool> have_endpoint{false};
+    std::string message_endpoint;
     std::vector<int> seen;
     std::mutex seen_mutex;
+    std::mutex endpoint_mutex;
 
     httplib::Client sse_client("127.0.0.1", port);
     sse_client.set_connection_timeout(std::chrono::seconds(10));
@@ -54,18 +58,52 @@ int main()
     std::thread sse_thread(
         [&]()
         {
+            std::string buffer;
             auto receiver = [&](const char* data, size_t len)
             {
                 sse_connected = true;
-                std::string chunk(data, len);
-                // Parse "data: {json}\n\n" blocks
-                if (chunk.find("data: ") == 0)
+                buffer.append(data, len);
+
+                // Process complete SSE blocks separated by a blank line.
+                // Each block can contain lines like:
+                //   event: endpoint
+                //   data: /messages?session_id=...
+                // or:
+                //   data: {json}\n\n
+                while (true)
                 {
-                    size_t start = 6;
-                    size_t end = chunk.find("\n\n");
-                    if (end != std::string::npos)
+                    size_t end = buffer.find("\n\n");
+                    if (end == std::string::npos)
+                        break;
+
+                    std::string block = buffer.substr(0, end);
+                    buffer.erase(0, end + 2);
+
+                    // Extract endpoint path if present
+                    if (block.find("event: endpoint") != std::string::npos)
                     {
-                        std::string json_str = chunk.substr(start, end - start);
+                        size_t data_pos = block.find("data: ");
+                        if (data_pos != std::string::npos)
+                        {
+                            size_t value_start = data_pos + 6;
+                            size_t value_end = block.find('\n', value_start);
+                            std::string endpoint =
+                                block.substr(value_start, value_end == std::string::npos
+                                                              ? std::string::npos
+                                                              : value_end - value_start);
+                            {
+                                std::lock_guard<std::mutex> lock(endpoint_mutex);
+                                message_endpoint = endpoint;
+                                have_endpoint = !message_endpoint.empty();
+                            }
+                        }
+                        continue;
+                    }
+
+                    // Parse "data: {json}" events and collect n values
+                    if (block.rfind("data: ", 0) == 0)
+                    {
+                        std::string json_str = block.substr(6);
                         try
                         {
                             Json j = Json::parse(json_str);
@@ -109,12 +147,29 @@ int main()
         return 1;
     }
 
+    // Wait for server to tell us the message endpoint (includes required session_id).
+    for (int i = 0; i < 500 && !have_endpoint; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    if (!have_endpoint)
+    {
+        server->stop();
+        if (sse_thread.joinable())
+            sse_thread.join();
+        std::cerr << "Missing endpoint event" << std::endl;
+        return 1;
+    }
+
     // Post three messages
     httplib::Client post("127.0.0.1", port);
+    std::string post_path;
+    {
+        std::lock_guard<std::mutex> lock(endpoint_mutex);
+        post_path = message_endpoint;
+    }
     for (int i = 1; i <= 3; ++i)
     {
         Json j = Json{{"n", i}};
-        auto res = post.Post("/messages", j.dump(), "application/json");
+        auto res = post.Post(post_path, j.dump(), "application/json");
         if (!res || res->status != 200)
         {
             server->stop();

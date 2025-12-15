@@ -27,7 +27,7 @@ int main()
     srv->route("sum", [](const Json& j) { return j.at("a").get<int>() + j.at("b").get<int>(); });
 
     // Start HTTP server
-    const int port = 18301;
+    const int port = 18321;
     const std::string host = "127.0.0.1";
     server::HttpServerWrapper http_server(srv, host, port);
 

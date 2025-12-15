@@ -48,6 +48,11 @@ target_include_directories(fastmcpp_core PUBLIC
 # Version header is public
 target_compile_definitions(fastmcpp_core PUBLIC FASTMCPP_VERSION_MAJOR=${PROJECT_VERSION_MAJOR} FASTMCPP_VERSION_MINOR=${PROJECT_VERSION_MINOR} FASTMCPP_VERSION_PATCH=${PROJECT_VERSION_PATCH})
 
+# MSVC: avoid parallel compilation PDB contention (C1041) in large targets
+if(MSVC)
+  target_compile_options(fastmcpp_core PRIVATE /FS)
+endif()
+
 # nlohmann_json dependency - use existing target if available (e.g., from vcpkg)
 if(NOT TARGET nlohmann_json::nlohmann_json)
     include(FetchContent)

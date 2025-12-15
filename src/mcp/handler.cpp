@@ -23,11 +23,50 @@ static fastmcpp::Json jsonrpc_error(const fastmcpp::Json& id, int code, const st
                           {"error", fastmcpp::Json{{"code", code}, {"message", message}}}};
 }
 
+static bool schema_is_object(const fastmcpp::Json& schema)
+{
+    if (!schema.is_object())
+        return false;
+
+    auto it = schema.find("type");
+    if (it != schema.end() && it->is_string() && it->get<std::string>() == "object")
+        return true;
+
+    if (schema.contains("properties"))
+        return true;
+
+    // Self-referencing types often use a top-level $ref into $defs.
+    if (schema.contains("$ref") && schema.contains("$defs"))
+        return true;
+
+    return false;
+}
+
+static fastmcpp::Json normalize_output_schema_for_mcp(const fastmcpp::Json& schema)
+{
+    if (schema.is_null())
+        return schema;
+
+    // Python fastmcp requires object-shaped output schemas (MCP structuredContent is a dict).
+    // For scalar/array outputs, wrap into {"result": ...} and annotate for clients.
+    if (schema_is_object(schema))
+        return schema;
+
+    return fastmcpp::Json{
+        {"type", "object"},
+        {"properties", fastmcpp::Json{{"result", schema}}},
+        {"required", fastmcpp::Json::array({"result"})},
+        {"x-fastmcp-wrap-result", true},
+    };
+}
+
 static fastmcpp::Json
 make_tool_entry(const std::string& name, const std::string& description,
                 const fastmcpp::Json& schema,
                 const std::optional<std::string>& title = std::nullopt,
-                const std::optional<std::vector<fastmcpp::Icon>>& icons = std::nullopt)
+                const std::optional<std::vector<fastmcpp::Icon>>& icons = std::nullopt,
+                const fastmcpp::Json& output_schema = fastmcpp::Json(),
+                fastmcpp::TaskSupport task_support = fastmcpp::TaskSupport::Forbidden)
 {
     fastmcpp::Json entry = {
         {"name", name},
@@ -41,6 +80,10 @@ make_tool_entry(const std::string& name, const std::string& description,
         entry["inputSchema"] = schema;
     else
         entry["inputSchema"] = fastmcpp::Json::object();
+    if (!output_schema.is_null() && !output_schema.empty())
+        entry["outputSchema"] = normalize_output_schema_for_mcp(output_schema);
+    if (task_support != fastmcpp::TaskSupport::Forbidden)
+        entry["execution"] = fastmcpp::Json{{"taskSupport", fastmcpp::to_string(task_support)}};
     // Add icons if present
     if (icons && !icons->empty())
     {
@@ -148,15 +191,31 @@ class TaskRegistry
     std::atomic<uint64_t> next_id_{0};
 };
 
-// Helper: convert FastMCP::invoke_tool() result JSON into the MCP
-// CallToolResult payload shape: { "content": [...] } where content is
-// a list of ContentBlock objects.
-fastmcpp::Json build_fastmcp_tool_result(const fastmcpp::Json& result)
+// Helper: convert a tool invocation JSON result into an MCP CallToolResult payload.
+// For tools that declare an outputSchema, include structuredContent for parity with Python fastmcp.
+fastmcpp::Json build_fastmcp_tool_result(const fastmcpp::Json& result,
+                                         bool include_structured_content = false)
 {
-    fastmcpp::Json content = fastmcpp::Json::array();
+    // If the tool already returned a CallToolResult-like object, preserve it (including isError,
+    // structuredContent, and _meta).
     if (result.is_object() && result.contains("content"))
-        content = result.at("content");
-    else if (result.is_array())
+    {
+        fastmcpp::Json payload = result;
+        if (!payload["content"].is_array())
+        {
+            if (payload["content"].is_object())
+                payload["content"] = fastmcpp::Json::array({payload["content"]});
+            else
+                payload["content"] = fastmcpp::Json::array();
+        }
+        if (payload.contains("structuredContent") && !payload["structuredContent"].is_object())
+            payload["structuredContent"] =
+                fastmcpp::Json{{"result", std::move(payload["structuredContent"])}};
+        return payload;
+    }
+
+    fastmcpp::Json content = fastmcpp::Json::array();
+    if (result.is_array())
         content = result;
     else if (result.is_string())
         content = fastmcpp::Json::array(
@@ -165,7 +224,15 @@ fastmcpp::Json build_fastmcp_tool_result(const fastmcpp::Json& result)
         content =
             fastmcpp::Json::array({fastmcpp::Json{{"type", "text"}, {"text", result.dump()}}});
 
-    return fastmcpp::Json{{"content", content}};
+    fastmcpp::Json payload = fastmcpp::Json{{"content", content}};
+    if (include_structured_content)
+    {
+        if (result.is_object())
+            payload["structuredContent"] = result;
+        else
+            payload["structuredContent"] = fastmcpp::Json{{"result", result}};
+    }
+    return payload;
 }
 
 // Extract SEP-1686 task TTL from request params._meta if present.
@@ -182,6 +249,61 @@ inline bool extract_task_ttl(const fastmcpp::Json& params, int& ttl_ms_out)
     if (task_meta.contains("ttl") && task_meta["ttl"].is_number_integer())
         ttl_ms_out = task_meta["ttl"].get<int>();
     return true;
+}
+
+inline fastmcpp::Json tasks_capabilities()
+{
+    return fastmcpp::Json{
+        {"list", fastmcpp::Json::object()},
+        {"cancel", fastmcpp::Json::object()},
+        {"requests",
+         fastmcpp::Json{
+             {"tools", fastmcpp::Json{{"call", fastmcpp::Json::object()}}},
+             {"prompts", fastmcpp::Json{{"get", fastmcpp::Json::object()}}},
+             {"resources", fastmcpp::Json{{"read", fastmcpp::Json::object()}}},
+         }},
+    };
+}
+
+inline bool app_supports_tasks(const fastmcpp::FastMCP& app)
+{
+    for (const auto& [name, tool] : app.list_all_tools())
+        if (tool && tool->task_support() != fastmcpp::TaskSupport::Forbidden)
+            return true;
+    for (const auto& res : app.list_all_resources())
+        if (res.task_support != fastmcpp::TaskSupport::Forbidden)
+            return true;
+    for (const auto& [name, prompt] : app.list_all_prompts())
+        if (prompt && prompt->task_support != fastmcpp::TaskSupport::Forbidden)
+            return true;
+    return false;
+}
+
+inline std::optional<fastmcpp::TaskSupport> find_tool_task_support(const fastmcpp::FastMCP& app,
+                                                                   const std::string& name)
+{
+    for (const auto& [tool_name, tool] : app.list_all_tools())
+        if (tool_name == name && tool)
+            return tool->task_support();
+    return std::nullopt;
+}
+
+inline std::optional<fastmcpp::TaskSupport> find_prompt_task_support(const fastmcpp::FastMCP& app,
+                                                                     const std::string& name)
+{
+    for (const auto& [prompt_name, prompt] : app.list_all_prompts())
+        if (prompt_name == name && prompt)
+            return prompt->task_support;
+    return std::nullopt;
+}
+
+inline std::optional<fastmcpp::TaskSupport> find_resource_task_support(const fastmcpp::FastMCP& app,
+                                                                       const std::string& uri)
+{
+    for (const auto& res : app.list_all_resources())
+        if (res.uri == uri)
+            return res.task_support;
+    return std::nullopt;
 }
 } // namespace
 
@@ -254,8 +376,9 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     else if (tool.description())
                         desc = *tool.description();
 
-                    tools_array.push_back(
-                        make_tool_entry(name, desc, schema, tool.title(), tool.icons()));
+                    tools_array.push_back(make_tool_entry(name, desc, schema, tool.title(),
+                                                          tool.icons(), tool.output_schema(),
+                                                          tool.task_support()));
                 }
 
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -271,30 +394,14 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     return jsonrpc_error(id, -32602, "Missing tool name");
                 try
                 {
+                    const auto& tool = tools.get(name);
+                    bool has_output_schema = !tool.output_schema().is_null();
+
                     auto result = tools.invoke(name, args);
-                    // If handler returns a content array or object with content, pass through
-                    fastmcpp::Json content = fastmcpp::Json::array();
-                    if (result.is_object() && result.contains("content"))
-                    {
-                        content = result.at("content");
-                    }
-                    else if (result.is_array())
-                    {
-                        content = result;
-                    }
-                    else if (result.is_string())
-                    {
-                        content = fastmcpp::Json::array({fastmcpp::Json{
-                            {"type", "text"}, {"text", result.get<std::string>()}}});
-                    }
-                    else
-                    {
-                        content = fastmcpp::Json::array(
-                            {fastmcpp::Json{{"type", "text"}, {"text", result.dump()}}});
-                    }
-                    return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                          {"id", id},
-                                          {"result", fastmcpp::Json{{"content", content}}}};
+                    fastmcpp::Json result_payload =
+                        build_fastmcp_tool_result(result, has_output_schema);
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"}, {"id", id}, {"result", result_payload}};
                 }
                 catch (const std::exception& e)
                 {
@@ -445,28 +552,9 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
                 try
                 {
                     auto result = server.handle(name, args);
-                    fastmcpp::Json content = fastmcpp::Json::array();
-                    if (result.is_object() && result.contains("content"))
-                    {
-                        content = result.at("content");
-                    }
-                    else if (result.is_array())
-                    {
-                        content = result;
-                    }
-                    else if (result.is_string())
-                    {
-                        content = fastmcpp::Json::array({fastmcpp::Json{
-                            {"type", "text"}, {"text", result.get<std::string>()}}});
-                    }
-                    else
-                    {
-                        content = fastmcpp::Json::array(
-                            {fastmcpp::Json{{"type", "text"}, {"text", result.dump()}}});
-                    }
-                    return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                          {"id", id},
-                                          {"result", fastmcpp::Json{{"content", content}}}};
+                    fastmcpp::Json result_payload = build_fastmcp_tool_result(result);
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"}, {"id", id}, {"result", result_payload}};
                 }
                 catch (const std::exception& e)
                 {
@@ -667,22 +755,15 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     return jsonrpc_error(id, -32602, "Missing tool name");
                 try
                 {
+                    const auto& tool = tools.get(name);
+                    bool has_output_schema = !tool.output_schema().is_null();
+
                     // Use tools.invoke() directly - this is why we capture tools
                     auto result = tools.invoke(name, args);
-                    fastmcpp::Json content = fastmcpp::Json::array();
-                    if (result.is_object() && result.contains("content"))
-                        content = result.at("content");
-                    else if (result.is_array())
-                        content = result;
-                    else if (result.is_string())
-                        content = fastmcpp::Json::array({fastmcpp::Json{
-                            {"type", "text"}, {"text", result.get<std::string>()}}});
-                    else
-                        content = fastmcpp::Json::array(
-                            {fastmcpp::Json{{"type", "text"}, {"text", result.dump()}}});
-                    return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                          {"id", id},
-                                          {"result", fastmcpp::Json{{"content", content}}}};
+                    fastmcpp::Json result_payload =
+                        build_fastmcp_tool_result(result, has_output_schema);
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"}, {"id", id}, {"result", result_payload}};
                 }
                 catch (const std::exception& e)
                 {
@@ -795,27 +876,10 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 for (const auto& name : tools.list_names())
                 {
                     const auto& tool = tools.get(name);
-                    fastmcpp::Json tool_json = {{"name", name},
-                                                {"inputSchema", tool.input_schema()}};
-                    if (tool.title())
-                        tool_json["title"] = *tool.title();
-                    if (tool.description())
-                        tool_json["description"] = *tool.description();
-                    if (tool.icons() && !tool.icons()->empty())
-                    {
-                        fastmcpp::Json icons_json = fastmcpp::Json::array();
-                        for (const auto& icon : *tool.icons())
-                        {
-                            fastmcpp::Json icon_obj = {{"src", icon.src}};
-                            if (icon.mime_type)
-                                icon_obj["mimeType"] = *icon.mime_type;
-                            if (icon.sizes)
-                                icon_obj["sizes"] = *icon.sizes;
-                            icons_json.push_back(icon_obj);
-                        }
-                        tool_json["icons"] = icons_json;
-                    }
-                    tools_array.push_back(tool_json);
+                    std::string desc = tool.description() ? *tool.description() : "";
+                    tools_array.push_back(
+                        make_tool_entry(name, desc, tool.input_schema(), tool.title(), tool.icons(),
+                                        tool.output_schema(), tool.task_support()));
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
@@ -830,21 +894,14 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     return jsonrpc_error(id, -32602, "Missing tool name");
                 try
                 {
+                    const auto& tool = tools.get(name);
+                    bool has_output_schema = !tool.output_schema().is_null();
+
                     auto result = tools.invoke(name, args);
-                    fastmcpp::Json content = fastmcpp::Json::array();
-                    if (result.is_object() && result.contains("content"))
-                        content = result.at("content");
-                    else if (result.is_array())
-                        content = result;
-                    else if (result.is_string())
-                        content = fastmcpp::Json::array({fastmcpp::Json{
-                            {"type", "text"}, {"text", result.get<std::string>()}}});
-                    else
-                        content = fastmcpp::Json::array(
-                            {fastmcpp::Json{{"type", "text"}, {"text", result.dump()}}});
-                    return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                          {"id", id},
-                                          {"result", fastmcpp::Json{{"content", content}}}};
+                    fastmcpp::Json result_payload =
+                        build_fastmcp_tool_result(result, has_output_schema);
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"}, {"id", id}, {"result", result_payload}};
                 }
                 catch (const std::exception& e)
                 {
@@ -1049,6 +1106,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
 
                 // Advertise capabilities
                 fastmcpp::Json capabilities = {{"tools", fastmcpp::Json::object()}};
+                if (app_supports_tasks(app))
+                    capabilities["tasks"] = tasks_capabilities();
                 if (!app.list_all_resources().empty() || !app.list_all_templates().empty())
                     capabilities["resources"] = fastmcpp::Json::object();
                 if (!app.list_all_prompts().empty())
@@ -1079,6 +1138,11 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                         tool_json["title"] = *tool_info.title;
                     if (tool_info.description)
                         tool_json["description"] = *tool_info.description;
+                    if (tool_info.outputSchema && !tool_info.outputSchema->is_null())
+                        tool_json["outputSchema"] =
+                            normalize_output_schema_for_mcp(*tool_info.outputSchema);
+                    if (tool_info.execution)
+                        tool_json["execution"] = *tool_info.execution;
                     if (tool_info.icons && !tool_info.icons->empty())
                     {
                         fastmcpp::Json icons_json = fastmcpp::Json::array();
@@ -1108,6 +1172,16 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                     return jsonrpc_error(id, -32602, "Missing tool name");
                 try
                 {
+                    bool has_output_schema = false;
+                    for (const auto& tool_info : app.list_all_tools_info())
+                    {
+                        if (tool_info.name != name)
+                            continue;
+                        has_output_schema =
+                            tool_info.outputSchema && !tool_info.outputSchema->is_null();
+                        break;
+                    }
+
                     // Detect SEP-1686 task metadata via params._meta
                     int ttl_ms = 60000;
                     bool has_task_meta = false;
@@ -1124,13 +1198,25 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                         }
                     }
 
+                    auto support = find_tool_task_support(app, name);
+                    if (support)
+                    {
+                        if (has_task_meta && *support == fastmcpp::TaskSupport::Forbidden)
+                            return jsonrpc_error(id, -32601,
+                                                 "Task execution forbidden for tool: " + name);
+                        if (!has_task_meta && *support == fastmcpp::TaskSupport::Required)
+                            return jsonrpc_error(id, -32601,
+                                                 "Task execution required for tool: " + name);
+                    }
+
                     if (has_task_meta)
                     {
                         // Minimal server-side tasks support: execute synchronously but expose
                         // result via tasks/get and tasks/result. The initial stub reports a
                         // taskId and completed status so clients can poll if desired.
                         auto invoke_result = app.invoke_tool(name, args);
-                        fastmcpp::Json result_payload = build_fastmcp_tool_result(invoke_result);
+                        fastmcpp::Json result_payload =
+                            build_fastmcp_tool_result(invoke_result, has_output_schema);
 
                         std::string task_id = tasks->add_completed_task(
                             "tool", name, std::move(result_payload), ttl_ms);
@@ -1155,7 +1241,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
 
                     // Synchronous execution (no task metadata)
                     auto invoke_result = app.invoke_tool(name, args);
-                    fastmcpp::Json result_payload = build_fastmcp_tool_result(invoke_result);
+                    fastmcpp::Json result_payload =
+                        build_fastmcp_tool_result(invoke_result, has_output_schema);
                     return fastmcpp::Json{
                         {"jsonrpc", "2.0"},
                         {"id", id},
@@ -1318,6 +1405,17 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                     int ttl_ms = 60000;
                     bool as_task = extract_task_ttl(params, ttl_ms);
 
+                    auto support = find_resource_task_support(app, uri);
+                    if (support)
+                    {
+                        if (as_task && *support == fastmcpp::TaskSupport::Forbidden)
+                            return jsonrpc_error(id, -32601,
+                                                 "Task execution forbidden for resource: " + uri);
+                        if (!as_task && *support == fastmcpp::TaskSupport::Required)
+                            return jsonrpc_error(id, -32601,
+                                                 "Task execution required for resource: " + uri);
+                    }
+
                     auto content = app.read_resource(uri, params);
                     fastmcpp::Json content_json = {{"uri", content.uri}};
                     if (content.mime_type)
@@ -1425,6 +1523,17 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                     int ttl_ms = 60000;
                     bool as_task = extract_task_ttl(params, ttl_ms);
 
+                    auto support = find_prompt_task_support(app, name);
+                    if (support)
+                    {
+                        if (as_task && *support == fastmcpp::TaskSupport::Forbidden)
+                            return jsonrpc_error(id, -32601,
+                                                 "Task execution forbidden for prompt: " + name);
+                        if (!as_task && *support == fastmcpp::TaskSupport::Required)
+                            return jsonrpc_error(id, -32601,
+                                                 "Task execution required for prompt: " + name);
+                    }
+
                     fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
                     auto messages = app.get_prompt(name, args);
 
@@ -1530,6 +1639,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         tool_json["title"] = *tool.title;
                     if (tool.outputSchema)
                         tool_json["outputSchema"] = *tool.outputSchema;
+                    if (tool.execution)
+                        tool_json["execution"] = *tool.execution;
                     if (tool.icons)
                     {
                         fastmcpp::Json icons_array = fastmcpp::Json::array();
@@ -1890,6 +2001,8 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                     {"tools", fastmcpp::Json::object()},
                     {"sampling", fastmcpp::Json::object()} // We support sampling
                 };
+                if (app_supports_tasks(app))
+                    capabilities["tasks"] = tasks_capabilities();
                 if (!app.list_all_resources().empty() || !app.list_all_templates().empty())
                     capabilities["resources"] = fastmcpp::Json::object();
                 if (!app.list_all_prompts().empty())
@@ -1920,6 +2033,11 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                         tool_json["title"] = *tool_info.title;
                     if (tool_info.description)
                         tool_json["description"] = *tool_info.description;
+                    if (tool_info.outputSchema && !tool_info.outputSchema->is_null())
+                        tool_json["outputSchema"] =
+                            normalize_output_schema_for_mcp(*tool_info.outputSchema);
+                    if (tool_info.execution)
+                        tool_json["execution"] = *tool_info.execution;
                     if (tool_info.icons && !tool_info.icons->empty())
                     {
                         fastmcpp::Json icons_json = fastmcpp::Json::array();
@@ -1948,6 +2066,16 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 if (name.empty())
                     return jsonrpc_error(id, -32602, "Missing tool name");
 
+                bool has_output_schema = false;
+                for (const auto& tool_info : app.list_all_tools_info())
+                {
+                    if (tool_info.name != name)
+                        continue;
+                    has_output_schema =
+                        tool_info.outputSchema && !tool_info.outputSchema->is_null();
+                    break;
+                }
+
                 // Inject _meta with session_id and sampling callback into args
                 // This allows tools to access sampling via Context
                 if (!session_id.empty())
@@ -1966,20 +2094,10 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 try
                 {
                     auto result = app.invoke_tool(name, args);
-                    fastmcpp::Json content = fastmcpp::Json::array();
-                    if (result.is_object() && result.contains("content"))
-                        content = result.at("content");
-                    else if (result.is_array())
-                        content = result;
-                    else if (result.is_string())
-                        content = fastmcpp::Json::array({fastmcpp::Json{
-                            {"type", "text"}, {"text", result.get<std::string>()}}});
-                    else
-                        content = fastmcpp::Json::array(
-                            {fastmcpp::Json{{"type", "text"}, {"text", result.dump()}}});
-                    return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                          {"id", id},
-                                          {"result", fastmcpp::Json{{"content", content}}}};
+                    fastmcpp::Json result_payload =
+                        build_fastmcp_tool_result(result, has_output_schema);
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"}, {"id", id}, {"result", result_payload}};
                 }
                 catch (const std::exception& e)
                 {
