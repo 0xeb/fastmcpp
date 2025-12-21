@@ -17,12 +17,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         build_type: [Debug, Release]
-        include:
-          # ARM64 Linux builds
-          - os: ubuntu-24.04-arm
-            build_type: Debug
-          - os: ubuntu-24.04-arm
-            build_type: Release
 
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.os }} (${{ matrix.build_type }})

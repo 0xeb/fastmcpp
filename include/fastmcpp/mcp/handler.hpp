@@ -26,6 +26,9 @@ class SseServerWrapper;
 namespace fastmcpp::mcp
 {
 
+/// Session accessor callback type - retrieves ServerSession for a session_id
+using SessionAccessor = std::function<std::shared_ptr<server::ServerSession>(const std::string&)>;
+
 // Factory that produces a JSON-RPC handler compatible with ClaudeOptions::sdk_mcp_handlers.
 // It supports a subset of MCP methods needed for in-process tools:
 // - "initialize"
@@ -62,12 +65,14 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
 // Uses app's aggregated lists and routing for mounted sub-apps
 std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const FastMCP& app);
 
+// Overload: FastMCP handler with session access.
+// Enables server-initiated features (e.g., task status push) keyed by params._meta.session_id.
+std::function<fastmcpp::Json(const fastmcpp::Json&)>
+make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor);
+
 // MCP handler from ProxyApp - supports proxying to backend server
 // Uses app's aggregated lists (local + remote) and routing
 std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const ProxyApp& app);
-
-/// Session accessor callback type - retrieves ServerSession for a session_id
-using SessionAccessor = std::function<std::shared_ptr<server::ServerSession>(const std::string&)>;
 
 /// MCP handler with sampling support
 /// The session_accessor callback is used to get ServerSession for sampling requests.

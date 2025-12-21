@@ -5,6 +5,8 @@
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/mcp/handler.hpp"
 
+#include <unordered_set>
+
 namespace fastmcpp
 {
 
@@ -16,6 +18,43 @@ FastMCP::FastMCP(std::string name, std::string version, std::optional<std::strin
 
 void FastMCP::mount(FastMCP& app, const std::string& prefix, bool as_proxy)
 {
+    mount(app, prefix, as_proxy, std::nullopt);
+}
+
+namespace
+{
+void validate_tool_name_overrides(
+    const std::optional<std::unordered_map<std::string, std::string>>& tool_names)
+{
+    if (!tool_names)
+        return;
+
+    std::unordered_set<std::string> seen;
+    seen.reserve(tool_names->size());
+    for (const auto& [_, value] : *tool_names)
+        if (!seen.insert(value).second)
+            throw fastmcpp::ValidationError("tool_names values must be unique");
+}
+
+std::optional<std::string> find_original_tool_name_for_override(
+    const std::optional<std::unordered_map<std::string, std::string>>& tool_names,
+    const std::string& exposed_name)
+{
+    if (!tool_names)
+        return std::nullopt;
+
+    for (const auto& [original_name, custom_name] : *tool_names)
+        if (custom_name == exposed_name)
+            return original_name;
+    return std::nullopt;
+}
+} // namespace
+
+void FastMCP::mount(FastMCP& app, const std::string& prefix, bool as_proxy,
+                    std::optional<std::unordered_map<std::string, std::string>> tool_names)
+{
+    validate_tool_name_overrides(tool_names);
+
     if (as_proxy)
     {
         // Create MCP handler for the app
@@ -28,11 +67,11 @@ void FastMCP::mount(FastMCP& app, const std::string& prefix, bool as_proxy)
         // Create ProxyApp wrapper
         auto proxy = std::make_unique<ProxyApp>(client_factory, app.name(), app.version());
 
-        proxy_mounted_.push_back({prefix, std::move(proxy)});
+        proxy_mounted_.push_back({prefix, std::move(proxy), std::move(tool_names)});
     }
     else
     {
-        mounted_.push_back({prefix, &app});
+        mounted_.push_back({prefix, &app, std::move(tool_names)});
     }
 }
 
@@ -128,7 +167,19 @@ std::vector<std::pair<std::string, const tools::Tool*>> FastMCP::list_all_tools(
 
         for (const auto& [child_name, tool] : child_tools)
         {
-            std::string prefixed_name = add_prefix(child_name, mounted.prefix);
+            std::string prefixed_name = child_name;
+            if (mounted.tool_names)
+            {
+                auto override_it = mounted.tool_names->find(child_name);
+                if (override_it != mounted.tool_names->end())
+                    prefixed_name = override_it->second;
+                else
+                    prefixed_name = add_prefix(child_name, mounted.prefix);
+            }
+            else
+            {
+                prefixed_name = add_prefix(child_name, mounted.prefix);
+            }
             result.emplace_back(prefixed_name, tool);
         }
     }
@@ -143,7 +194,19 @@ std::vector<std::pair<std::string, const tools::Tool*>> FastMCP::list_all_tools(
 
         for (const auto& tool_info : proxy_tools)
         {
-            std::string prefixed_name = add_prefix(tool_info.name, proxy_mount.prefix);
+            std::string prefixed_name = tool_info.name;
+            if (proxy_mount.tool_names)
+            {
+                auto override_it = proxy_mount.tool_names->find(tool_info.name);
+                if (override_it != proxy_mount.tool_names->end())
+                    prefixed_name = override_it->second;
+                else
+                    prefixed_name = add_prefix(tool_info.name, proxy_mount.prefix);
+            }
+            else
+            {
+                prefixed_name = add_prefix(tool_info.name, proxy_mount.prefix);
+            }
             // We can't return a pointer for proxy tools, so we add a placeholder
             // This is a limitation - users should prefer list_all_tools_info() for full access
             result.emplace_back(prefixed_name, nullptr);
@@ -183,7 +246,18 @@ std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
 
         for (auto& tool_info : child_tools)
         {
-            tool_info.name = add_prefix(tool_info.name, mounted.prefix);
+            if (mounted.tool_names)
+            {
+                auto override_it = mounted.tool_names->find(tool_info.name);
+                if (override_it != mounted.tool_names->end())
+                    tool_info.name = override_it->second;
+                else
+                    tool_info.name = add_prefix(tool_info.name, mounted.prefix);
+            }
+            else
+            {
+                tool_info.name = add_prefix(tool_info.name, mounted.prefix);
+            }
             result.push_back(tool_info);
         }
     }
@@ -196,7 +270,18 @@ std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
 
         for (auto& tool_info : proxy_tools)
         {
-            tool_info.name = add_prefix(tool_info.name, proxy_mount.prefix);
+            if (proxy_mount.tool_names)
+            {
+                auto override_it = proxy_mount.tool_names->find(tool_info.name);
+                if (override_it != proxy_mount.tool_names->end())
+                    tool_info.name = override_it->second;
+                else
+                    tool_info.name = add_prefix(tool_info.name, proxy_mount.prefix);
+            }
+            else
+            {
+                tool_info.name = add_prefix(tool_info.name, proxy_mount.prefix);
+            }
             result.push_back(tool_info);
         }
     }
@@ -356,16 +441,26 @@ Json FastMCP::invoke_tool(const std::string& name, const Json& args) const
     {
         const auto& mounted = *it;
 
-        std::string try_name = name;
-        if (!mounted.prefix.empty())
+        std::optional<std::string> overridden_original =
+            find_original_tool_name_for_override(mounted.tool_names, name);
+        std::string try_name;
+        if (overridden_original)
         {
-            // Check if name has the right prefix
-            std::string expected_prefix = mounted.prefix + "_";
-            if (name.substr(0, expected_prefix.size()) != expected_prefix)
-                continue;
+            try_name = *overridden_original;
+        }
+        else
+        {
+            try_name = name;
+            if (!mounted.prefix.empty())
+            {
+                // Check if name has the right prefix
+                std::string expected_prefix = mounted.prefix + "_";
+                if (name.substr(0, expected_prefix.size()) != expected_prefix)
+                    continue;
 
-            // Strip prefix for child lookup
-            try_name = name.substr(expected_prefix.size());
+                // Strip prefix for child lookup
+                try_name = name.substr(expected_prefix.size());
+            }
         }
 
         try
@@ -383,13 +478,23 @@ Json FastMCP::invoke_tool(const std::string& name, const Json& args) const
     {
         const auto& proxy_mount = *it;
 
-        std::string try_name = name;
-        if (!proxy_mount.prefix.empty())
+        std::optional<std::string> overridden_original =
+            find_original_tool_name_for_override(proxy_mount.tool_names, name);
+        std::string try_name;
+        if (overridden_original)
         {
-            std::string expected_prefix = proxy_mount.prefix + "_";
-            if (name.substr(0, expected_prefix.size()) != expected_prefix)
-                continue;
-            try_name = name.substr(expected_prefix.size());
+            try_name = *overridden_original;
+        }
+        else
+        {
+            try_name = name;
+            if (!proxy_mount.prefix.empty())
+            {
+                std::string expected_prefix = proxy_mount.prefix + "_";
+                if (name.substr(0, expected_prefix.size()) != expected_prefix)
+                    continue;
+                try_name = name.substr(expected_prefix.size());
+            }
         }
 
         try
@@ -569,10 +674,20 @@ resources::ResourceContent FastMCP::read_resource(const std::string& uri, const 
 std::vector<prompts::PromptMessage> FastMCP::get_prompt(const std::string& name,
                                                         const Json& args) const
 {
+    return get_prompt_result(name, args).messages;
+}
+
+prompts::PromptResult FastMCP::get_prompt_result(const std::string& name, const Json& args) const
+{
     // Try local prompts first
     try
     {
-        return prompts_.render(name, args);
+        const auto& prompt = prompts_.get(name);
+        prompts::PromptResult out;
+        out.messages = prompts_.render(name, args);
+        out.description = prompt.description;
+        out.meta = prompt.meta;
+        return out;
     }
     catch (const NotFoundError&)
     {
@@ -598,7 +713,7 @@ std::vector<prompts::PromptMessage> FastMCP::get_prompt(const std::string& name,
 
         try
         {
-            return mounted.app->get_prompt(try_name, args);
+            return mounted.app->get_prompt_result(try_name, args);
         }
         catch (const NotFoundError&)
         {
@@ -624,23 +739,26 @@ std::vector<prompts::PromptMessage> FastMCP::get_prompt(const std::string& name,
         {
             auto result = proxy_mount.proxy->get_prompt(try_name, args);
 
+            prompts::PromptResult out;
+            out.description = result.description;
+            out.meta = result._meta;
+
             // Convert GetPromptResult to vector<PromptMessage>
-            std::vector<prompts::PromptMessage> messages;
             for (const auto& pm : result.messages)
             {
                 prompts::PromptMessage msg;
                 msg.role = (pm.role == client::Role::Assistant) ? "assistant" : "user";
 
-                // Extract text content
+                // Extract text content (best-effort)
                 if (!pm.content.empty())
                 {
                     if (auto* text = std::get_if<client::TextContent>(&pm.content[0]))
                         msg.content = text->text;
                 }
 
-                messages.push_back(msg);
+                out.messages.push_back(std::move(msg));
             }
-            return messages;
+            return out;
         }
         catch (const NotFoundError&)
         {

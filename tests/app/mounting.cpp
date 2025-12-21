@@ -5,6 +5,10 @@
 
 #include <cassert>
 #include <iostream>
+#include <unordered_map>
+#ifdef _MSC_VER
+#include <crtdbg.h>
+#endif
 
 using namespace fastmcpp;
 
@@ -371,6 +375,38 @@ void test_no_prefix_mounting()
     std::cout << "  PASSED" << std::endl;
 }
 
+void test_tool_name_overrides_direct()
+{
+    std::cout << "test_tool_name_overrides_direct..." << std::endl;
+
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
+
+    child_app.tools().register_tool(make_echo_tool("echo"));
+
+    main_app.mount(child_app, "child", false,
+                   std::unordered_map<std::string, std::string>{{"echo", "say"}});
+
+    auto all_tools = main_app.list_all_tools();
+
+    bool found_say = false;
+    bool found_child_echo = false;
+    for (const auto& [name, _] : all_tools)
+    {
+        if (name == "say")
+            found_say = true;
+        if (name == "child_echo")
+            found_child_echo = true;
+    }
+    assert(found_say);
+    assert(!found_child_echo);
+
+    auto result = main_app.invoke_tool("say", Json{{"message", "override"}});
+    assert(result.get<std::string>() == "override");
+
+    std::cout << "  PASSED" << std::endl;
+}
+
 void test_mcp_handler_integration()
 {
     std::cout << "test_mcp_handler_integration..." << std::endl;
@@ -381,6 +417,14 @@ void test_mcp_handler_integration()
     // Register tools
     main_app.tools().register_tool(make_add_tool());
     child_app.tools().register_tool(make_echo_tool("echo"));
+
+    // Register a prompt with meta on the main app
+    {
+        auto p = make_prompt("demo", "Hello from prompt!");
+        p.description = "Prompt description";
+        p.meta = Json{{"source", "mounting_test"}};
+        main_app.prompts().register_prompt(p);
+    }
 
     // Mount child
     main_app.mount(child_app, "child");
@@ -415,6 +459,18 @@ void test_mcp_handler_integration()
                                      {"arguments", Json{{"message", "hello via handler"}}}}}});
     assert(call_response.contains("result"));
     assert(call_response["result"]["content"][0]["text"] == "hello via handler");
+
+    // Test prompts/get - should include description and _meta
+    auto prompt_response =
+        handler(Json{{"jsonrpc", "2.0"},
+                     {"id", 4},
+                     {"method", "prompts/get"},
+                     {"params", Json{{"name", "demo"}, {"arguments", Json::object()}}}});
+    assert(prompt_response.contains("result"));
+    assert(prompt_response["result"].contains("description"));
+    assert(prompt_response["result"]["description"] == "Prompt description");
+    assert(prompt_response["result"].contains("_meta"));
+    assert(prompt_response["result"]["_meta"]["source"] == "mounting_test");
 
     std::cout << "  PASSED" << std::endl;
 }
@@ -528,6 +584,38 @@ void test_proxy_mode_tool_routing()
     // Invoke proxy tool
     auto echo_result = main_app.invoke_tool("child_echo", Json{{"message", "hello via proxy"}});
     assert(echo_result.get<std::string>() == "hello via proxy");
+
+    std::cout << "  PASSED" << std::endl;
+}
+
+void test_tool_name_overrides_proxy()
+{
+    std::cout << "test_tool_name_overrides_proxy..." << std::endl;
+
+    FastMCP main_app("MainApp", "1.0.0");
+    FastMCP child_app("ChildApp", "1.0.0");
+
+    child_app.tools().register_tool(make_echo_tool("echo"));
+
+    main_app.mount(child_app, "child", true,
+                   std::unordered_map<std::string, std::string>{{"echo", "say"}});
+
+    auto all_tools = main_app.list_all_tools();
+
+    bool found_say = false;
+    bool found_child_echo = false;
+    for (const auto& [name, _] : all_tools)
+    {
+        if (name == "say")
+            found_say = true;
+        if (name == "child_echo")
+            found_child_echo = true;
+    }
+    assert(found_say);
+    assert(!found_child_echo);
+
+    auto result = main_app.invoke_tool("say", Json{{"message", "override via proxy"}});
+    assert(result.get<std::string>() == "override via proxy");
 
     std::cout << "  PASSED" << std::endl;
 }
@@ -727,6 +815,19 @@ void test_proxy_mode_mcp_handler()
 
 int main()
 {
+#ifdef _MSC_VER
+#ifdef _DEBUG
+    // Avoid modal "Abort/Retry/Ignore" dialogs on assertion failures when running tests directly.
+    // Route CRT reports to stderr so ctest/CI logs capture details.
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+    _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
+#endif
+#endif
+
     std::cout << "=== FastMCP Mounting Tests ===" << std::endl;
 
     test_basic_app();
@@ -739,6 +840,7 @@ int main()
     test_prompt_routing();
     test_nested_mounting();
     test_no_prefix_mounting();
+    test_tool_name_overrides_direct();
     test_mcp_handler_integration();
     test_multiple_mounts();
 
@@ -747,6 +849,7 @@ int main()
     test_proxy_mode_basic();
     test_proxy_mode_tool_aggregation();
     test_proxy_mode_tool_routing();
+    test_tool_name_overrides_proxy();
     test_proxy_mode_resource_aggregation();
     test_proxy_mode_resource_routing();
     test_proxy_mode_prompt_aggregation();

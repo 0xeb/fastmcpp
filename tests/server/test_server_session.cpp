@@ -21,6 +21,7 @@ void test_session_creation()
 
     assert(session.session_id() == "sess_123");
     assert(!session.supports_sampling());
+    assert(!session.supports_sampling_tools());
     assert(!session.supports_elicitation());
     assert(!session.supports_roots());
 
@@ -35,6 +36,7 @@ void test_set_capabilities()
 
     // No capabilities initially
     assert(!session.supports_sampling());
+    assert(!session.supports_sampling_tools());
     assert(!session.supports_elicitation());
 
     // Set capabilities
@@ -42,13 +44,20 @@ void test_set_capabilities()
     session.set_capabilities(caps);
 
     assert(session.supports_sampling());
+    assert(!session.supports_sampling_tools());
     assert(!session.supports_elicitation());
     assert(session.supports_roots());
+
+    // Enable sampling tools capability
+    Json caps_tools = {{"sampling", Json{{"tools", Json::object()}}}};
+    session.set_capabilities(caps_tools);
+    assert(session.supports_sampling());
+    assert(session.supports_sampling_tools());
 
     // Get raw capabilities
     auto raw = session.capabilities();
     assert(raw.contains("sampling"));
-    assert(raw.contains("roots"));
+    // roots may be absent after set_capabilities(caps_tools)
 
     std::cout << "PASSED\n";
 }

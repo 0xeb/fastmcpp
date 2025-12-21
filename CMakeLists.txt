@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(fastmcpp VERSION 2.14.0 LANGUAGES CXX)
+project(fastmcpp VERSION 2.14.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,6 +18,7 @@ add_library(fastmcpp_core
     src/app.cpp
     src/proxy.cpp
     src/mcp/handler.cpp
+    src/mcp/tasks.cpp
     src/resources/resource.cpp
     src/resources/manager.cpp
     src/resources/template.cpp
@@ -30,6 +31,7 @@ add_library(fastmcpp_core
     src/server/context.cpp
     src/server/middleware.cpp
     src/server/security_middleware.cpp
+    src/server/sampling.cpp
     src/server/http_server.cpp
     src/server/stdio_server.cpp
     src/server/sse_server.cpp
@@ -231,6 +233,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_sse_mcp_format PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_sse_mcp_format COMMAND fastmcpp_sse_mcp_format)
 
+  add_executable(fastmcpp_sse_tasks_notifications tests/server/sse_tasks_notifications.cpp)
+  target_link_libraries(fastmcpp_sse_tasks_notifications PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_sse_tasks_notifications COMMAND fastmcpp_sse_tasks_notifications)
+
   # Advanced test suites (Task 3.4)
   add_executable(fastmcpp_tools_validation tests/tools/validation.cpp)
   target_link_libraries(fastmcpp_tools_validation PRIVATE fastmcpp_core)
@@ -287,6 +293,10 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_server_context_sampling tests/server/test_context_sampling.cpp)
   target_link_libraries(fastmcpp_server_context_sampling PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_context_sampling COMMAND fastmcpp_server_context_sampling)
+
+  add_executable(fastmcpp_server_sampling_tools tests/server/test_sampling_tools.cpp)
+  target_link_libraries(fastmcpp_server_sampling_tools PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_sampling_tools COMMAND fastmcpp_server_sampling_tools)
 
   add_executable(fastmcpp_server_elicitation_defaults tests/server/test_elicitation_defaults.cpp)
   target_link_libraries(fastmcpp_server_elicitation_defaults PRIVATE fastmcpp_core)

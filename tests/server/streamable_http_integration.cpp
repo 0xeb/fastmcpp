@@ -13,9 +13,11 @@
 #include "fastmcpp/mcp/handler.hpp"
 #include "fastmcpp/server/streamable_http_server.hpp"
 #include "fastmcpp/tools/manager.hpp"
+#include "fastmcpp/util/json.hpp"
 
 #include <cassert>
 #include <chrono>
+#include <httplib.h>
 #include <iostream>
 #include <thread>
 
@@ -105,6 +107,69 @@ void test_basic_request_response()
     }
 
     server.stop();
+}
+
+void test_redirect_follow()
+{
+    std::cout << "  test_redirect_follow... " << std::flush;
+
+    const int port = 18354;
+    const std::string host = "127.0.0.1";
+
+    httplib::Server svr;
+    svr.Post("/mcp",
+             [&](const httplib::Request&, httplib::Response& res)
+             {
+                 res.status = 307;
+                 res.set_header("Location", "/real_mcp");
+             });
+
+    svr.Post("/real_mcp",
+             [&](const httplib::Request& req, httplib::Response& res)
+             {
+                 Json rpc_request = fastmcpp::util::json::parse(req.body);
+                 Json id = rpc_request.value("id", Json());
+                 Json result =
+                     Json{{"serverInfo", Json{{"name", "redirected"}, {"version", "1.0"}}}};
+                 Json rpc_response = Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", result}};
+
+                 res.status = 200;
+                 res.set_header("Mcp-Session-Id", "redirect-session");
+                 res.set_content(rpc_response.dump(), "application/json");
+             });
+
+    std::thread th([&]() { svr.listen(host, port); });
+    svr.wait_until_ready();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    try
+    {
+        client::StreamableHttpTransport transport("http://" + host + ":" + std::to_string(port));
+
+        Json init_params = {{"protocolVersion", "2024-11-05"},
+                            {"capabilities", Json::object()},
+                            {"clientInfo", {{"name", "test_client"}, {"version", "1.0.0"}}}};
+
+        auto init_result = transport.request("initialize", init_params);
+        assert(init_result.contains("serverInfo") && "Should have serverInfo");
+        assert(init_result["serverInfo"]["name"] == "redirected");
+        assert(transport.has_session() && "Should have session after initialize");
+        assert(transport.session_id() == "redirect-session");
+
+        std::cout << "PASSED\n";
+    }
+    catch (const std::exception& e)
+    {
+        std::cout << "FAILED: " << e.what() << "\n";
+        svr.stop();
+        if (th.joinable())
+            th.join();
+        throw;
+    }
+
+    svr.stop();
+    if (th.joinable())
+        th.join();
 }
 
 void test_session_management()
@@ -314,6 +379,7 @@ int main()
     try
     {
         test_basic_request_response();
+        test_redirect_follow();
         test_session_management();
         test_server_info();
         test_error_handling();

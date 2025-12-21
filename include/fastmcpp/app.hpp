@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace fastmcpp
@@ -20,6 +21,8 @@ struct MountedApp
 {
     std::string prefix; // Prefix for tools/prompts (e.g., "weather")
     class FastMCP* app; // Non-owning pointer to mounted app
+    std::optional<std::unordered_map<std::string, std::string>>
+        tool_names; // Optional tool name overrides
 };
 
 /// Proxy-mounted app with prefix (proxy mode)
@@ -27,6 +30,8 @@ struct ProxyMountedApp
 {
     std::string prefix;              // Prefix for tools/prompts
     std::unique_ptr<ProxyApp> proxy; // Owning pointer to proxy wrapper
+    std::optional<std::unordered_map<std::string, std::string>>
+        tool_names; // Optional tool name overrides
 };
 
 /// MCP Application - bundles server metadata with managers
@@ -125,7 +130,13 @@ class FastMCP
     /// @param app The app to mount (must outlive this app in direct mode)
     /// @param prefix Optional prefix (empty string = no prefix)
     /// @param as_proxy If true, mount in proxy mode (uses MCP handler for communication)
+    /// @param tool_names Optional mapping of original tool names to custom names. Keys are the
+    ///                  original tool names from the mounted server (after any nested prefixing).
     void mount(FastMCP& app, const std::string& prefix = "", bool as_proxy = false);
+
+    /// Mount another app with optional tool name overrides.
+    void mount(FastMCP& app, const std::string& prefix, bool as_proxy,
+               std::optional<std::unordered_map<std::string, std::string>> tool_names);
 
     /// Get list of directly mounted apps
     const std::vector<MountedApp>& mounted() const
@@ -172,6 +183,10 @@ class FastMCP
 
     /// Get prompt messages by name (handles prefixed routing)
     std::vector<prompts::PromptMessage> get_prompt(const std::string& name, const Json& args) const;
+
+    /// Get prompt result by name (handles prefixed routing)
+    /// Includes description and optional _meta parity with Python SDK (fastmcp 2.14.1+).
+    prompts::PromptResult get_prompt_result(const std::string& name, const Json& args) const;
 
   private:
     server::Server server_;

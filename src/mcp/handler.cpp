@@ -1,17 +1,23 @@
 #include "fastmcpp/mcp/handler.hpp"
 
 #include "fastmcpp/app.hpp"
+#include "fastmcpp/mcp/tasks.hpp"
 #include "fastmcpp/proxy.hpp"
 #include "fastmcpp/server/sse_server.hpp"
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <ctime>
+#include <deque>
+#include <functional>
 #include <iomanip>
 #include <mutex>
 #include <optional>
 #include <sstream>
+#include <thread>
 #include <unordered_map>
+#include <vector>
 
 namespace fastmcpp::mcp
 {
@@ -40,6 +46,15 @@ static bool schema_is_object(const fastmcpp::Json& schema)
         return true;
 
     return false;
+}
+
+// Extract session_id from request meta (injected by transports like SSE).
+static std::string extract_session_id(const fastmcpp::Json& params)
+{
+    if (params.contains("_meta") && params["_meta"].is_object() &&
+        params["_meta"].contains("session_id") && params["_meta"]["session_id"].is_string())
+        return params["_meta"]["session_id"].get<std::string>();
+    return "";
 }
 
 static fastmcpp::Json normalize_output_schema_for_mcp(const fastmcpp::Json& schema)
@@ -113,13 +128,21 @@ struct TaskInfo
     std::string task_id;
     std::string task_type;            // e.g., "tool"
     std::string component_identifier; // tool name, prompt name, or resource URI
-    std::string status;               // "working", "completed", "failed", "cancelled"
+    std::string status;               // "queued", "running", "completed", "failed", "cancelled"
     std::string status_message;
     std::string created_at;      // ISO8601 string (best-effort)
     std::string last_updated_at; // ISO8601 string (best-effort)
     int ttl_ms{60000};
-    fastmcpp::Json result_payload; // Shape of method-specific result
 };
+
+inline std::string mcp_status_from_internal(const std::string& status)
+{
+    // Per SEP-1686 final spec: tasks MUST begin in "working".
+    // fastmcpp tracks "queued"/"running" internally; map both to "working" externally.
+    if (status == "queued" || status == "running")
+        return "working";
+    return status;
+}
 
 inline std::string to_iso8601_now()
 {
@@ -141,54 +164,478 @@ inline std::string to_iso8601_now()
 class TaskRegistry
 {
   public:
-    std::string add_completed_task(const std::string& task_type,
-                                   const std::string& component_identifier,
-                                   fastmcpp::Json result_payload, int ttl_ms)
+    explicit TaskRegistry(SessionAccessor session_accessor = {})
+        : session_accessor_(std::move(session_accessor))
     {
-        TaskInfo info;
-        info.task_id = generate_task_id();
-        info.task_type = task_type;
-        info.component_identifier = component_identifier;
-        info.status = "completed";
-        info.ttl_ms = ttl_ms;
-        info.created_at = to_iso8601_now();
-        info.last_updated_at = info.created_at;
-        info.result_payload = std::move(result_payload);
-
-        std::lock_guard<std::mutex> lock(mutex_);
-        tasks_[info.task_id] = info;
-        return info.task_id;
+        worker_ = std::thread([this]() { worker_loop(); });
     }
 
-    std::optional<TaskInfo> get_task(const std::string& task_id) const
+    ~TaskRegistry()
     {
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex_);
+            stop_requested_ = true;
+        }
+        queue_cv_.notify_all();
+        if (worker_.joinable())
+            worker_.join();
+    }
+
+    struct CreateResult
+    {
+        std::string task_id;
+        std::string created_at;
+    };
+
+    CreateResult create_task(const std::string& task_type, const std::string& component_identifier,
+                             int ttl_ms, std::string owner_session_id)
+    {
+        TaskEntry entry;
+        entry.info.task_id = generate_task_id();
+        entry.info.task_type = task_type;
+        entry.info.component_identifier = component_identifier;
+        entry.info.status = "queued";
+        entry.info.status_message = "";
+        entry.info.ttl_ms = ttl_ms;
+        entry.info.created_at = to_iso8601_now();
+        entry.info.last_updated_at = entry.info.created_at;
+        entry.created_tp = std::chrono::steady_clock::now();
+        entry.last_updated_tp = entry.created_tp;
+        entry.owner_session_id = std::move(owner_session_id);
+        entry.cancel_requested = std::make_shared<std::atomic_bool>(false);
+
+        std::string task_id = entry.info.task_id;
+        std::string created_at = entry.info.created_at;
+        auto notify = build_status_notification(entry, /*include_non_terminal=*/true);
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            tasks_[entry.info.task_id] = std::move(entry);
+        }
+
+        if (notify)
+            send_status_notification(*notify);
+
+        return {std::move(task_id), std::move(created_at)};
+    }
+
+    void enqueue_task(const std::string& task_id, std::function<fastmcpp::Json()> work)
+    {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            auto it = tasks_.find(task_id);
+            if (it == tasks_.end())
+                return;
+            it->second.work = std::move(work);
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex_);
+            queue_.push_back(task_id);
+        }
+        queue_cv_.notify_one();
+    }
+
+    std::optional<TaskInfo> get_task(const std::string& task_id)
+    {
+        purge_expired_locked();
+
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = tasks_.find(task_id);
         if (it == tasks_.end())
             return std::nullopt;
-        return it->second;
+        return it->second.info;
     }
 
-    std::vector<TaskInfo> list_tasks() const
+    std::vector<TaskInfo> list_tasks()
     {
+        purge_expired_locked();
+
         std::lock_guard<std::mutex> lock(mutex_);
         std::vector<TaskInfo> result;
         result.reserve(tasks_.size());
         for (const auto& kv : tasks_)
-            result.push_back(kv.second);
+            result.push_back(kv.second.info);
         return result;
     }
 
+    enum class ResultState
+    {
+        NotFound,
+        NotReady,
+        Completed,
+        Failed,
+        Cancelled,
+    };
+
+    struct ResultQuery
+    {
+        ResultState state{ResultState::NotFound};
+        fastmcpp::Json payload;
+        std::string error_message;
+    };
+
+    ResultQuery get_result(const std::string& task_id)
+    {
+        purge_expired_locked();
+
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = tasks_.find(task_id);
+        if (it == tasks_.end())
+        {
+            ResultQuery query;
+            query.state = ResultState::NotFound;
+            return query;
+        }
+
+        const auto& info = it->second.info;
+        if (info.status == "completed")
+        {
+            ResultQuery query;
+            query.state = ResultState::Completed;
+            query.payload = it->second.result_payload;
+            return query;
+        }
+        if (info.status == "failed")
+        {
+            ResultQuery query;
+            query.state = ResultState::Failed;
+            query.error_message = it->second.error_message;
+            return query;
+        }
+        if (info.status == "cancelled")
+        {
+            ResultQuery query;
+            query.state = ResultState::Cancelled;
+            query.error_message = it->second.error_message;
+            return query;
+        }
+
+        ResultQuery query;
+        query.state = ResultState::NotReady;
+        return query;
+    }
+
+    bool cancel(const std::string& task_id)
+    {
+        purge_expired_locked();
+
+        std::optional<StatusNotification> notify;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            auto it = tasks_.find(task_id);
+            if (it == tasks_.end())
+                return false;
+
+            auto& entry = it->second;
+            if (entry.cancel_requested)
+                entry.cancel_requested->store(true);
+
+            if (entry.info.status == "queued" || entry.info.status == "running")
+            {
+                entry.info.status = "cancelled";
+                entry.info.status_message = "Task cancelled";
+                entry.error_message = "Task cancelled";
+                entry.info.last_updated_at = to_iso8601_now();
+                entry.last_updated_tp = std::chrono::steady_clock::now();
+                notify = build_status_notification(entry, /*include_non_terminal=*/false);
+            }
+        }
+
+        if (notify)
+            send_status_notification(*notify);
+        return true;
+    }
+
   private:
+    bool set_status_message(const std::string& task_id, std::string message)
+    {
+        std::optional<StatusNotification> notify;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            auto it = tasks_.find(task_id);
+            if (it == tasks_.end())
+                return false;
+
+            auto& entry = it->second;
+            bool terminal = (entry.info.status == "completed" || entry.info.status == "failed" ||
+                             entry.info.status == "cancelled");
+            if (terminal)
+                return false;
+
+            if (entry.info.status_message == message)
+                return true;
+
+            entry.info.status_message = std::move(message);
+            entry.info.last_updated_at = to_iso8601_now();
+            entry.last_updated_tp = std::chrono::steady_clock::now();
+            notify = build_status_notification(entry, /*include_non_terminal=*/true);
+        }
+
+        if (notify)
+            send_status_notification(*notify);
+        return true;
+    }
+
+    static void tls_set_status_message(void* ctx, const std::string& task_id,
+                                       const std::string& message)
+    {
+        auto* self = static_cast<TaskRegistry*>(ctx);
+        (void)self->set_status_message(task_id, message);
+    }
+
+    struct TaskEntry
+    {
+        TaskInfo info;
+        std::chrono::steady_clock::time_point created_tp{};
+        std::chrono::steady_clock::time_point last_updated_tp{};
+        std::string owner_session_id;
+        std::shared_ptr<std::atomic_bool> cancel_requested;
+        std::function<fastmcpp::Json()> work;
+        fastmcpp::Json result_payload;
+        std::string error_message;
+    };
+
+    struct StatusNotification
+    {
+        std::string owner_session_id;
+        fastmcpp::Json params;
+    };
+
+    std::optional<StatusNotification> build_status_notification(const TaskEntry& entry,
+                                                                bool include_non_terminal) const
+    {
+        if (entry.owner_session_id.empty())
+            return std::nullopt;
+
+        const auto& info = entry.info;
+        bool terminal =
+            (info.status == "completed" || info.status == "failed" || info.status == "cancelled");
+        if (!terminal && !include_non_terminal)
+            return std::nullopt;
+
+        fastmcpp::Json status_params = {
+            {"taskId", info.task_id},       {"status", mcp_status_from_internal(info.status)},
+            {"createdAt", info.created_at}, {"lastUpdatedAt", info.last_updated_at},
+            {"ttl", info.ttl_ms},           {"pollInterval", 1000},
+        };
+        if (!info.status_message.empty())
+            status_params["statusMessage"] = info.status_message;
+
+        return StatusNotification{entry.owner_session_id, std::move(status_params)};
+    }
+
+    void send_status_notification(const StatusNotification& notification) const
+    {
+        if (!session_accessor_)
+            return;
+        auto session = session_accessor_(notification.owner_session_id);
+        if (!session)
+            return;
+
+        session->send_notification("notifications/tasks/status", notification.params);
+    }
+
+    void worker_loop()
+    {
+        while (true)
+        {
+            std::string task_id;
+            {
+                std::unique_lock<std::mutex> lock(queue_mutex_);
+                queue_cv_.wait(lock, [&] { return stop_requested_ || !queue_.empty(); });
+                if (stop_requested_ && queue_.empty())
+                    break;
+                task_id = std::move(queue_.front());
+                queue_.pop_front();
+            }
+
+            execute_task(task_id);
+        }
+    }
+
+    void execute_task(const std::string& task_id)
+    {
+        std::function<fastmcpp::Json()> work;
+        std::shared_ptr<std::atomic_bool> cancel_requested;
+        std::optional<StatusNotification> notify;
+        bool should_execute = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            auto it = tasks_.find(task_id);
+            if (it == tasks_.end())
+                return;
+
+            auto& entry = it->second;
+            cancel_requested = entry.cancel_requested;
+            if (cancel_requested && cancel_requested->load() && entry.info.status == "queued")
+            {
+                entry.info.status = "cancelled";
+                entry.info.status_message = "Task cancelled";
+                entry.error_message = "Task cancelled";
+                entry.info.last_updated_at = to_iso8601_now();
+                entry.last_updated_tp = std::chrono::steady_clock::now();
+                notify = build_status_notification(entry, /*include_non_terminal=*/false);
+            }
+            else if (entry.info.status == "queued")
+            {
+                entry.info.status = "running";
+                entry.info.last_updated_at = to_iso8601_now();
+                entry.last_updated_tp = std::chrono::steady_clock::now();
+                work = entry.work;
+                should_execute = true;
+                notify = build_status_notification(entry, /*include_non_terminal=*/true);
+            }
+            // else: already terminal or running - nothing to do
+        }
+
+        if (notify)
+        {
+            send_status_notification(*notify);
+            if (!should_execute)
+                return;
+        }
+        if (!should_execute)
+            return;
+
+        if (!work)
+        {
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                auto it = tasks_.find(task_id);
+                if (it == tasks_.end())
+                    return;
+                auto& entry = it->second;
+                entry.info.status = "failed";
+                entry.info.status_message = "Task has no work scheduled";
+                entry.error_message = "Task has no work scheduled";
+                entry.info.last_updated_at = to_iso8601_now();
+                entry.last_updated_tp = std::chrono::steady_clock::now();
+                notify = build_status_notification(entry, /*include_non_terminal=*/false);
+            }
+            if (notify)
+                send_status_notification(*notify);
+            return;
+        }
+
+        bool ok = false;
+        fastmcpp::Json payload;
+        std::string error;
+        try
+        {
+            struct TaskTlsScope
+            {
+                explicit TaskTlsScope(TaskRegistry* registry, const std::string& task_id)
+                {
+                    fastmcpp::mcp::tasks::detail::set_current_task(
+                        registry, &TaskRegistry::tls_set_status_message, task_id);
+                }
+                ~TaskTlsScope()
+                {
+                    fastmcpp::mcp::tasks::detail::clear_current_task();
+                }
+            };
+
+            TaskTlsScope scope(this, task_id);
+            payload = work();
+            ok = true;
+        }
+        catch (const std::exception& e)
+        {
+            ok = false;
+            error = e.what();
+        }
+        catch (...)
+        {
+            ok = false;
+            error = "Unknown task error";
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            auto it = tasks_.find(task_id);
+            if (it == tasks_.end())
+                return;
+            auto& entry = it->second;
+
+            if (entry.cancel_requested && entry.cancel_requested->load())
+            {
+                entry.info.status = "cancelled";
+                entry.info.status_message = "Task cancelled";
+                entry.error_message = "Task cancelled";
+                entry.info.last_updated_at = to_iso8601_now();
+                entry.last_updated_tp = std::chrono::steady_clock::now();
+            }
+            else if (ok)
+            {
+                entry.result_payload = std::move(payload);
+                entry.info.status = "completed";
+                entry.info.status_message = "Task completed successfully";
+            }
+            else
+            {
+                entry.info.status = "failed";
+                entry.info.status_message = "Task failed";
+                entry.error_message = error.empty() ? "Task failed" : error;
+            }
+
+            entry.info.last_updated_at = to_iso8601_now();
+            entry.last_updated_tp = std::chrono::steady_clock::now();
+
+            notify = build_status_notification(entry, /*include_non_terminal=*/false);
+        }
+
+        if (notify)
+            send_status_notification(*notify);
+    }
+
+    void purge_expired_locked()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        purge_expired_locked_no_lock();
+    }
+
+    void purge_expired_locked_no_lock()
+    {
+        auto now = std::chrono::steady_clock::now();
+        for (auto it = tasks_.begin(); it != tasks_.end();)
+        {
+            const auto& entry = it->second;
+            const auto& info = entry.info;
+            bool terminal = (info.status == "completed" || info.status == "failed" ||
+                             info.status == "cancelled");
+            if (!terminal)
+            {
+                ++it;
+                continue;
+            }
+
+            auto age_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - entry.last_updated_tp)
+                    .count();
+            if (age_ms > info.ttl_ms)
+                it = tasks_.erase(it);
+            else
+                ++it;
+        }
+    }
+
     std::string generate_task_id()
     {
         uint64_t id = next_id_.fetch_add(1, std::memory_order_relaxed) + 1;
         return "task-" + std::to_string(id);
     }
 
-    mutable std::mutex mutex_;
-    std::unordered_map<std::string, TaskInfo> tasks_;
+    std::mutex mutex_;
+    std::unordered_map<std::string, TaskEntry> tasks_;
     std::atomic<uint64_t> next_id_{0};
+
+    std::mutex queue_mutex_;
+    std::condition_variable queue_cv_;
+    std::deque<std::string> queue_;
+    bool stop_requested_{false};
+    std::thread worker_;
+
+    SessionAccessor session_accessor_;
 };
 
 // Helper: convert a tool invocation JSON result into an MCP CallToolResult payload.
@@ -1078,7 +1525,13 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
 // FastMCP handler - supports mounted apps with aggregation
 std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const FastMCP& app)
 {
-    auto tasks = std::make_shared<TaskRegistry>();
+    return make_mcp_handler(app, SessionAccessor{});
+}
+
+std::function<fastmcpp::Json(const fastmcpp::Json&)>
+make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
+{
+    auto tasks = std::make_shared<TaskRegistry>(std::move(session_accessor));
     return [&app, tasks](const fastmcpp::Json& message) -> fastmcpp::Json
     {
         try
@@ -1211,18 +1664,25 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
 
                     if (has_task_meta)
                     {
-                        // Minimal server-side tasks support: execute synchronously but expose
-                        // result via tasks/get and tasks/result. The initial stub reports a
-                        // taskId and completed status so clients can poll if desired.
-                        auto invoke_result = app.invoke_tool(name, args);
-                        fastmcpp::Json result_payload =
-                            build_fastmcp_tool_result(invoke_result, has_output_schema);
+                        auto created =
+                            tasks->create_task("tool", name, ttl_ms, extract_session_id(params));
+                        std::string task_id = created.task_id;
 
-                        std::string task_id = tasks->add_completed_task(
-                            "tool", name, std::move(result_payload), ttl_ms);
+                        tasks->enqueue_task(
+                            task_id,
+                            [&app, name, args, has_output_schema]() -> fastmcpp::Json
+                            {
+                                auto invoke_result = app.invoke_tool(name, args);
+                                return build_fastmcp_tool_result(invoke_result, has_output_schema);
+                            });
 
                         fastmcpp::Json task_meta = {
-                            {"taskId", task_id}, {"status", "completed"}, {"ttl", ttl_ms}};
+                            {"taskId", task_id},
+                            {"status", "working"},
+                            {"ttl", ttl_ms},
+                            {"createdAt", created.created_at},
+                            {"lastUpdatedAt", created.created_at},
+                        };
 
                         fastmcpp::Json response_result = {
                             {"content", fastmcpp::Json::array()},
@@ -1268,7 +1728,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
 
                 fastmcpp::Json status_json = {
                     {"taskId", info->task_id},
-                    {"status", info->status},
+                    {"status", mcp_status_from_internal(info->status)},
                 };
                 if (!info->created_at.empty())
                     status_json["createdAt"] = info->created_at;
@@ -1292,15 +1752,19 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                 if (task_id.empty())
                     return jsonrpc_error(id, -32602, "Missing taskId");
 
-                auto info = tasks->get_task(task_id);
-                if (!info)
+                auto q = tasks->get_result(task_id);
+                if (q.state == TaskRegistry::ResultState::NotFound)
                     return jsonrpc_error(id, -32602, "Invalid taskId");
+                if (q.state == TaskRegistry::ResultState::NotReady)
+                    return jsonrpc_error(id, -32602, "Task not completed");
+                if (q.state == TaskRegistry::ResultState::Cancelled)
+                    return jsonrpc_error(
+                        id, -32603, q.error_message.empty() ? "Task cancelled" : q.error_message);
+                if (q.state == TaskRegistry::ResultState::Failed)
+                    return jsonrpc_error(id, -32603,
+                                         q.error_message.empty() ? "Task failed" : q.error_message);
 
-                return fastmcpp::Json{
-                    {"jsonrpc", "2.0"},
-                    {"id", id},
-                    {"result", info->result_payload},
-                };
+                return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", q.payload}};
             }
 
             if (method == "tasks/list")
@@ -1308,7 +1772,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                 fastmcpp::Json tasks_array = fastmcpp::Json::array();
                 for (const auto& t : tasks->list_tasks())
                 {
-                    fastmcpp::Json t_json = {{"taskId", t.task_id}, {"status", t.status}};
+                    fastmcpp::Json t_json = {{"taskId", t.task_id},
+                                             {"status", mcp_status_from_internal(t.status)}};
                     if (!t.created_at.empty())
                         t_json["createdAt"] = t.created_at;
                     if (!t.last_updated_at.empty())
@@ -1334,20 +1799,25 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                 if (task_id.empty())
                     return jsonrpc_error(id, -32602, "Missing taskId");
 
+                if (!tasks->cancel(task_id))
+                    return jsonrpc_error(id, -32602, "Invalid taskId");
+
                 auto info = tasks->get_task(task_id);
                 if (!info)
                     return jsonrpc_error(id, -32602, "Invalid taskId");
 
                 fastmcpp::Json result = {
                     {"taskId", info->task_id},
-                    {"status", "cancelled"},
+                    {"status", mcp_status_from_internal(info->status)},
                 };
                 if (!info->created_at.empty())
                     result["createdAt"] = info->created_at;
-                result["lastUpdatedAt"] = to_iso8601_now();
+                if (!info->last_updated_at.empty())
+                    result["lastUpdatedAt"] = info->last_updated_at;
                 result["ttl"] = info->ttl_ms;
                 result["pollInterval"] = 1000;
-                result["statusMessage"] = "Cancellation acknowledged (no-op for completed tasks)";
+                if (!info->status_message.empty())
+                    result["statusMessage"] = info->status_message;
 
                 return fastmcpp::Json{
                     {"jsonrpc", "2.0"},
@@ -1416,6 +1886,81 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                                                  "Task execution required for resource: " + uri);
                     }
 
+                    if (as_task)
+                    {
+                        auto created =
+                            tasks->create_task("resource", uri, ttl_ms, extract_session_id(params));
+                        std::string task_id = created.task_id;
+
+                        fastmcpp::Json params_for_task = params;
+                        if (params_for_task.contains("_meta") &&
+                            params_for_task["_meta"].is_object())
+                            params_for_task["_meta"].erase("modelcontextprotocol.io/task");
+
+                        tasks->enqueue_task(
+                            task_id,
+                            [&app, uri, params_for_task]() mutable -> fastmcpp::Json
+                            {
+                                auto content = app.read_resource(uri, params_for_task);
+                                fastmcpp::Json content_json = {{"uri", content.uri}};
+                                if (content.mime_type)
+                                    content_json["mimeType"] = *content.mime_type;
+
+                                if (std::holds_alternative<std::string>(content.data))
+                                {
+                                    content_json["text"] = std::get<std::string>(content.data);
+                                }
+                                else
+                                {
+                                    const auto& binary =
+                                        std::get<std::vector<uint8_t>>(content.data);
+                                    static const char* b64_chars =
+                                        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345"
+                                        "6789+/";
+                                    std::string b64;
+                                    b64.reserve((binary.size() + 2) / 3 * 4);
+                                    for (size_t i = 0; i < binary.size(); i += 3)
+                                    {
+                                        uint32_t n = binary[i] << 16;
+                                        if (i + 1 < binary.size())
+                                            n |= binary[i + 1] << 8;
+                                        if (i + 2 < binary.size())
+                                            n |= binary[i + 2];
+                                        b64.push_back(b64_chars[(n >> 18) & 0x3F]);
+                                        b64.push_back(b64_chars[(n >> 12) & 0x3F]);
+                                        b64.push_back((i + 1 < binary.size())
+                                                          ? b64_chars[(n >> 6) & 0x3F]
+                                                          : '=');
+                                        b64.push_back((i + 2 < binary.size()) ? b64_chars[n & 0x3F]
+                                                                              : '=');
+                                    }
+                                    content_json["blob"] = b64;
+                                }
+
+                                return fastmcpp::Json{
+                                    {"contents", fastmcpp::Json::array({content_json})}};
+                            });
+
+                        fastmcpp::Json task_meta = {
+                            {"taskId", task_id},
+                            {"status", "working"},
+                            {"ttl", ttl_ms},
+                            {"createdAt", created.created_at},
+                            {"lastUpdatedAt", created.created_at},
+                        };
+
+                        fastmcpp::Json response_result = {
+                            {"contents", fastmcpp::Json::array()},
+                            {"_meta",
+                             fastmcpp::Json{
+                                 {"modelcontextprotocol.io/task", task_meta},
+                             }},
+                        };
+
+                        return fastmcpp::Json{
+                            {"jsonrpc", "2.0"}, {"id", id}, {"result", response_result}};
+                    }
+
                     auto content = app.read_resource(uri, params);
                     fastmcpp::Json content_json = {{"uri", content.uri}};
                     if (content.mime_type)
@@ -1451,26 +1996,6 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                     fastmcpp::Json result_payload =
                         fastmcpp::Json{{"contents", fastmcpp::Json::array({content_json})}};
 
-                    if (as_task)
-                    {
-                        std::string task_id = tasks->add_completed_task(
-                            "resource", uri, std::move(result_payload), ttl_ms);
-
-                        fastmcpp::Json task_meta = {
-                            {"taskId", task_id}, {"status", "completed"}, {"ttl", ttl_ms}};
-
-                        fastmcpp::Json response_result = {
-                            {"contents", fastmcpp::Json::array()},
-                            {"_meta",
-                             fastmcpp::Json{
-                                 {"modelcontextprotocol.io/task", task_meta},
-                             }},
-                        };
-
-                        return fastmcpp::Json{
-                            {"jsonrpc", "2.0"}, {"id", id}, {"result", response_result}};
-                    }
-
                     return fastmcpp::Json{
                         {"jsonrpc", "2.0"}, {"id", id}, {"result", result_payload}};
                 }
@@ -1491,20 +2016,23 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                 for (const auto& [name, prompt] : app.list_all_prompts())
                 {
                     fastmcpp::Json prompt_json = {{"name", name}};
-                    if (prompt->description)
-                        prompt_json["description"] = *prompt->description;
-                    if (!prompt->arguments.empty())
+                    if (prompt)
                     {
-                        fastmcpp::Json args_array = fastmcpp::Json::array();
-                        for (const auto& arg : prompt->arguments)
+                        if (prompt->description)
+                            prompt_json["description"] = *prompt->description;
+                        if (!prompt->arguments.empty())
                         {
-                            fastmcpp::Json arg_json = {{"name", arg.name},
-                                                       {"required", arg.required}};
-                            if (arg.description)
-                                arg_json["description"] = *arg.description;
-                            args_array.push_back(arg_json);
+                            fastmcpp::Json args_array = fastmcpp::Json::array();
+                            for (const auto& arg : prompt->arguments)
+                            {
+                                fastmcpp::Json arg_json = {{"name", arg.name},
+                                                           {"required", arg.required}};
+                                if (arg.description)
+                                    arg_json["description"] = *arg.description;
+                                args_array.push_back(arg_json);
+                            }
+                            prompt_json["arguments"] = args_array;
                         }
-                        prompt_json["arguments"] = args_array;
                     }
                     prompts_array.push_back(prompt_json);
                 }
@@ -1534,26 +2062,43 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                                                  "Task execution required for prompt: " + name);
                     }
 
-                    fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
-                    auto messages = app.get_prompt(name, args);
-
-                    fastmcpp::Json messages_array = fastmcpp::Json::array();
-                    for (const auto& msg : messages)
-                    {
-                        messages_array.push_back(
-                            {{"role", msg.role},
-                             {"content", fastmcpp::Json{{"type", "text"}, {"text", msg.content}}}});
-                    }
-
-                    fastmcpp::Json result_payload = fastmcpp::Json{{"messages", messages_array}};
-
                     if (as_task)
                     {
-                        std::string task_id = tasks->add_completed_task(
-                            "prompt", name, std::move(result_payload), ttl_ms);
+                        auto created =
+                            tasks->create_task("prompt", name, ttl_ms, extract_session_id(params));
+                        std::string task_id = created.task_id;
+
+                        fastmcpp::Json args_for_task =
+                            params.value("arguments", fastmcpp::Json::object());
+                        tasks->enqueue_task(
+                            task_id,
+                            [&app, name, args_for_task]() -> fastmcpp::Json
+                            {
+                                auto prompt_result = app.get_prompt_result(name, args_for_task);
+                                fastmcpp::Json messages_array = fastmcpp::Json::array();
+                                for (const auto& msg : prompt_result.messages)
+                                {
+                                    messages_array.push_back(
+                                        {{"role", msg.role},
+                                         {"content", fastmcpp::Json{{"type", "text"},
+                                                                    {"text", msg.content}}}});
+                                }
+
+                                fastmcpp::Json result_payload = {{"messages", messages_array}};
+                                if (prompt_result.description)
+                                    result_payload["description"] = *prompt_result.description;
+                                if (prompt_result.meta)
+                                    result_payload["_meta"] = *prompt_result.meta;
+                                return result_payload;
+                            });
 
                         fastmcpp::Json task_meta = {
-                            {"taskId", task_id}, {"status", "completed"}, {"ttl", ttl_ms}};
+                            {"taskId", task_id},
+                            {"status", "working"},
+                            {"ttl", ttl_ms},
+                            {"createdAt", created.created_at},
+                            {"lastUpdatedAt", created.created_at},
+                        };
 
                         fastmcpp::Json response_result = {
                             {"messages", fastmcpp::Json::array()},
@@ -1566,6 +2111,23 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
                         return fastmcpp::Json{
                             {"jsonrpc", "2.0"}, {"id", id}, {"result", response_result}};
                     }
+
+                    fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
+                    auto prompt_result = app.get_prompt_result(name, args);
+
+                    fastmcpp::Json messages_array = fastmcpp::Json::array();
+                    for (const auto& msg : prompt_result.messages)
+                    {
+                        messages_array.push_back(
+                            {{"role", msg.role},
+                             {"content", fastmcpp::Json{{"type", "text"}, {"text", msg.content}}}});
+                    }
+
+                    fastmcpp::Json result_payload = {{"messages", messages_array}};
+                    if (prompt_result.description)
+                        result_payload["description"] = *prompt_result.description;
+                    if (prompt_result.meta)
+                        result_payload["_meta"] = *prompt_result.meta;
 
                     return fastmcpp::Json{
                         {"jsonrpc", "2.0"}, {"id", id}, {"result", result_payload}};
@@ -1949,14 +2511,6 @@ make_sampling_callback(std::shared_ptr<server::ServerSession> session)
     };
 }
 
-// Extract session_id from request meta
-static std::string extract_session_id(const fastmcpp::Json& params)
-{
-    if (params.contains("_meta") && params["_meta"].contains("session_id"))
-        return params["_meta"]["session_id"].get<std::string>();
-    return "";
-}
-
 std::function<fastmcpp::Json(const fastmcpp::Json&)>
 make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_accessor)
 {
@@ -2237,19 +2791,28 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 try
                 {
                     fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
-                    auto messages = app.get_prompt(prompt_name, args);
+                    auto prompt_result = app.get_prompt_result(prompt_name, args);
 
                     fastmcpp::Json messages_array = fastmcpp::Json::array();
-                    for (const auto& msg : messages)
+                    for (const auto& msg : prompt_result.messages)
                     {
                         messages_array.push_back(
                             {{"role", msg.role},
                              {"content", fastmcpp::Json{{"type", "text"}, {"text", msg.content}}}});
                     }
 
-                    return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                          {"id", id},
-                                          {"result", fastmcpp::Json{{"messages", messages_array}}}};
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"},
+                        {"id", id},
+                        {"result", [&]()
+                         {
+                             fastmcpp::Json result = {{"messages", messages_array}};
+                             if (prompt_result.description)
+                                 result["description"] = *prompt_result.description;
+                             if (prompt_result.meta)
+                                 result["_meta"] = *prompt_result.meta;
+                             return result;
+                         }()}};
                 }
                 catch (const NotFoundError& e)
                 {

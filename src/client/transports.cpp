@@ -29,6 +29,12 @@ struct ParsedUrl
     bool is_https;
 };
 
+struct ParsedUrlWithPath
+{
+    ParsedUrl base;
+    std::string path; // includes leading '/'
+};
+
 ParsedUrl parse_url(const std::string& base)
 {
     ParsedUrl result;
@@ -85,6 +91,54 @@ ParsedUrl parse_url(const std::string& base)
     }
 
     return result;
+}
+
+ParsedUrlWithPath parse_url_with_path(const std::string& url)
+{
+    ParsedUrlWithPath out;
+    out.base = parse_url(url);
+
+    // Extract path (if any) from the original string, preserving query/fragment (if present)
+    auto scheme_pos = url.find("://");
+    size_t host_start = (scheme_pos == std::string::npos) ? 0 : (scheme_pos + 3);
+    auto path_pos = url.find('/', host_start);
+    if (path_pos == std::string::npos)
+        out.path = "/";
+    else
+        out.path = url.substr(path_pos);
+
+    if (out.path.empty() || out.path[0] != '/')
+        out.path.insert(out.path.begin(), '/');
+
+    return out;
+}
+
+bool is_redirect_status(int status)
+{
+    return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+}
+
+std::pair<std::string, std::string> resolve_redirect_target(const std::string& current_full_url,
+                                                            const std::string& current_path,
+                                                            const std::string& location)
+{
+    if (location.rfind("http://", 0) == 0 || location.rfind("https://", 0) == 0)
+    {
+        auto parsed = parse_url_with_path(location);
+        std::string full_url =
+            parsed.base.scheme + "://" + parsed.base.host + ":" + std::to_string(parsed.base.port);
+        return {std::move(full_url), parsed.path};
+    }
+
+    if (!location.empty() && location[0] == '/')
+        return {current_full_url, location};
+
+    // Relative redirect - resolve against current path
+    std::string base_dir = "/";
+    auto last_slash = current_path.rfind('/');
+    if (last_slash != std::string::npos)
+        base_dir = current_path.substr(0, last_slash + 1);
+    return {current_full_url, base_dir + location};
 }
 } // namespace
 
@@ -931,10 +985,6 @@ fastmcpp::Json StreamableHttpTransport::request(const std::string& route,
 
     // Create client
     std::string full_url = url.scheme + "://" + url.host + ":" + std::to_string(url.port);
-    httplib::Client cli(full_url.c_str());
-    cli.set_connection_timeout(10, 0);
-    cli.set_read_timeout(60, 0); // Longer timeout for streaming
-    cli.set_keep_alive(true);
 
     // Build request headers
     httplib::Headers request_headers = {{"Accept", "application/json, text/event-stream"},
@@ -956,11 +1006,46 @@ fastmcpp::Json StreamableHttpTransport::request(const std::string& route,
     fastmcpp::Json rpc_request = {
         {"jsonrpc", "2.0"}, {"method", route}, {"params", payload}, {"id", id}};
 
-    // Send request
-    auto res = cli.Post(mcp_path_.c_str(), request_headers, rpc_request.dump(), "application/json");
+    std::string path = mcp_path_.empty() ? "/mcp" : mcp_path_;
+    if (!path.empty() && path[0] != '/')
+        path.insert(path.begin(), '/');
+
+    // Send request (follow redirects like the Python SDK's httpx follow_redirects=True)
+    httplib::Result res;
+    for (int redirects = 0; redirects <= 5; ++redirects)
+    {
+        httplib::Client cli(full_url.c_str());
+        cli.set_connection_timeout(10, 0);
+        cli.set_read_timeout(60, 0); // Longer timeout for streaming
+        cli.set_keep_alive(true);
+        cli.set_follow_location(false);
+
+        res = cli.Post(path.c_str(), request_headers, rpc_request.dump(), "application/json");
+        if (!res)
+            throw fastmcpp::TransportError("StreamableHttp request failed: no response");
+
+        if (is_redirect_status(res->status))
+        {
+            auto loc = res->headers.find("Location");
+            if (loc == res->headers.end())
+                loc = res->headers.find("location");
+            if (loc == res->headers.end())
+                throw fastmcpp::TransportError("StreamableHttp redirect without Location header");
+
+            auto next = resolve_redirect_target(full_url, path, loc->second);
+            full_url = std::move(next.first);
+            path = std::move(next.second);
+            continue;
+        }
+
+        break;
+    }
 
     if (!res)
         throw fastmcpp::TransportError("StreamableHttp request failed: no response");
+
+    if (is_redirect_status(res->status))
+        throw fastmcpp::TransportError("StreamableHttp redirect limit exceeded");
 
     if (res->status < 200 || res->status >= 300)
         throw fastmcpp::TransportError("StreamableHttp error: " + std::to_string(res->status));

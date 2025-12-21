@@ -175,6 +175,8 @@ void validate_elicitation_json_schema(const fastmcpp::Json& schema)
                         "' has union type with missing 'type' which is not allowed.");
 
                 std::string union_type = branch["type"].get<std::string>();
+                if (union_type == "null")
+                    continue;
                 if (allowed.count(union_type) == 0)
                 {
                     throw fastmcpp::ValidationError(
