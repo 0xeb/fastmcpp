@@ -5,6 +5,9 @@
 #include "fastmcpp/mcp/handler.hpp"
 #include "test_helpers.hpp"
 
+#include <chrono>
+#include <thread>
+
 using namespace fastmcpp;
 
 void test_call_tool_task_immediate()
@@ -90,7 +93,10 @@ void test_call_tool_task_with_server_tasks()
 
     auto status = task->status();
     assert(!status.taskId.empty());
-    // Our minimal implementation marks tasks as completed immediately
+    assert(status.status == "working" || status.status == "completed" ||
+           status.status == "failed" || status.status == "cancelled");
+
+    status = task->wait();
     assert(status.status == "completed");
 
     auto result = task->result();
@@ -144,7 +150,7 @@ void test_prompt_and_resource_tasks_with_server_tasks()
     auto prompt_task = c.get_prompt_task("greeting", Json{{"name", "Alice"}}, 60000);
     assert(prompt_task);
     assert(!prompt_task->returned_immediately());
-    auto prompt_status = prompt_task->status();
+    auto prompt_status = prompt_task->wait();
     assert(prompt_status.status == "completed");
     auto prompt_result = prompt_task->result();
     assert(!prompt_result.messages.empty());
@@ -153,7 +159,7 @@ void test_prompt_and_resource_tasks_with_server_tasks()
     auto resource_task = c.read_resource_task("mem://hello", 60000);
     assert(resource_task);
     assert(!resource_task->returned_immediately());
-    auto resource_status = resource_task->status();
+    auto resource_status = resource_task->wait();
     assert(resource_status.status == "completed");
     auto contents = resource_task->result();
     assert(!contents.empty());
@@ -161,6 +167,55 @@ void test_prompt_and_resource_tasks_with_server_tasks()
     assert(std::holds_alternative<client::TextResourceContent>(first));
 
     std::cout << "  [PASS] Prompt and resource tasks work with FastMCP handler\n";
+}
+
+void test_cancel_task()
+{
+    std::cout << "Test 6: tasks/cancel cancels in-flight work...\n";
+
+    FastMCP app("task-cancel-app", "1.0.0");
+
+    Json input_schema = {{"type", "object"},
+                         {"properties", Json::object({{"ms", Json{{"type", "integer"}}}})}};
+
+    tools::Tool slow_tool{"slow", input_schema, Json{{"type", "string"}}, [](const Json& in) -> Json
+                          {
+                              int ms = in.value("ms", 1500);
+                              std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+                              return Json("done");
+                          }};
+    slow_tool.set_task_support(TaskSupport::Optional);
+    app.tools().register_tool(slow_tool);
+
+    auto handler = mcp::make_mcp_handler(app);
+    client::Client c(std::make_unique<client::InProcessMcpTransport>(std::move(handler)));
+
+    auto task = c.call_tool_task("slow", Json{{"ms", 1500}}, 60000);
+    assert(task);
+    assert(!task->returned_immediately());
+
+    // Best-effort: give the background worker a moment to start.
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    auto cancelled = c.cancel_task(task->task_id());
+    assert(cancelled.taskId == task->task_id());
+    assert(cancelled.status == "cancelled" || cancelled.status == "completed");
+
+    if (cancelled.status == "cancelled")
+    {
+        bool threw = false;
+        try
+        {
+            (void)c.get_task_result_raw(task->task_id());
+        }
+        catch (const fastmcpp::Error&)
+        {
+            threw = true;
+        }
+        assert(threw);
+    }
+
+    std::cout << "  [PASS] tasks/cancel reports cancelled for background task\n";
 }
 
 void test_task_support_execution_and_capabilities()
@@ -374,7 +429,8 @@ int main()
         test_call_tool_task_with_server_tasks();
         test_prompt_and_resource_tasks_with_server_tasks();
         test_task_support_execution_and_capabilities();
-        std::cout << "\n[OK] Client Task API tests passed! (5 tests)\n";
+        test_cancel_task();
+        std::cout << "\n[OK] Client Task API tests passed! (6 tests)\n";
         return 0;
     }
     catch (const std::exception& e)

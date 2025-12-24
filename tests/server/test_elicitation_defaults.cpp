@@ -174,6 +174,109 @@ static void test_mixed_defaults_and_required()
     std::cout << "PASSED\n";
 }
 
+static void test_nullable_fields_not_required()
+{
+    std::cout << "  test_nullable_fields_not_required... " << std::flush;
+
+    Json props = Json::object();
+    props["maybe_name"] = Json{{"type", "string"}, {"nullable", true}};
+    props["age"] = Json{{"type", "integer"}};
+
+    Json schema = Json{{"type", "object"}, {"properties", props}};
+    Json result = get_elicitation_schema(schema);
+
+    const Json& required = result.contains("required") && result["required"].is_array()
+                               ? result["required"]
+                               : Json::array();
+
+    bool has_age = false;
+    bool has_maybe_name = false;
+    for (const auto& v : required)
+    {
+        if (!v.is_string())
+            continue;
+        std::string name = v.get<std::string>();
+        if (name == "age")
+            has_age = true;
+        if (name == "maybe_name")
+            has_maybe_name = true;
+    }
+
+    assert(has_age);
+    assert(!has_maybe_name);
+
+    std::cout << "PASSED\n";
+}
+
+static void test_type_array_allows_null_not_required()
+{
+    std::cout << "  test_type_array_allows_null_not_required... " << std::flush;
+
+    Json props = Json::object();
+    props["nickname"] = Json{{"type", Json::array({"string", "null"})}};
+    props["age"] = Json{{"type", "integer"}};
+
+    Json schema = Json{{"type", "object"}, {"properties", props}};
+    Json result = get_elicitation_schema(schema);
+
+    const Json& required = result.contains("required") && result["required"].is_array()
+                               ? result["required"]
+                               : Json::array();
+
+    bool has_age = false;
+    bool has_nickname = false;
+    for (const auto& v : required)
+    {
+        if (!v.is_string())
+            continue;
+        std::string name = v.get<std::string>();
+        if (name == "age")
+            has_age = true;
+        if (name == "nickname")
+            has_nickname = true;
+    }
+
+    assert(has_age);
+    assert(!has_nickname);
+
+    std::cout << "PASSED\n";
+}
+
+static void test_anyof_null_not_required()
+{
+    std::cout << "  test_anyof_null_not_required... " << std::flush;
+
+    Json props = Json::object();
+    props["maybe"] =
+        Json{{"anyOf", Json::array({Json{{"type", "string"}}, Json{{"type", "null"}}})}};
+    props["age"] = Json{{"type", "integer"}};
+
+    Json schema = Json{{"type", "object"}, {"properties", props}};
+    Json result = get_elicitation_schema(schema);
+
+    const Json& required = result.contains("required") && result["required"].is_array()
+                               ? result["required"]
+                               : Json::array();
+
+    bool has_age = false;
+    bool has_maybe = false;
+    for (const auto& v : required)
+    {
+        if (!v.is_string())
+            continue;
+        std::string name = v.get<std::string>();
+        if (name == "age")
+            has_age = true;
+        if (name == "maybe")
+            has_maybe = true;
+    }
+
+    assert(has_age);
+    assert(!has_maybe);
+
+    std::cout << "PASSED\n";
+}
+
 static void test_compress_schema_preserves_defaults()
 {
     std::cout << "  test_compress_schema_preserves_defaults... " << std::flush;
@@ -267,6 +370,9 @@ int main()
         test_enum_default_preserved();
         test_all_defaults_preserved_together();
         test_mixed_defaults_and_required();
+        test_nullable_fields_not_required();
+        test_type_array_allows_null_not_required();
+        test_anyof_null_not_required();
         test_compress_schema_preserves_defaults();
         test_context_elicit_uses_schema_helper();
 

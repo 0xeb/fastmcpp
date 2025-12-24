@@ -25,11 +25,21 @@ struct PromptMessage
     std::string content; // Message content
 };
 
+/// Result of prompts/get (prompt rendering)
+struct PromptResult
+{
+    std::vector<PromptMessage> messages;
+    std::optional<std::string> description;
+    std::optional<fastmcpp::Json> meta; // Returned as _meta in MCP prompts/get
+};
+
 /// MCP Prompt definition
 struct Prompt
 {
     std::string name;
     std::optional<std::string> description;
+    std::optional<fastmcpp::Json>
+        meta; // Optional prompt metadata (returned as _meta in prompts/get)
     std::vector<PromptArgument> arguments;
     std::function<std::vector<PromptMessage>(const Json&)> generator;     // Message generator
     fastmcpp::TaskSupport task_support{fastmcpp::TaskSupport::Forbidden}; // SEP-1686 task mode

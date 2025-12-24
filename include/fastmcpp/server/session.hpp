@@ -103,8 +103,17 @@ class ServerSession
         capabilities_ = capabilities;
 
         // Parse common capability flags
+        supports_sampling_ = false;
+        supports_sampling_tools_ = false;
+        supports_elicitation_ = false;
+        supports_roots_ = false;
         if (capabilities.contains("sampling") && capabilities["sampling"].is_object())
+        {
             supports_sampling_ = true;
+            const auto& sampling = capabilities["sampling"];
+            if (sampling.contains("tools") && sampling["tools"].is_object())
+                supports_sampling_tools_ = true;
+        }
         if (capabilities.contains("elicitation") && capabilities["elicitation"].is_object())
             supports_elicitation_ = true;
         if (capabilities.contains("roots") && capabilities["roots"].is_object())
@@ -116,6 +125,13 @@ class ServerSession
     {
         std::lock_guard lock(cap_mutex_);
         return supports_sampling_;
+    }
+
+    /// Check if client supports sampling with tools (sampling.tools capability)
+    bool supports_sampling_tools() const
+    {
+        std::lock_guard lock(cap_mutex_);
+        return supports_sampling_tools_;
     }
 
     /// Check if client supports elicitation
@@ -262,10 +278,14 @@ class ServerSession
      *
      * @param method The JSON-RPC method name (e.g., "notifications/progress")
      * @param params Notification parameters
+     * @param meta Optional top-level _meta for the notification
      */
-    void send_notification(const std::string& method, const Json& params = Json::object())
+    void send_notification(const std::string& method, const Json& params = Json::object(),
+                           const std::optional<Json>& meta = std::nullopt)
     {
         Json notification = {{"jsonrpc", "2.0"}, {"method", method}, {"params", params}};
+        if (meta.has_value() && meta->is_object() && !meta->empty())
+            notification["_meta"] = *meta;
 
         if (send_callback_)
             send_callback_(notification);
@@ -331,6 +351,7 @@ class ServerSession
     bool supports_sampling_{false};
     bool supports_elicitation_{false};
     bool supports_roots_{false};
+    bool supports_sampling_tools_{false};
 
     // Pending requests
     std::mutex pending_mutex_;
