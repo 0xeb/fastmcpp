@@ -230,6 +230,16 @@ void test_session_management()
         // Session ID should still be the same
         assert(transport.session_id() == session_id && "Session ID should persist");
 
+        // Reset session and ensure we drop the client-side session id
+        transport.reset_session();
+        assert(!transport.has_session() && "Should have no session after reset");
+
+        // Re-initialize should create a new server-side session
+        transport.request("initialize", init_params);
+        assert(transport.has_session() && "Should have session after re-initialize");
+        assert(transport.session_id() != session_id && "Session ID should change after reset");
+        assert(server.session_count() == 2 && "Server should have 2 sessions after reset + initialize");
+
         std::cout << "PASSED\n";
     }
     catch (const std::exception& e)

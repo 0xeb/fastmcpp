@@ -96,7 +96,7 @@ class StdioTransport : public ITransport
 /// 1. Client connects to /sse endpoint (GET) to establish event stream
 /// 2. Client sends JSON-RPC requests to /messages endpoint (POST)
 /// 3. Server sends JSON-RPC responses back via the SSE stream
-class SseClientTransport : public ITransport
+class SseClientTransport : public ITransport, public IServerRequestTransport, public IResettableTransport
 {
   public:
     /// Construct an SSE client transport
@@ -115,6 +115,16 @@ class SseClientTransport : public ITransport
     /// Check if connected to SSE stream
     bool is_connected() const;
 
+    /// Get the current MCP session ID (from the SSE "endpoint" event).
+    std::string session_id() const;
+
+    /// Check if a session ID has been set.
+    bool has_session() const;
+
+    void set_server_request_handler(ServerRequestHandler handler) override;     
+
+    void reset(bool full = false) override;
+
   private:
     void start_sse_listener();
     void stop_sse_listener();
@@ -123,7 +133,9 @@ class SseClientTransport : public ITransport
     std::string base_url_;
     std::string sse_path_;
     std::string messages_path_;
+    mutable std::mutex endpoint_mutex_;
     std::string endpoint_path_; // Endpoint path from SSE with session_id
+    std::string session_id_;
 
     // SSE listener thread and state
     std::unique_ptr<std::thread> sse_thread_;
@@ -135,6 +147,9 @@ class SseClientTransport : public ITransport
     std::mutex pending_mutex_;
     std::condition_variable pending_cv_;
     std::unordered_map<int64_t, std::promise<fastmcpp::Json>> pending_requests_;
+
+    std::mutex request_handler_mutex_;
+    ServerRequestHandler server_request_handler_;
 };
 
 /// Streamable HTTP client transport for connecting to MCP servers using the
@@ -146,7 +161,7 @@ class SseClientTransport : public ITransport
 /// 3. Session ID management via Mcp-Session-Id header
 ///
 /// Reference: https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/
-class StreamableHttpTransport : public ITransport
+class StreamableHttpTransport : public ITransport, public IResettableTransport
 {
   public:
     /// Construct a Streamable HTTP client transport
@@ -169,6 +184,14 @@ class StreamableHttpTransport : public ITransport
 
     /// Set callback for handling server-initiated notifications during streaming responses
     void set_notification_callback(std::function<void(const fastmcpp::Json&)> callback);
+
+    /// Clear session state so subsequent requests behave as a fresh client.
+    void reset_session()
+    {
+        reset(true);
+    }
+
+    void reset(bool /*full*/ = false) override;
 
   private:
     void parse_session_id_from_response(const std::string& headers);

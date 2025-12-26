@@ -602,6 +602,35 @@ bool SseClientTransport::is_connected() const
     return connected_.load(std::memory_order_acquire);
 }
 
+std::string SseClientTransport::session_id() const
+{
+    std::lock_guard<std::mutex> lock(endpoint_mutex_);
+    return session_id_;
+}
+
+bool SseClientTransport::has_session() const
+{
+    std::lock_guard<std::mutex> lock(endpoint_mutex_);
+    return !session_id_.empty();
+}
+
+void SseClientTransport::set_server_request_handler(ServerRequestHandler handler)
+{
+    std::lock_guard<std::mutex> lock(request_handler_mutex_);
+    server_request_handler_ = std::move(handler);
+}
+
+void SseClientTransport::reset(bool /*full*/)
+{
+    stop_sse_listener();
+    {
+        std::lock_guard<std::mutex> lock(endpoint_mutex_);
+        endpoint_path_.clear();
+        session_id_.clear();
+    }
+    start_sse_listener();
+}
+
 void SseClientTransport::start_sse_listener()
 {
     running_.store(true, std::memory_order_release);
@@ -677,10 +706,23 @@ void SseClientTransport::start_sse_listener()
 
                     if (!aggregated.empty())
                     {
-                        // Handle endpoint event specially - it's not JSON
+                        // Handle endpoint event specially - it's not JSON      
                         if (event_type == "endpoint")
                         {
+                            std::lock_guard<std::mutex> lock(endpoint_mutex_);
                             endpoint_path_ = aggregated;
+
+                            // Parse session_id from "...?session_id=<id>"
+                            session_id_.clear();
+                            auto pos = endpoint_path_.find("session_id=");
+                            if (pos != std::string::npos)
+                            {
+                                pos += std::string("session_id=").size();
+                                auto end = endpoint_path_.find_first_of("&#", pos);
+                                session_id_ = endpoint_path_.substr(
+                                    pos, end == std::string::npos ? std::string::npos
+                                                              : (end - pos));
+                            }
                         }
                         else
                         {
@@ -761,35 +803,90 @@ void SseClientTransport::stop_sse_listener()
 
 void SseClientTransport::process_sse_event(const fastmcpp::Json& event)
 {
-    // Check if this is a JSON-RPC response with an ID
     if (!event.contains("id"))
         return;
 
-    auto id_val = event.at("id");
-    int64_t id = 0;
-    if (id_val.is_number())
-        id = id_val.get<int64_t>();
+    const fastmcpp::Json id_val = event.at("id");
+
+    // First: try to treat as a response to a client-initiated request.
+    std::optional<int64_t> numeric_id;
+    if (id_val.is_number_integer())
+        numeric_id = id_val.get<int64_t>();
     else if (id_val.is_string())
     {
         try
         {
-            id = std::stoll(id_val.get<std::string>());
+            numeric_id = std::stoll(id_val.get<std::string>());
         }
         catch (...)
         {
+        }
+    }
+
+    if (numeric_id.has_value())
+    {
+        std::lock_guard<std::mutex> lock(pending_mutex_);
+        auto it = pending_requests_.find(*numeric_id);
+        if (it != pending_requests_.end())
+        {
+            it->second.set_value(event);
+            pending_requests_.erase(it);
+            pending_cv_.notify_all();
             return;
         }
     }
-    else
+
+    // Otherwise: treat as a server-initiated request (e.g., sampling/createMessage).
+    if (!event.contains("method"))
         return;
 
-    std::lock_guard<std::mutex> lock(pending_mutex_);
-    auto it = pending_requests_.find(id);
-    if (it != pending_requests_.end())
+    const std::string method = event.value("method", std::string());
+    const fastmcpp::Json params = event.value("params", fastmcpp::Json::object());
+
+    ServerRequestHandler handler;
     {
-        it->second.set_value(event);
-        pending_requests_.erase(it);
-        pending_cv_.notify_all();
+        std::lock_guard<std::mutex> lock(request_handler_mutex_);
+        handler = server_request_handler_;
+    }
+
+    fastmcpp::Json rpc_response = {{"jsonrpc", "2.0"}, {"id", id_val}};
+    if (!handler)
+    {
+        rpc_response["error"] = {{"code", -32601}, {"message", "Method not handled: " + method}};
+    }
+    else
+    {
+        try
+        {
+            rpc_response["result"] = handler(method, params);
+        }
+        catch (const std::exception& e)
+        {
+            rpc_response["error"] = {{"code", -32603}, {"message", e.what()}};
+        }
+        catch (...)
+        {
+            rpc_response["error"] = {{"code", -32603}, {"message", "Unknown error"}};
+        }
+    }
+
+    try
+    {
+        auto url = parse_url(base_url_);
+        httplib::Client cli(url.host.c_str(), url.port);
+        cli.set_connection_timeout(5, 0);
+        cli.set_read_timeout(30, 0);
+
+        std::string post_path;
+        {
+            std::lock_guard<std::mutex> lock(endpoint_mutex_);
+            post_path = endpoint_path_.empty() ? messages_path_ : endpoint_path_;
+        }
+        (void)cli.Post(post_path.c_str(), rpc_response.dump(), "application/json");
+    }
+    catch (...)
+    {
+        // Best-effort: ignore failures in the listener thread.
     }
 }
 
@@ -820,8 +917,12 @@ fastmcpp::Json SseClientTransport::request(const std::string& route, const fastm
     cli.set_connection_timeout(5, 0);
     cli.set_read_timeout(30, 0);
 
-    // Use the endpoint path from SSE if available, otherwise use default
-    std::string post_path = endpoint_path_.empty() ? messages_path_ : endpoint_path_;
+    // Use the endpoint path from SSE if available, otherwise use default       
+    std::string post_path;
+    {
+        std::lock_guard<std::mutex> lock(endpoint_mutex_);
+        post_path = endpoint_path_.empty() ? messages_path_ : endpoint_path_;
+    }
     auto res = cli.Post(post_path.c_str(), rpc_request.dump(), "application/json");
     if (!res)
     {
@@ -893,6 +994,12 @@ void StreamableHttpTransport::set_notification_callback(
     std::function<void(const fastmcpp::Json&)> callback)
 {
     notification_callback_ = std::move(callback);
+}
+
+void StreamableHttpTransport::reset(bool /*full*/)
+{
+    std::lock_guard<std::mutex> lock(session_mutex_);
+    session_id_.clear();
 }
 
 void StreamableHttpTransport::parse_session_id_from_response(const std::string& header_value)

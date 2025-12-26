@@ -16,6 +16,7 @@
 #include <functional>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -42,6 +43,28 @@ class ITransport
     /// @param payload The request payload as JSON
     /// @return The response payload as JSON
     virtual fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload) = 0;
+};
+
+/// Optional transport interface: some transports support explicit session reset/disconnect.
+class IResettableTransport
+{
+  public:
+    virtual ~IResettableTransport() = default;
+
+    /// Reset connection/session state. Semantics are transport-specific.
+    /// @param full If true, reset any additional internal state beyond the session identifier.
+    virtual void reset(bool full = false) = 0;
+};
+
+using ServerRequestHandler =
+    std::function<fastmcpp::Json(const std::string& method, const fastmcpp::Json& params)>;
+
+/// Optional transport interface: some transports can accept server-initiated requests and send responses.
+class IServerRequestTransport
+{
+  public:
+    virtual ~IServerRequestTransport() = default;
+    virtual void set_server_request_handler(ServerRequestHandler handler) = 0;
 };
 
 /// Loopback transport for in-process server testing
@@ -146,17 +169,24 @@ struct CallToolOptions
 /// @endcode
 class Client
 {
+    struct CallbackState;
+
   public:
-    Client() = default;
+    Client() : callbacks_(std::make_shared<CallbackState>()) {}
     explicit Client(std::unique_ptr<ITransport> t)
-        : transport_(std::shared_ptr<ITransport>(std::move(t)))
+        : transport_(std::shared_ptr<ITransport>(std::move(t))),
+          callbacks_(std::make_shared<CallbackState>())
     {
+        configure_transport_callbacks();
     }
 
     /// Set the transport (for deferred initialization)
     void set_transport(std::unique_ptr<ITransport> t)
     {
         transport_ = std::shared_ptr<ITransport>(std::move(t));
+        if (!callbacks_)
+            callbacks_ = std::make_shared<CallbackState>();
+        configure_transport_callbacks();
     }
 
     /// Check if transport is connected
@@ -512,8 +542,20 @@ class Client
     /// Initialize the session with the server
     InitializeResult initialize(std::chrono::milliseconds timeout = std::chrono::milliseconds{0})
     {
+        fastmcpp::Json caps = fastmcpp::Json::object();
+        if (get_sampling_callback())
+        {
+            caps["sampling"] = fastmcpp::Json::object();
+            // Optimistically advertise tools support when a sampling callback is present.
+            caps["sampling"]["tools"] = fastmcpp::Json::object();
+        }
+        if (get_elicitation_callback())
+            caps["elicitation"] = fastmcpp::Json::object();
+        if (get_roots_callback())
+            caps["roots"] = fastmcpp::Json::object();
+
         fastmcpp::Json payload = {{"protocolVersion", "2024-11-05"},
-                                  {"capabilities", fastmcpp::Json::object()},
+                                  {"capabilities", std::move(caps)},
                                   {"clientInfo", {{"name", "fastmcpp"}, {"version", "2.14.0"}}}};
 
         auto response = call("initialize", payload);
@@ -543,6 +585,15 @@ class Client
         call("notifications/cancelled", payload);
     }
 
+    /// Reset transport session/connection state when supported (best-effort).
+    void disconnect(bool full = false)
+    {
+        if (!transport_)
+            return;
+        if (auto* resettable = dynamic_cast<IResettableTransport*>(transport_.get()))
+            resettable->reset(full);
+    }
+
     /// Send a progress notification
     void progress(const std::string& progress_token, float progress_value,
                   std::optional<float> total = std::nullopt, const std::string& message = "")
@@ -567,20 +618,33 @@ class Client
     void send_roots_list_changed()
     {
         fastmcpp::Json payload = fastmcpp::Json::object();
-        if (roots_callback_)
-            payload["roots"] = roots_callback_();
+        auto cb = get_roots_callback();
+        if (cb)
+            payload["roots"] = cb();
         call("roots/list_changed", payload);
     }
 
     /// Handle server notifications that target client callbacks (sampling/elicitation/roots)
     fastmcpp::Json handle_notification(const std::string& method, const fastmcpp::Json& params)
     {
-        if (method == "sampling/request" && sampling_callback_)
-            return sampling_callback_(params);
-        if (method == "elicitation/request" && elicitation_callback_)
-            return elicitation_callback_(params);
-        if (method == "roots/list" && roots_callback_)
-            return roots_callback_();
+        if (method == "sampling/request")
+        {
+            auto cb = get_sampling_callback();
+            if (cb)
+                return cb(params);
+        }
+        if (method == "elicitation/request")
+        {
+            auto cb = get_elicitation_callback();
+            if (cb)
+                return cb(params);
+        }
+        if (method == "roots/list")
+        {
+            auto cb = get_roots_callback();
+            if (cb)
+                return cb();
+        }
         throw fastmcpp::Error("Unsupported notification method: " + method);
     }
 
@@ -589,7 +653,7 @@ class Client
     {
         if (!transport_)
             throw fastmcpp::Error("Cannot clone client without transport");
-        return Client(transport_, true);
+        return Client(transport_, callbacks_, true);
     }
 
     /// Python-friendly alias for cloning
@@ -599,17 +663,17 @@ class Client
     }
 
     /// Register roots/sampling/elicitation callbacks (placeholders for parity)
-    void set_roots_callback(const std::function<fastmcpp::Json()>& cb)
+    void set_roots_callback(const std::function<fastmcpp::Json()>& cb)    
     {
-        roots_callback_ = cb;
+        set_roots_callback_impl(cb);
     }
     void set_sampling_callback(const std::function<fastmcpp::Json(const fastmcpp::Json&)>& cb)
     {
-        sampling_callback_ = cb;
+        set_sampling_callback_impl(cb);
     }
     void set_elicitation_callback(const std::function<fastmcpp::Json(const fastmcpp::Json&)>& cb)
     {
-        elicitation_callback_ = cb;
+        set_elicitation_callback_impl(cb);
     }
 
     /// Poll server notifications and dispatch to callbacks (sampling/elicitation/roots)
@@ -641,13 +705,117 @@ class Client
     friend class ResourceTask;
 
     std::shared_ptr<ITransport> transport_;
-    std::function<fastmcpp::Json()> roots_callback_;
-    std::function<fastmcpp::Json(const fastmcpp::Json&)> sampling_callback_;
-    std::function<fastmcpp::Json(const fastmcpp::Json&)> elicitation_callback_;
-    std::unordered_map<std::string, fastmcpp::Json> tool_output_schemas_;
+    struct CallbackState
+    {
+        std::mutex mutex;
+        std::function<fastmcpp::Json()> roots_callback;
+        std::function<fastmcpp::Json(const fastmcpp::Json&)> sampling_callback;
+        std::function<fastmcpp::Json(const fastmcpp::Json&)> elicitation_callback;
+    };
+
+    std::shared_ptr<CallbackState> callbacks_;
+    std::unordered_map<std::string, fastmcpp::Json> tool_output_schemas_; 
+
+    std::function<fastmcpp::Json()> get_roots_callback() const
+    {
+        if (!callbacks_)
+            return {};
+        std::lock_guard<std::mutex> lock(callbacks_->mutex);
+        return callbacks_->roots_callback;
+    }
+    std::function<fastmcpp::Json(const fastmcpp::Json&)> get_sampling_callback() const
+    {
+        if (!callbacks_)
+            return {};
+        std::lock_guard<std::mutex> lock(callbacks_->mutex);
+        return callbacks_->sampling_callback;
+    }
+    std::function<fastmcpp::Json(const fastmcpp::Json&)> get_elicitation_callback() const
+    {
+        if (!callbacks_)
+            return {};
+        std::lock_guard<std::mutex> lock(callbacks_->mutex);
+        return callbacks_->elicitation_callback;
+    }
+
+    void set_roots_callback_impl(const std::function<fastmcpp::Json()>& cb)
+    {
+        if (!callbacks_)
+            callbacks_ = std::make_shared<CallbackState>();
+        std::lock_guard<std::mutex> lock(callbacks_->mutex);
+        callbacks_->roots_callback = cb;
+    }
+    void set_sampling_callback_impl(
+        const std::function<fastmcpp::Json(const fastmcpp::Json&)>& cb)
+    {
+        if (!callbacks_)
+            callbacks_ = std::make_shared<CallbackState>();
+        std::lock_guard<std::mutex> lock(callbacks_->mutex);
+        callbacks_->sampling_callback = cb;
+    }
+    void set_elicitation_callback_impl(
+        const std::function<fastmcpp::Json(const fastmcpp::Json&)>& cb)
+    {
+        if (!callbacks_)
+            callbacks_ = std::make_shared<CallbackState>();
+        std::lock_guard<std::mutex> lock(callbacks_->mutex);
+        callbacks_->elicitation_callback = cb;
+    }
+
+    void configure_transport_callbacks()
+    {
+        if (!transport_ || !callbacks_)
+            return;
+        if (auto* req_transport = dynamic_cast<IServerRequestTransport*>(transport_.get()))
+        {
+            std::weak_ptr<CallbackState> weak = callbacks_;
+            req_transport->set_server_request_handler(
+                [weak](const std::string& method, const fastmcpp::Json& params) -> fastmcpp::Json
+                {
+                    auto state = weak.lock();
+                    if (!state)
+                        throw fastmcpp::Error("Client callbacks expired");
+
+                    std::function<fastmcpp::Json()> roots_cb;
+                    std::function<fastmcpp::Json(const fastmcpp::Json&)> sampling_cb;
+                    std::function<fastmcpp::Json(const fastmcpp::Json&)> elicitation_cb;
+                    {
+                        std::lock_guard<std::mutex> lock(state->mutex);
+                        roots_cb = state->roots_callback;
+                        sampling_cb = state->sampling_callback;
+                        elicitation_cb = state->elicitation_callback;
+                    }
+
+                    if (method == "sampling/createMessage")
+                    {
+                        if (!sampling_cb)
+                            throw fastmcpp::Error("No sampling handler configured");
+                        return sampling_cb(params);
+                    }
+                    if (method == "elicitation/request")
+                    {
+                        if (!elicitation_cb)
+                            throw fastmcpp::Error("No elicitation handler configured");
+                        return elicitation_cb(params);
+                    }
+                    if (method == "roots/list")
+                    {
+                        if (!roots_cb)
+                            throw fastmcpp::Error("No roots handler configured");
+                        return roots_cb();
+                    }
+
+                    throw fastmcpp::Error("Unsupported server request method: " + method);
+                });
+        }
+    }
 
     // Internal constructor for cloning
-    Client(std::shared_ptr<ITransport> t, bool /*internal*/) : transport_(std::move(t)) {}
+    Client(std::shared_ptr<ITransport> t, std::shared_ptr<CallbackState> callbacks, bool /*internal*/)
+        : transport_(std::move(t)), callbacks_(std::move(callbacks))
+    {
+        configure_transport_callbacks();
+    }
 
     // ==========================================================================
     // Response Parsers
