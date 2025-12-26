@@ -904,7 +904,7 @@ void test_tool_meta_custom_fields()
     std::cout << "Test: tool list with meta fields...\n";
 
     auto srv = create_meta_variations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));   
 
     // Test that list_tools_mcp can access list-level _meta
     auto result = c.list_tools_mcp();
@@ -915,7 +915,12 @@ void test_tool_meta_custom_fields()
     for (const auto& t : result.tools)
     {
         if (t.name == "tool_with_meta")
+        {
             found_with = true;
+            assert(t._meta.has_value());
+            assert((*t._meta)["custom_key"] == "custom_value");
+            assert((*t._meta)["count"] == 42);
+        }
         if (t.name == "tool_without_meta")
             found_without = true;
     }
@@ -954,7 +959,7 @@ void test_resource_meta_fields()
     std::cout << "Test: resource with meta fields...\n";
 
     auto srv = create_meta_variations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));   
 
     auto resources = c.list_resources();
     bool found = false;
@@ -962,8 +967,8 @@ void test_resource_meta_fields()
     {
         if (r.name == "with_meta")
         {
-            // ResourceInfo might not have meta exposed - check if it's in raw response
-            // For now just verify resource is listed
+            assert(r._meta.has_value());
+            assert((*r._meta)["resource_key"] == "resource_value");
             found = true;
             break;
         }
@@ -971,6 +976,30 @@ void test_resource_meta_fields()
     assert(found);
 
     std::cout << "  [PASS] resource with meta listed\n";
+}
+
+void test_prompt_meta_fields()
+{
+    std::cout << "Test: prompt with meta fields...\n";
+
+    auto srv = create_meta_variations_server();
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
+
+    auto result = c.list_prompts_mcp();
+    bool found = false;
+    for (const auto& p : result.prompts)
+    {
+        if (p.name == "prompt_meta")
+        {
+            assert(p._meta.has_value());
+            assert((*p._meta)["prompt_key"] == "prompt_value");
+            found = true;
+            break;
+        }
+    }
+    assert(found);
+
+    std::cout << "  [PASS] prompt with meta listed\n";
 }
 
 void test_call_tool_meta_roundtrip()
@@ -1036,6 +1065,7 @@ int main()
         test_tool_meta_custom_fields();
         test_tool_meta_absent();
         test_resource_meta_fields();
+        test_prompt_meta_fields();
         test_call_tool_meta_roundtrip();
 
         std::cout << "\n[OK] All server interaction tests passed! (29 tests in Part 2b)\n";

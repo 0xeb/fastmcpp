@@ -171,10 +171,11 @@ if(FASTMCPP_BUILD_TESTS)
   add_test(NAME fastmcpp_integration COMMAND fastmcpp_integration)
 
   add_test(NAME fastmcpp_cli_sum COMMAND fastmcpp client sum 2 3)
+  add_test(NAME fastmcpp_cli_tasks_help COMMAND fastmcpp tasks --help)
 
-  add_executable(fastmcpp_http_integration tests/server/http_integration.cpp)
-  target_link_libraries(fastmcpp_http_integration PRIVATE fastmcpp_core)
-  add_test(NAME fastmcpp_http_integration COMMAND fastmcpp_http_integration)
+  add_executable(fastmcpp_http_integration tests/server/http_integration.cpp)   
+  target_link_libraries(fastmcpp_http_integration PRIVATE fastmcpp_core)        
+  add_test(NAME fastmcpp_http_integration COMMAND fastmcpp_http_integration)    
 
   add_executable(fastmcpp_json_schema tests/schema/json_schema.cpp)
   target_link_libraries(fastmcpp_json_schema PRIVATE fastmcpp_core)
@@ -323,6 +324,11 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_server_sse_http_integration tests/server/sse_http_integration.cpp)
   target_link_libraries(fastmcpp_server_sse_http_integration PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_sse_http_integration COMMAND fastmcpp_server_sse_http_integration)
+
+  # SSE bidirectional server-initiated requests (ServerSession -> client -> response)
+  add_executable(fastmcpp_server_sse_bidirectional_requests tests/server/sse_bidirectional_requests.cpp)
+  target_link_libraries(fastmcpp_server_sse_bidirectional_requests PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_sse_bidirectional_requests COMMAND fastmcpp_server_sse_bidirectional_requests)
 
   # Streamable HTTP integration (MCP spec 2025-03-26)
   add_executable(fastmcpp_server_streamable_http_integration tests/server/streamable_http_integration.cpp)

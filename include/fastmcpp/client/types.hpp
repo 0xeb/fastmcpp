@@ -62,6 +62,7 @@ struct ToolInfo
     std::optional<fastmcpp::Json> outputSchema;       ///< JSON Schema for structured output
     std::optional<fastmcpp::Json> execution;          ///< Execution config (SEP-1686)
     std::optional<std::vector<fastmcpp::Icon>> icons; ///< Icons for UI display
+    std::optional<fastmcpp::Json> _meta;              ///< Protocol metadata
 };
 
 /// Result of tools/list request
@@ -128,6 +129,7 @@ struct ResourceInfo
     std::optional<std::string> mimeType;
     std::optional<fastmcpp::Json> annotations;
     std::optional<std::vector<fastmcpp::Icon>> icons; ///< Icons for UI display
+    std::optional<fastmcpp::Json> _meta;              ///< Protocol metadata
 };
 
 /// Resource template information
@@ -141,6 +143,7 @@ struct ResourceTemplate
     std::optional<std::string> mimeType;
     std::optional<fastmcpp::Json> annotations;
     std::optional<std::vector<fastmcpp::Icon>> icons; ///< Icons for UI display
+    std::optional<fastmcpp::Json> _meta;              ///< Protocol metadata
 };
 
 /// Text resource content
@@ -206,6 +209,7 @@ struct PromptInfo
     std::optional<std::string> description;
     std::optional<std::vector<PromptArgument>> arguments;
     std::optional<std::vector<fastmcpp::Icon>> icons; ///< Icons for UI display
+    std::optional<fastmcpp::Json> _meta;              ///< Protocol metadata
 };
 
 /// Prompt message role
@@ -328,6 +332,8 @@ inline void to_json(fastmcpp::Json& j, const ToolInfo& t)
         j["execution"] = *t.execution;
     if (t.icons)
         j["icons"] = *t.icons;
+    if (t._meta)
+        j["_meta"] = *t._meta;
 }
 
 inline void from_json(const fastmcpp::Json& j, ToolInfo& t)
@@ -337,13 +343,15 @@ inline void from_json(const fastmcpp::Json& j, ToolInfo& t)
         t.title = j["title"].get<std::string>();
     if (j.contains("description"))
         t.description = j["description"].get<std::string>();
-    t.inputSchema = j.value("inputSchema", fastmcpp::Json::object());
+    t.inputSchema = j.value("inputSchema", fastmcpp::Json::object());     
     if (j.contains("outputSchema"))
         t.outputSchema = j["outputSchema"];
     if (j.contains("execution"))
         t.execution = j["execution"];
     if (j.contains("icons"))
         t.icons = j["icons"].get<std::vector<fastmcpp::Icon>>();
+    if (j.contains("_meta"))
+        t._meta = j["_meta"];
 }
 
 inline void to_json(fastmcpp::Json& j, const ResourceInfo& r)
@@ -359,6 +367,8 @@ inline void to_json(fastmcpp::Json& j, const ResourceInfo& r)
         j["annotations"] = *r.annotations;
     if (r.icons)
         j["icons"] = *r.icons;
+    if (r._meta)
+        j["_meta"] = *r._meta;
 }
 
 inline void from_json(const fastmcpp::Json& j, ResourceInfo& r)
@@ -375,9 +385,11 @@ inline void from_json(const fastmcpp::Json& j, ResourceInfo& r)
         r.annotations = j["annotations"];
     if (j.contains("icons"))
         r.icons = j["icons"].get<std::vector<fastmcpp::Icon>>();
+    if (j.contains("_meta"))
+        r._meta = j["_meta"];
 }
 
-inline void to_json(fastmcpp::Json& j, const ResourceTemplate& t)
+inline void to_json(fastmcpp::Json& j, const ResourceTemplate& t)        
 {
     j = fastmcpp::Json{{"uriTemplate", t.uriTemplate}, {"name", t.name}};
     if (t.title)
@@ -390,9 +402,11 @@ inline void to_json(fastmcpp::Json& j, const ResourceTemplate& t)
         j["annotations"] = *t.annotations;
     if (t.icons)
         j["icons"] = *t.icons;
+    if (t._meta)
+        j["_meta"] = *t._meta;
 }
 
-inline void from_json(const fastmcpp::Json& j, ResourceTemplate& t)
+inline void from_json(const fastmcpp::Json& j, ResourceTemplate& t)       
 {
     t.uriTemplate = j.at("uriTemplate").get<std::string>();
     t.name = j.at("name").get<std::string>();
@@ -406,6 +420,8 @@ inline void from_json(const fastmcpp::Json& j, ResourceTemplate& t)
         t.annotations = j["annotations"];
     if (j.contains("icons"))
         t.icons = j["icons"].get<std::vector<fastmcpp::Icon>>();
+    if (j.contains("_meta"))
+        t._meta = j["_meta"];
 }
 
 inline void to_json(fastmcpp::Json& j, const PromptInfo& p)
@@ -428,6 +444,8 @@ inline void to_json(fastmcpp::Json& j, const PromptInfo& p)
     }
     if (p.icons)
         j["icons"] = *p.icons;
+    if (p._meta)
+        j["_meta"] = *p._meta;
 }
 
 inline void from_json(const fastmcpp::Json& j, PromptInfo& p)
@@ -452,6 +470,8 @@ inline void from_json(const fastmcpp::Json& j, PromptInfo& p)
     }
     if (j.contains("icons"))
         p.icons = j["icons"].get<std::vector<fastmcpp::Icon>>();
+    if (j.contains("_meta"))
+        p._meta = j["_meta"];
 }
 
 inline void from_json(const fastmcpp::Json& j, TextResourceContent& c)
