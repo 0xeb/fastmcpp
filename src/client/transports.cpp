@@ -403,7 +403,7 @@ void HttpTransport::request_stream_post(const std::string& route, const fastmcpp
     // Parse whatever accumulated
     parse_and_emit(true);
 
-    if (code != CURLE_OK)
+    if (code != CURLE_OK && code != CURLE_PARTIAL_FILE)
     {
         throw fastmcpp::TransportError(std::string("HTTP stream POST failed: ") +
                                        curl_easy_strerror(code));

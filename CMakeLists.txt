@@ -12,7 +12,7 @@ option(FASTMCPP_FETCH_CURL "Attempt to fetch libcurl if not found (experimental)
 option(FASTMCPP_ENABLE_WS_STREAMING_TESTS "Enable WebSocket streaming tests (requires external server)" OFF)
 option(FASTMCPP_ENABLE_LOCAL_WS_TEST "Enable local WebSocket server test (depends on httplib ws server support)" OFF)
 
-add_library(fastmcpp_core
+add_library(fastmcpp_core STATIC
     src/types.cpp
     src/util/schema_build.cpp
     src/app.cpp
@@ -122,6 +122,14 @@ if(FASTMCPP_ENABLE_POST_STREAMING)
       set(CURL_USE_OPENSSL OFF CACHE BOOL "Do not use OpenSSL" FORCE)
     endif()
 
+    # Avoid shipping a libcurl DLL alongside the examples/tests.
+    if(DEFINED BUILD_SHARED_LIBS)
+      set(_fastmcpp_prev_build_shared_libs "${BUILD_SHARED_LIBS}")
+    else()
+      set(_fastmcpp_prev_build_shared_libs "__UNDEFINED__")
+    endif()
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
+
     FetchContent_Declare(
       curl
       GIT_REPOSITORY https://github.com/curl/curl.git
@@ -129,8 +137,27 @@ if(FASTMCPP_ENABLE_POST_STREAMING)
     )
     FetchContent_MakeAvailable(curl)
 
-    if(TARGET libcurl AND NOT TARGET CURL::libcurl)
-      add_library(CURL::libcurl ALIAS libcurl)
+    set(_fastmcpp_curl_target "")
+    if(TARGET libcurl_static)
+      set(_fastmcpp_curl_target libcurl_static)
+    elseif(TARGET libcurl)
+      set(_fastmcpp_curl_target libcurl)
+    elseif(TARGET libcurl_shared)
+      set(_fastmcpp_curl_target libcurl_shared)
+    endif()
+
+    if(_fastmcpp_curl_target AND NOT TARGET CURL::libcurl)
+      add_library(CURL::libcurl ALIAS ${_fastmcpp_curl_target})
+    endif()
+
+    if(TARGET CURL::libcurl)
+      set(CURL_FOUND TRUE)
+    endif()
+
+    if(_fastmcpp_prev_build_shared_libs STREQUAL "__UNDEFINED__")
+      unset(BUILD_SHARED_LIBS CACHE)
+    else()
+      set(BUILD_SHARED_LIBS "${_fastmcpp_prev_build_shared_libs}" CACHE BOOL "Build shared libraries" FORCE)
     endif()
   endif()
 
