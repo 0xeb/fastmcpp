@@ -96,11 +96,45 @@ target_sources(fastmcpp_core PRIVATE ${easywsclient_SOURCE_DIR}/easywsclient.cpp
 
 # Optional: libcurl for POST streaming receive support (modular)
 if(FASTMCPP_ENABLE_POST_STREAMING)
-  find_package(CURL)
-  if(NOT CURL_FOUND AND FASTMCPP_FETCH_CURL)
-    message(STATUS "CURL not found; FASTMCPP_FETCH_CURL requested (skipping auto-fetch in this build). Please provide CURL via your toolchain or package manager.")
+  find_package(CURL QUIET)
+
+  if(CURL_FOUND AND NOT TARGET CURL::libcurl)
+    add_library(CURL::libcurl UNKNOWN IMPORTED)
+    set_target_properties(CURL::libcurl PROPERTIES
+      IMPORTED_LOCATION "${CURL_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${CURL_INCLUDE_DIRS}"
+    )
   endif()
-  if(CURL_FOUND)
+
+  if(NOT CURL_FOUND AND FASTMCPP_FETCH_CURL)
+    message(STATUS "CURL not found; fetching curl via FetchContent (experimental)")
+    include(FetchContent)
+
+    # Configure curl for a minimal library build.
+    set(BUILD_CURL_EXE OFF CACHE BOOL "Build curl executable" FORCE)
+    set(CURL_DISABLE_TESTS ON CACHE BOOL "Disable curl tests" FORCE)
+    set(CURL_DISABLE_INSTALL ON CACHE BOOL "Disable curl install targets" FORCE)
+    set(CURL_DISABLE_LDAP ON CACHE BOOL "Disable LDAP support" FORCE)
+
+    # Prefer platform TLS backends to avoid OpenSSL as a dependency.
+    if(WIN32)
+      set(CURL_USE_SCHANNEL ON CACHE BOOL "Use Windows Schannel for TLS" FORCE)
+      set(CURL_USE_OPENSSL OFF CACHE BOOL "Do not use OpenSSL" FORCE)
+    endif()
+
+    FetchContent_Declare(
+      curl
+      GIT_REPOSITORY https://github.com/curl/curl.git
+      GIT_TAG curl-8_9_1
+    )
+    FetchContent_MakeAvailable(curl)
+
+    if(TARGET libcurl AND NOT TARGET CURL::libcurl)
+      add_library(CURL::libcurl ALIAS libcurl)
+    endif()
+  endif()
+
+  if(TARGET CURL::libcurl)
     target_compile_definitions(fastmcpp_core PRIVATE FASTMCPP_POST_STREAMING)
     target_link_libraries(fastmcpp_core PRIVATE CURL::libcurl)
   else()
