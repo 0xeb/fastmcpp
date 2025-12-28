@@ -12,6 +12,24 @@ option(FASTMCPP_FETCH_CURL "Attempt to fetch libcurl if not found (experimental)
 option(FASTMCPP_ENABLE_WS_STREAMING_TESTS "Enable WebSocket streaming tests (requires external server)" OFF)
 option(FASTMCPP_ENABLE_LOCAL_WS_TEST "Enable local WebSocket server test (depends on httplib ws server support)" OFF)
 
+function(fastmcpp_copy_fetched_curl_dll target_name)
+  if(NOT WIN32)
+    return()
+  endif()
+
+  if(NOT FASTMCPP_CURL_FETCHED)
+    return()
+  endif()
+
+  add_custom_command(TARGET ${target_name} POST_BUILD
+    COMMAND "${CMAKE_COMMAND}"
+      -DSRC="${CMAKE_BINARY_DIR}/_deps/curl-build/lib/$<CONFIG>/$<IF:$<CONFIG:Debug>,libcurl-d.dll,libcurl.dll>"
+      -DDST="$<TARGET_FILE_DIR:${target_name}>/$<IF:$<CONFIG:Debug>,libcurl-d.dll,libcurl.dll>"
+      -P "${CMAKE_CURRENT_LIST_DIR}/cmake/copy_if_exists.cmake"
+    VERBATIM
+  )
+endfunction()
+
 add_library(fastmcpp_core STATIC
     src/types.cpp
     src/util/schema_build.cpp
@@ -136,6 +154,7 @@ if(FASTMCPP_ENABLE_POST_STREAMING)
       GIT_TAG curl-8_9_1
     )
     FetchContent_MakeAvailable(curl)
+    set(FASTMCPP_CURL_FETCHED TRUE)
 
     set(_fastmcpp_curl_target "")
     if(TARGET libcurl_static)
@@ -192,6 +211,7 @@ target_link_libraries(fastmcpp_core PRIVATE Threads::Threads)
 
 add_executable(fastmcpp src/cli/main.cpp)
 target_link_libraries(fastmcpp PRIVATE fastmcpp_core)
+fastmcpp_copy_fetched_curl_dll(fastmcpp)
 
 if(FASTMCPP_BUILD_TESTS)
   enable_testing()
@@ -569,6 +589,7 @@ if(FASTMCPP_BUILD_EXAMPLES)
     target_link_libraries(fastmcpp_example_streaming_post_demo PRIVATE fastmcpp_core)
     if(CURL_FOUND)
       add_test(NAME fastmcpp_example_streaming_post_demo COMMAND fastmcpp_example_streaming_post_demo)
+      fastmcpp_copy_fetched_curl_dll(fastmcpp_example_streaming_post_demo)
     else()
       message(STATUS "libcurl not found; skipping test fastmcpp_example_streaming_post_demo")
     endif()
