@@ -295,6 +295,8 @@ void HttpTransport::request_stream_post(const std::string& route, const fastmcpp
         throw fastmcpp::TransportError("libcurl init failed");
 
     std::string url = base_url_;
+    if (url.find("://") == std::string::npos)
+        url = "http://" + url;
     if (!url.empty() && url.back() != '/')
         url.push_back('/');
     url += route;
