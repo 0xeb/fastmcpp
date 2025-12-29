@@ -96,18 +96,8 @@ target_sources(fastmcpp_core PRIVATE ${easywsclient_SOURCE_DIR}/easywsclient.cpp
 
 # Optional: libcurl for POST streaming receive support (modular)
 if(FASTMCPP_ENABLE_POST_STREAMING)
-  find_package(CURL QUIET)
-
-  if(CURL_FOUND AND NOT TARGET CURL::libcurl)
-    add_library(CURL::libcurl UNKNOWN IMPORTED)
-    set_target_properties(CURL::libcurl PROPERTIES
-      IMPORTED_LOCATION "${CURL_LIBRARY}"
-      INTERFACE_INCLUDE_DIRECTORIES "${CURL_INCLUDE_DIRS}"
-    )
-  endif()
-
-  if(NOT CURL_FOUND AND FASTMCPP_FETCH_CURL)
-    message(STATUS "CURL not found; fetching curl via FetchContent (experimental)")
+  if(FASTMCPP_FETCH_CURL)
+    message(STATUS "FASTMCPP_FETCH_CURL=ON: fetching curl via FetchContent (static-only)")
     include(FetchContent)
 
     # Configure curl for a minimal library build.
@@ -122,7 +112,7 @@ if(FASTMCPP_ENABLE_POST_STREAMING)
       set(CURL_USE_OPENSSL OFF CACHE BOOL "Do not use OpenSSL" FORCE)
     endif()
 
-    # Prefer a static curl build to avoid runtime DLL dependencies.
+    # Always build curl statically to avoid runtime DLL dependencies.
     if(DEFINED BUILD_SHARED_LIBS)
       set(_fastmcpp_prev_build_shared_libs "${BUILD_SHARED_LIBS}")
     else()
@@ -137,27 +127,26 @@ if(FASTMCPP_ENABLE_POST_STREAMING)
     )
     FetchContent_MakeAvailable(curl)
 
-    set(_fastmcpp_curl_target "")
-    if(TARGET libcurl_static)
-      set(_fastmcpp_curl_target libcurl_static)
-    elseif(TARGET libcurl)
-      set(_fastmcpp_curl_target libcurl)
-    elseif(TARGET libcurl_shared)
-      set(_fastmcpp_curl_target libcurl_shared)
-    endif()
-
-    if(_fastmcpp_curl_target AND NOT TARGET CURL::libcurl)
-      add_library(CURL::libcurl ALIAS ${_fastmcpp_curl_target})
-    endif()
-
-    if(TARGET CURL::libcurl)
-      set(CURL_FOUND TRUE)
+    if(TARGET libcurl_static AND NOT TARGET CURL::libcurl)
+      add_library(CURL::libcurl ALIAS libcurl_static)
     endif()
 
     if(_fastmcpp_prev_build_shared_libs STREQUAL "__UNDEFINED__")
       unset(BUILD_SHARED_LIBS CACHE)
     else()
       set(BUILD_SHARED_LIBS "${_fastmcpp_prev_build_shared_libs}" CACHE BOOL "Build shared libraries" FORCE)
+    endif()
+  else()
+    # Best effort for users who provide a curl toolchain: request static linkage.
+    set(CURL_USE_STATIC_LIBS ON)
+    find_package(CURL QUIET)
+
+    if(CURL_FOUND AND NOT TARGET CURL::libcurl)
+      add_library(CURL::libcurl UNKNOWN IMPORTED)
+      set_target_properties(CURL::libcurl PROPERTIES
+        IMPORTED_LOCATION "${CURL_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${CURL_INCLUDE_DIRS}"
+      )
     endif()
   endif()
 
@@ -567,7 +556,7 @@ if(FASTMCPP_BUILD_EXAMPLES)
   if(FASTMCPP_ENABLE_POST_STREAMING)
     add_executable(fastmcpp_example_streaming_post_demo examples/streaming_post_demo.cpp)
     target_link_libraries(fastmcpp_example_streaming_post_demo PRIVATE fastmcpp_core)
-    if(CURL_FOUND)
+    if(TARGET CURL::libcurl)
       add_test(NAME fastmcpp_example_streaming_post_demo COMMAND fastmcpp_example_streaming_post_demo)
     else()
       message(STATUS "libcurl not found; skipping test fastmcpp_example_streaming_post_demo")
