@@ -343,7 +343,7 @@ inline void from_json(const fastmcpp::Json& j, ToolInfo& t)
         t.title = j["title"].get<std::string>();
     if (j.contains("description"))
         t.description = j["description"].get<std::string>();
-    t.inputSchema = j.value("inputSchema", fastmcpp::Json::object());     
+    t.inputSchema = j.value("inputSchema", fastmcpp::Json::object());
     if (j.contains("outputSchema"))
         t.outputSchema = j["outputSchema"];
     if (j.contains("execution"))
@@ -389,7 +389,7 @@ inline void from_json(const fastmcpp::Json& j, ResourceInfo& r)
         r._meta = j["_meta"];
 }
 
-inline void to_json(fastmcpp::Json& j, const ResourceTemplate& t)        
+inline void to_json(fastmcpp::Json& j, const ResourceTemplate& t)
 {
     j = fastmcpp::Json{{"uriTemplate", t.uriTemplate}, {"name", t.name}};
     if (t.title)
@@ -406,7 +406,7 @@ inline void to_json(fastmcpp::Json& j, const ResourceTemplate& t)
         j["_meta"] = *t._meta;
 }
 
-inline void from_json(const fastmcpp::Json& j, ResourceTemplate& t)       
+inline void from_json(const fastmcpp::Json& j, ResourceTemplate& t)
 {
     t.uriTemplate = j.at("uriTemplate").get<std::string>();
     t.name = j.at("name").get<std::string>();

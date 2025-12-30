@@ -96,7 +96,9 @@ class StdioTransport : public ITransport
 /// 1. Client connects to /sse endpoint (GET) to establish event stream
 /// 2. Client sends JSON-RPC requests to /messages endpoint (POST)
 /// 3. Server sends JSON-RPC responses back via the SSE stream
-class SseClientTransport : public ITransport, public IServerRequestTransport, public IResettableTransport
+class SseClientTransport : public ITransport,
+                           public IServerRequestTransport,
+                           public IResettableTransport
 {
   public:
     /// Construct an SSE client transport
@@ -121,7 +123,7 @@ class SseClientTransport : public ITransport, public IServerRequestTransport, pu
     /// Check if a session ID has been set.
     bool has_session() const;
 
-    void set_server_request_handler(ServerRequestHandler handler) override;     
+    void set_server_request_handler(ServerRequestHandler handler) override;
 
     void reset(bool full = false) override;
 

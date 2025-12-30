@@ -708,7 +708,7 @@ void SseClientTransport::start_sse_listener()
 
                     if (!aggregated.empty())
                     {
-                        // Handle endpoint event specially - it's not JSON      
+                        // Handle endpoint event specially - it's not JSON
                         if (event_type == "endpoint")
                         {
                             std::lock_guard<std::mutex> lock(endpoint_mutex_);
@@ -721,9 +721,9 @@ void SseClientTransport::start_sse_listener()
                             {
                                 pos += std::string("session_id=").size();
                                 auto end = endpoint_path_.find_first_of("&#", pos);
-                                session_id_ = endpoint_path_.substr(
-                                    pos, end == std::string::npos ? std::string::npos
-                                                              : (end - pos));
+                                session_id_ = endpoint_path_.substr(pos, end == std::string::npos
+                                                                             ? std::string::npos
+                                                                             : (end - pos));
                             }
                         }
                         else
@@ -919,7 +919,7 @@ fastmcpp::Json SseClientTransport::request(const std::string& route, const fastm
     cli.set_connection_timeout(5, 0);
     cli.set_read_timeout(30, 0);
 
-    // Use the endpoint path from SSE if available, otherwise use default       
+    // Use the endpoint path from SSE if available, otherwise use default
     std::string post_path;
     {
         std::lock_guard<std::mutex> lock(endpoint_mutex_);

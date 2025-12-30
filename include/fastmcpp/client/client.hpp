@@ -59,7 +59,8 @@ class IResettableTransport
 using ServerRequestHandler =
     std::function<fastmcpp::Json(const std::string& method, const fastmcpp::Json& params)>;
 
-/// Optional transport interface: some transports can accept server-initiated requests and send responses.
+/// Optional transport interface: some transports can accept server-initiated requests and send
+/// responses.
 class IServerRequestTransport
 {
   public:
@@ -663,7 +664,7 @@ class Client
     }
 
     /// Register roots/sampling/elicitation callbacks (placeholders for parity)
-    void set_roots_callback(const std::function<fastmcpp::Json()>& cb)    
+    void set_roots_callback(const std::function<fastmcpp::Json()>& cb)
     {
         set_roots_callback_impl(cb);
     }
@@ -714,7 +715,7 @@ class Client
     };
 
     std::shared_ptr<CallbackState> callbacks_;
-    std::unordered_map<std::string, fastmcpp::Json> tool_output_schemas_; 
+    std::unordered_map<std::string, fastmcpp::Json> tool_output_schemas_;
 
     std::function<fastmcpp::Json()> get_roots_callback() const
     {
@@ -745,16 +746,15 @@ class Client
         std::lock_guard<std::mutex> lock(callbacks_->mutex);
         callbacks_->roots_callback = cb;
     }
-    void set_sampling_callback_impl(
-        const std::function<fastmcpp::Json(const fastmcpp::Json&)>& cb)
+    void set_sampling_callback_impl(const std::function<fastmcpp::Json(const fastmcpp::Json&)>& cb)
     {
         if (!callbacks_)
             callbacks_ = std::make_shared<CallbackState>();
         std::lock_guard<std::mutex> lock(callbacks_->mutex);
         callbacks_->sampling_callback = cb;
     }
-    void set_elicitation_callback_impl(
-        const std::function<fastmcpp::Json(const fastmcpp::Json&)>& cb)
+    void
+    set_elicitation_callback_impl(const std::function<fastmcpp::Json(const fastmcpp::Json&)>& cb)
     {
         if (!callbacks_)
             callbacks_ = std::make_shared<CallbackState>();
@@ -811,7 +811,8 @@ class Client
     }
 
     // Internal constructor for cloning
-    Client(std::shared_ptr<ITransport> t, std::shared_ptr<CallbackState> callbacks, bool /*internal*/)
+    Client(std::shared_ptr<ITransport> t, std::shared_ptr<CallbackState> callbacks,
+           bool /*internal*/)
         : transport_(std::move(t)), callbacks_(std::move(callbacks))
     {
         configure_transport_callbacks();
