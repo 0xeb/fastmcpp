@@ -12,11 +12,14 @@
 #include <deque>
 #include <functional>
 #include <iomanip>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <sstream>
+#include <string>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace fastmcpp::mcp

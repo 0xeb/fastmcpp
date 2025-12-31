@@ -8,6 +8,7 @@
 #include "fastmcpp/util/schema_build.hpp"
 
 #include <unordered_set>
+#include <utility>
 
 namespace fastmcpp
 {
