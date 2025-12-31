@@ -57,10 +57,42 @@ struct ProxyMountedApp
 class FastMCP
 {
   public:
+    struct ToolOptions
+    {
+        std::optional<std::string> title;
+        std::optional<std::string> description;
+        std::optional<std::vector<Icon>> icons;
+        std::vector<std::string> exclude_args;
+        TaskSupport task_support{TaskSupport::Forbidden};
+        Json output_schema{Json::object()};
+    };
+
+    struct PromptOptions
+    {
+        std::optional<std::string> description;
+        std::optional<Json> meta;
+        std::vector<prompts::PromptArgument> arguments;
+        TaskSupport task_support{TaskSupport::Forbidden};
+    };
+
+    struct ResourceOptions
+    {
+        std::optional<std::string> description;
+        std::optional<std::string> mime_type;
+        TaskSupport task_support{TaskSupport::Forbidden};
+    };
+
+    struct ResourceTemplateOptions
+    {
+        std::optional<std::string> description;
+        std::optional<std::string> mime_type;
+        TaskSupport task_support{TaskSupport::Forbidden};
+    };
+
     /// Construct app with metadata
     explicit FastMCP(std::string name = "fastmcpp_app", std::string version = "1.0.0",
-                     std::optional<std::string> website_url = std::nullopt,
-                     std::optional<std::vector<Icon>> icons = std::nullopt);
+                     std::optional<std::string> website_url = std::nullopt,     
+                     std::optional<std::vector<Icon>> icons = std::nullopt);    
 
     // Metadata accessors
     const std::string& name() const
@@ -116,6 +148,40 @@ class FastMCP
     {
         return server_;
     }
+
+    // =========================================================================
+    // Ergonomic registration helpers (Python FastMCP decorator-style analogs)
+    // =========================================================================
+
+    /// Register a tool using either a full JSON Schema or a "simple" param map
+    /// (e.g., {"a":"number","b":"integer"}).
+    FastMCP& tool(std::string name, const Json& input_schema_or_simple,
+                  tools::Tool::Fn fn, ToolOptions options = {});
+
+    /// Register a zero-argument tool (input schema defaults to {}).
+    FastMCP& tool(std::string name, tools::Tool::Fn fn, ToolOptions options = {});
+
+    /// Register a prompt generator (equivalent to Python's @server.prompt).
+    FastMCP& prompt(std::string name,
+                    std::function<std::vector<prompts::PromptMessage>(const Json&)> generator,
+                    PromptOptions options = {});
+
+    /// Register a template-backed prompt (legacy Prompt template string).
+    FastMCP& prompt_template(std::string name, std::string template_string,
+                             PromptOptions options = {});
+
+    /// Register a concrete resource (equivalent to Python's @server.resource for fixed URIs).
+    FastMCP& resource(std::string uri, std::string name,
+                      std::function<resources::ResourceContent(const Json&)> provider,
+                      ResourceOptions options = {});
+
+    /// Register a resource template (equivalent to Python's @server.resource for templated URIs).
+    /// If parameters_schema_or_simple is empty, parameters are derived from the URI template.
+    FastMCP& resource_template(
+        std::string uri_template, std::string name,
+        std::function<resources::ResourceContent(const Json& params)> provider,
+        const Json& parameters_schema_or_simple = Json::object(),
+        ResourceTemplateOptions options = {});
 
     // =========================================================================
     // App Mounting

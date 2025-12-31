@@ -1377,7 +1377,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
             // Resource templates support
             if (method == "resources/templates/list")
             {
-                fastmcpp::Json templates_array = fastmcpp::Json::array();
+                fastmcpp::Json templates_array = fastmcpp::Json::array();       
                 for (const auto& templ : resources.list_templates())
                 {
                     fastmcpp::Json templ_json = {{"uriTemplate", templ.uri_template},
@@ -1386,6 +1386,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                         templ_json["description"] = *templ.description;
                     if (templ.mime_type)
                         templ_json["mimeType"] = *templ.mime_type;
+                    templ_json["parameters"] =
+                        templ.parameters.is_null() ? fastmcpp::Json::object() : templ.parameters;
                     templates_array.push_back(templ_json);
                 }
                 return fastmcpp::Json{
@@ -1846,7 +1848,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
 
             if (method == "resources/templates/list")
             {
-                fastmcpp::Json templates_array = fastmcpp::Json::array();
+                fastmcpp::Json templates_array = fastmcpp::Json::array();       
                 for (const auto& templ : app.list_all_templates())
                 {
                     fastmcpp::Json templ_json = {{"uriTemplate", templ.uri_template},
@@ -1855,6 +1857,8 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                         templ_json["description"] = *templ.description;
                     if (templ.mime_type)
                         templ_json["mimeType"] = *templ.mime_type;
+                    templ_json["parameters"] =
+                        templ.parameters.is_null() ? fastmcpp::Json::object() : templ.parameters;
                     templates_array.push_back(templ_json);
                 }
                 return fastmcpp::Json{
@@ -2298,8 +2302,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
 
             if (method == "resources/templates/list")
             {
-                fastmcpp::Json templates_array = fastmcpp::Json::array();
-                for (const auto& templ : app.list_all_resource_templates())
+                fastmcpp::Json templates_array = fastmcpp::Json::array();       
+                for (const auto& templ : app.list_all_resource_templates())     
                 {
                     fastmcpp::Json templ_json = {{"uriTemplate", templ.uriTemplate},
                                                  {"name", templ.name}};
@@ -2307,6 +2311,10 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         templ_json["description"] = *templ.description;
                     if (templ.mimeType)
                         templ_json["mimeType"] = *templ.mimeType;
+                    if (templ.parameters)
+                        templ_json["parameters"] = *templ.parameters;
+                    else
+                        templ_json["parameters"] = fastmcpp::Json::object();
                     templates_array.push_back(templ_json);
                 }
                 return fastmcpp::Json{
@@ -2682,7 +2690,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
 
             if (method == "resources/templates/list")
             {
-                fastmcpp::Json templates_array = fastmcpp::Json::array();
+                fastmcpp::Json templates_array = fastmcpp::Json::array();       
                 for (const auto& templ : app.list_all_templates())
                 {
                     fastmcpp::Json templ_json = {{"uriTemplate", templ.uri_template},
@@ -2691,6 +2699,8 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                         templ_json["description"] = *templ.description;
                     if (templ.mime_type)
                         templ_json["mimeType"] = *templ.mime_type;
+                    templ_json["parameters"] =
+                        templ.parameters.is_null() ? fastmcpp::Json::object() : templ.parameters;
                     templates_array.push_back(templ_json);
                 }
                 return fastmcpp::Json{

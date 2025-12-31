@@ -141,9 +141,10 @@ struct ResourceTemplate
     std::optional<std::string> title; ///< Human-readable title
     std::optional<std::string> description;
     std::optional<std::string> mimeType;
+    std::optional<fastmcpp::Json> parameters; ///< JSON Schema for template parameters
     std::optional<fastmcpp::Json> annotations;
-    std::optional<std::vector<fastmcpp::Icon>> icons; ///< Icons for UI display
-    std::optional<fastmcpp::Json> _meta;              ///< Protocol metadata
+    std::optional<std::vector<fastmcpp::Icon>> icons; ///< Icons for UI display 
+    std::optional<fastmcpp::Json> _meta;              ///< Protocol metadata    
 };
 
 /// Text resource content
@@ -391,13 +392,15 @@ inline void from_json(const fastmcpp::Json& j, ResourceInfo& r)
 
 inline void to_json(fastmcpp::Json& j, const ResourceTemplate& t)
 {
-    j = fastmcpp::Json{{"uriTemplate", t.uriTemplate}, {"name", t.name}};
+    j = fastmcpp::Json{{"uriTemplate", t.uriTemplate}, {"name", t.name}};       
     if (t.title)
         j["title"] = *t.title;
     if (t.description)
         j["description"] = *t.description;
     if (t.mimeType)
         j["mimeType"] = *t.mimeType;
+    if (t.parameters)
+        j["parameters"] = *t.parameters;
     if (t.annotations)
         j["annotations"] = *t.annotations;
     if (t.icons)
@@ -416,6 +419,8 @@ inline void from_json(const fastmcpp::Json& j, ResourceTemplate& t)
         t.description = j["description"].get<std::string>();
     if (j.contains("mimeType"))
         t.mimeType = j["mimeType"].get<std::string>();
+    if (j.contains("parameters"))
+        t.parameters = j["parameters"];
     if (j.contains("annotations"))
         t.annotations = j["annotations"];
     if (j.contains("icons"))
