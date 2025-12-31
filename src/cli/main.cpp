@@ -19,9 +19,8 @@ namespace
 
 static int usage(int exit_code = 1)
 {
-    std::cout << "fastmcpp " << fastmcpp::VERSION_MAJOR << "."
-              << fastmcpp::VERSION_MINOR << "." << fastmcpp::VERSION_PATCH
-              << "\n";
+    std::cout << "fastmcpp " << fastmcpp::VERSION_MAJOR << "." << fastmcpp::VERSION_MINOR << "."
+              << fastmcpp::VERSION_PATCH << "\n";
     std::cout << "Usage:\n";
     std::cout << "  fastmcpp --help\n";
     std::cout << "  fastmcpp client sum <a> <b>\n";
@@ -35,14 +34,18 @@ static int tasks_usage(int exit_code = 1)
     std::cout << "Usage:\n";
     std::cout << "  fastmcpp tasks --help\n";
     std::cout << "  fastmcpp tasks demo\n";
-    std::cout << "  fastmcpp tasks list    [connection options] [--cursor <c>] [--limit <n>] [--pretty]\n";
+    std::cout << "  fastmcpp tasks list    [connection options] [--cursor <c>] [--limit <n>] "
+                 "[--pretty]\n";
     std::cout << "  fastmcpp tasks get     <taskId> [connection options] [--pretty]\n";
     std::cout << "  fastmcpp tasks cancel  <taskId> [connection options] [--pretty]\n";
-    std::cout << "  fastmcpp tasks result  <taskId> [connection options] [--wait] [--timeout-ms <n>] [--pretty]\n";
+    std::cout << "  fastmcpp tasks result  <taskId> [connection options] [--wait] [--timeout-ms "
+                 "<n>] [--pretty]\n";
     std::cout << "\n";
     std::cout << "Connection options:\n";
-    std::cout << "  --http <base_url>              HTTP/SSE base URL (e.g. http://127.0.0.1:8000)\n";
-    std::cout << "  --streamable-http <base_url>   Streamable HTTP base URL (default MCP path: /mcp)\n";
+    std::cout
+        << "  --http <base_url>              HTTP/SSE base URL (e.g. http://127.0.0.1:8000)\n";
+    std::cout
+        << "  --streamable-http <base_url>   Streamable HTTP base URL (default MCP path: /mcp)\n";
     std::cout << "    --mcp-path <path>            Override MCP path for streamable HTTP\n";
     std::cout << "  --ws <url>                     WebSocket URL (e.g. ws://127.0.0.1:8765)\n";
     std::cout << "  --stdio <command>              Spawn an MCP stdio server\n";
@@ -50,7 +53,8 @@ static int tasks_usage(int exit_code = 1)
     std::cout << "\n";
     std::cout << "Notes:\n";
     std::cout << "  - Python fastmcp's `tasks` CLI is for Docket (distributed workers/Redis).\n";
-    std::cout << "  - fastmcpp provides MCP Tasks protocol client ops (SEP-1686 subset): list/get/cancel/result.\n";
+    std::cout << "  - fastmcpp provides MCP Tasks protocol client ops (SEP-1686 subset): "
+                 "list/get/cancel/result.\n";
     std::cout << "  - Use `fastmcpp tasks demo` for an in-process example (no network required).\n";
     return exit_code;
 }
@@ -139,9 +143,7 @@ static std::optional<TasksConnection> parse_tasks_connection(std::vector<std::st
         saw_any = true;
     }
     if (auto mcp_path = consume_flag_value(args, "--mcp-path"))
-    {
         conn.mcp_path = *mcp_path;
-    }
     if (auto ws = consume_flag_value(args, "--ws"))
     {
         conn.kind = TasksConnection::Kind::WebSocket;
@@ -173,14 +175,15 @@ static fastmcpp::client::Client make_client_from_connection(const TasksConnectio
     using namespace fastmcpp::client;
     switch (conn.kind)
     {
-        case TasksConnection::Kind::Http:
-            return Client(std::make_unique<HttpTransport>(conn.url_or_command));
-        case TasksConnection::Kind::StreamableHttp:
-            return Client(std::make_unique<StreamableHttpTransport>(conn.url_or_command, conn.mcp_path));
-        case TasksConnection::Kind::WebSocket:
-            return Client(std::make_unique<WebSocketTransport>(conn.url_or_command));
-        case TasksConnection::Kind::Stdio:
-            return Client(std::make_unique<StdioTransport>(conn.url_or_command, conn.stdio_args));
+    case TasksConnection::Kind::Http:
+        return Client(std::make_unique<HttpTransport>(conn.url_or_command));
+    case TasksConnection::Kind::StreamableHttp:
+        return Client(
+            std::make_unique<StreamableHttpTransport>(conn.url_or_command, conn.mcp_path));
+    case TasksConnection::Kind::WebSocket:
+        return Client(std::make_unique<WebSocketTransport>(conn.url_or_command));
+    case TasksConnection::Kind::Stdio:
+        return Client(std::make_unique<StdioTransport>(conn.url_or_command, conn.stdio_args));
     }
     throw std::runtime_error("Unsupported transport kind");
 }
@@ -193,20 +196,16 @@ static int run_tasks_demo()
     Json input_schema = {{"type", "object"},
                          {"properties", Json::object({{"ms", Json{{"type", "number"}}}})}};
 
-    tools::Tool sleep_tool{
-        "sleep_ms",
-        input_schema,
-        Json{{"type", "number"}},
-        [](const Json& in)
-        {
-            int ms = 50;
-            if (in.contains("ms") && in["ms"].is_number())
-                ms = static_cast<int>(in["ms"].get<double>());
-            if (ms < 0)
-                ms = 0;
-            std::this_thread::sleep_for(std::chrono::milliseconds(ms));
-            return Json(ms);
-        }};
+    tools::Tool sleep_tool{"sleep_ms", input_schema, Json{{"type", "number"}}, [](const Json& in)
+                           {
+                               int ms = 50;
+                               if (in.contains("ms") && in["ms"].is_number())
+                                   ms = static_cast<int>(in["ms"].get<double>());
+                               if (ms < 0)
+                                   ms = 0;
+                               std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+                               return Json(ms);
+                           }};
     sleep_tool.set_task_support(TaskSupport::Optional);
     app.tools().register_tool(sleep_tool);
 
@@ -342,8 +341,7 @@ static int run_tasks_command(int argc, char** argv)
             if (sub == "get")
             {
                 auto client = make_client_from_connection(*conn);
-                fastmcpp::Json res =
-                    client.call("tasks/get", fastmcpp::Json{{"taskId", task_id}});
+                fastmcpp::Json res = client.call("tasks/get", fastmcpp::Json{{"taskId", task_id}});
                 dump_json(res);
                 return 0;
             }
@@ -351,8 +349,8 @@ static int run_tasks_command(int argc, char** argv)
             if (sub == "cancel")
             {
                 auto client = make_client_from_connection(*conn);
-                fastmcpp::Json res = client.call("tasks/cancel",
-                                                 fastmcpp::Json{{"taskId", task_id}});
+                fastmcpp::Json res =
+                    client.call("tasks/cancel", fastmcpp::Json{{"taskId", task_id}});
                 dump_json(res);
                 return 0;
             }
@@ -365,8 +363,8 @@ static int run_tasks_command(int argc, char** argv)
                     auto start = std::chrono::steady_clock::now();
                     while (true)
                     {
-                        fastmcpp::Json status = client.call(
-                            "tasks/get", fastmcpp::Json{{"taskId", task_id}});
+                        fastmcpp::Json status =
+                            client.call("tasks/get", fastmcpp::Json{{"taskId", task_id}});
                         std::string s = status.value("status", "");
                         if (s == "completed")
                             break;
@@ -375,9 +373,8 @@ static int run_tasks_command(int argc, char** argv)
                             dump_json(status);
                             return 3;
                         }
-                        if (timeout_ms > 0 &&
-                            std::chrono::steady_clock::now() - start >=
-                                std::chrono::milliseconds(timeout_ms))
+                        if (timeout_ms > 0 && std::chrono::steady_clock::now() - start >=
+                                                  std::chrono::milliseconds(timeout_ms))
                         {
                             dump_json(status);
                             return 4;
@@ -385,13 +382,12 @@ static int run_tasks_command(int argc, char** argv)
                         int poll_ms = status.value("pollInterval", 1000);
                         if (poll_ms <= 0)
                             poll_ms = 1000;
-                        std::this_thread::sleep_for(
-                            std::chrono::milliseconds(poll_ms));
+                        std::this_thread::sleep_for(std::chrono::milliseconds(poll_ms));
                     }
                 }
 
-                fastmcpp::Json res = client.call(
-                    "tasks/result", fastmcpp::Json{{"taskId", task_id}});
+                fastmcpp::Json res =
+                    client.call("tasks/result", fastmcpp::Json{{"taskId", task_id}});
                 dump_json(res);
                 return 0;
             }
@@ -425,11 +421,9 @@ int main(int argc, char** argv)
             int a = std::atoi(argv[3]);
             int b = std::atoi(argv[4]);
             auto srv = std::make_shared<fastmcpp::server::Server>();
-            srv->route("sum",
-                       [](const fastmcpp::Json& j)
+            srv->route("sum", [](const fastmcpp::Json& j)
                        { return j.at("a").get<int>() + j.at("b").get<int>(); });
-            fastmcpp::client::Client c{
-                std::make_unique<fastmcpp::client::LoopbackTransport>(srv)};
+            fastmcpp::client::Client c{std::make_unique<fastmcpp::client::LoopbackTransport>(srv)};
             auto res = c.call("sum", fastmcpp::Json{{"a", a}, {"b", b}});
             std::cout << res.dump() << "\n";
             return 0;

@@ -5,6 +5,10 @@
 #include <sstream>
 #include <string>
 
+#if !defined(_WIN32)
+#include <sys/wait.h>
+#endif
+
 namespace
 {
 
@@ -74,8 +78,8 @@ static bool contains(const std::string& haystack, const std::string& needle)
     return haystack.find(needle) != std::string::npos;
 }
 
-static int assert_contains(const std::string& name, const CommandResult& r,
-                           int expected_exit, const std::string& expected_substr)
+static int assert_contains(const std::string& name, const CommandResult& r, int expected_exit,
+                           const std::string& expected_substr)
 {
     if (r.exit_code != expected_exit)
     {
@@ -86,8 +90,8 @@ static int assert_contains(const std::string& name, const CommandResult& r,
     }
     if (!contains(r.output, expected_substr))
     {
-        std::cerr << "[FAIL] " << name << ": expected output to contain: "
-                  << expected_substr << "\n"
+        std::cerr << "[FAIL] " << name << ": expected output to contain: " << expected_substr
+                  << "\n"
                   << r.output << "\n";
         return 1;
     }
@@ -102,8 +106,8 @@ int main(int argc, char** argv)
     const auto fastmcpp_exe = find_fastmcpp_exe(argc > 0 ? argv[0] : nullptr);
     if (!std::filesystem::exists(fastmcpp_exe))
     {
-        std::cerr << "[FAIL] fastmcpp executable not found next to test: "
-                  << fastmcpp_exe.string() << "\n";
+        std::cerr << "[FAIL] fastmcpp executable not found next to test: " << fastmcpp_exe.string()
+                  << "\n";
         return 1;
     }
 
@@ -116,8 +120,8 @@ int main(int argc, char** argv)
 
     {
         auto r = run_capture(base + " tasks list" + redir);
-        failures += assert_contains("tasks list requires connection", r, 2,
-                                    "Missing connection options");
+        failures +=
+            assert_contains("tasks list requires connection", r, 2, "Missing connection options");
     }
 
     {
@@ -126,11 +130,10 @@ int main(int argc, char** argv)
     }
 
     {
-        auto r = run_capture(base + " tasks list --http http://127.0.0.1:1 --not-a-real-flag" +
-                             redir);
+        auto r =
+            run_capture(base + " tasks list --http http://127.0.0.1:1 --not-a-real-flag" + redir);
         failures += assert_contains("tasks list rejects unknown flag", r, 2, "Unknown option");
     }
 
     return failures == 0 ? 0 : 1;
 }
-

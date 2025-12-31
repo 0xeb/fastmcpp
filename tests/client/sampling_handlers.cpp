@@ -2,13 +2,13 @@
 /// @brief Tests for built-in OpenAI/Anthropic sampling handlers (SEP-1577 follow-up).
 
 #include "fastmcpp/client/sampling_handlers.hpp"
-#include "fastmcpp/types.hpp"
 
-#include <httplib.h>
+#include "fastmcpp/types.hpp"
 
 #include <atomic>
 #include <cassert>
 #include <chrono>
+#include <httplib.h>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -55,39 +55,40 @@ int main()
     std::atomic<bool> saw_openai{false};
     std::atomic<bool> saw_anthropic{false};
 
-    srv.server.Post("/v1/chat/completions",
-                    [&](const httplib::Request& req, httplib::Response& res)
-                    {
-                        assert(req.has_header("Authorization"));
-                        assert(req.get_header_value("Authorization") == "Bearer testkey");
+    srv.server.Post(
+        "/v1/chat/completions",
+        [&](const httplib::Request& req, httplib::Response& res)
+        {
+            assert(req.has_header("Authorization"));
+            assert(req.get_header_value("Authorization") == "Bearer testkey");
 
-                        Json body = Json::parse(req.body);
-                        assert(body.value("model", "") == "gpt-test");
-                        assert(body.contains("messages") && body["messages"].is_array());
-                        assert(body.contains("tools") && body["tools"].is_array());
-                        assert(body.value("tool_choice", "") == "required");
+            Json body = Json::parse(req.body);
+            assert(body.value("model", "") == "gpt-test");
+            assert(body.contains("messages") && body["messages"].is_array());
+            assert(body.contains("tools") && body["tools"].is_array());
+            assert(body.value("tool_choice", "") == "required");
 
-                        Json response = {
-                            {"id", "cmpl_test"},
-                            {"model", "gpt-test"},
-                            {"choices",
-                             Json::array({Json{{"index", 0},
-                                               {"finish_reason", "tool_calls"},
-                                               {"message",
-                                                Json{{"role", "assistant"},
-                                                     {"content", ""},
-                                                     {"tool_calls",
-                                                      Json::array({Json{{"id", "call_1"},
-                                                                        {"type", "function"},
-                                                                        {"function",
-                                                                         Json{{"name", "add"},
-                                                                              {"arguments",
-                                                                               "{\"a\":10,\"b\":20}"}}}}})}}}}})},
-                        };
+            Json response = {
+                {"id", "cmpl_test"},
+                {"model", "gpt-test"},
+                {"choices",
+                 Json::array({Json{
+                     {"index", 0},
+                     {"finish_reason", "tool_calls"},
+                     {"message",
+                      Json{{"role", "assistant"},
+                           {"content", ""},
+                           {"tool_calls",
+                            Json::array({Json{
+                                {"id", "call_1"},
+                                {"type", "function"},
+                                {"function", Json{{"name", "add"},
+                                                  {"arguments", "{\"a\":10,\"b\":20}"}}}}})}}}}})},
+            };
 
-                        res.set_content(response.dump(), "application/json");
-                        saw_openai = true;
-                    });
+            res.set_content(response.dump(), "application/json");
+            saw_openai = true;
+        });
 
     srv.server.Post("/v1/messages",
                     [&](const httplib::Request& req, httplib::Response& res)
@@ -126,16 +127,17 @@ int main()
             fastmcpp::client::sampling::handlers::create_openai_compatible_sampling_callback(opts);
 
         Json params = {
-            {"messages", Json::array({Json{{"role", "user"},
-                                      {"content", Json{{"type", "text"}, {"text", "Compute"}}}}})},
+            {"messages",
+             Json::array({Json{{"role", "user"},
+                               {"content", Json{{"type", "text"}, {"text", "Compute"}}}}})},
             {"maxTokens", 64},
             {"tools",
-             Json::array({Json{{"name", "add"},
-                               {"description", "Add two numbers"},
-                               {"inputSchema",
-                                Json{{"type", "object"},
-                                     {"properties", Json{{"a", Json{{"type", "number"}}},
-                                                         {"b", Json{{"type", "number"}}}}}}}}})},
+             Json::array({Json{
+                 {"name", "add"},
+                 {"description", "Add two numbers"},
+                 {"inputSchema", Json{{"type", "object"},
+                                      {"properties", Json{{"a", Json{{"type", "number"}}},
+                                                          {"b", Json{{"type", "number"}}}}}}}}})},
             {"toolChoice", Json{{"mode", "required"}}},
         };
 
@@ -174,12 +176,12 @@ int main()
         opts.api_key = "anthropic_testkey";
         opts.timeout_ms = 2000;
 
-        auto cb =
-            fastmcpp::client::sampling::handlers::create_anthropic_sampling_callback(opts);
+        auto cb = fastmcpp::client::sampling::handlers::create_anthropic_sampling_callback(opts);
 
         Json params = {
-            {"messages", Json::array({Json{{"role", "user"},
-                                      {"content", Json{{"type", "text"}, {"text", "Hello"}}}}})},
+            {"messages",
+             Json::array(
+                 {Json{{"role", "user"}, {"content", Json{{"type", "text"}, {"text", "Hello"}}}}})},
             {"maxTokens", 64},
         };
 
@@ -207,4 +209,3 @@ int main()
     std::cout << "\n[OK] sampling handlers tests complete\n";
     return 0;
 }
-

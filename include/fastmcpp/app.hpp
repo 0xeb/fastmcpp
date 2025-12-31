@@ -91,8 +91,8 @@ class FastMCP
 
     /// Construct app with metadata
     explicit FastMCP(std::string name = "fastmcpp_app", std::string version = "1.0.0",
-                     std::optional<std::string> website_url = std::nullopt,     
-                     std::optional<std::vector<Icon>> icons = std::nullopt);    
+                     std::optional<std::string> website_url = std::nullopt,
+                     std::optional<std::vector<Icon>> icons = std::nullopt);
 
     // Metadata accessors
     const std::string& name() const
@@ -155,8 +155,8 @@ class FastMCP
 
     /// Register a tool using either a full JSON Schema or a "simple" param map
     /// (e.g., {"a":"number","b":"integer"}).
-    FastMCP& tool(std::string name, const Json& input_schema_or_simple,
-                  tools::Tool::Fn fn, ToolOptions options = {});
+    FastMCP& tool(std::string name, const Json& input_schema_or_simple, tools::Tool::Fn fn,
+                  ToolOptions options = {});
 
     /// Register a zero-argument tool (input schema defaults to {}).
     FastMCP& tool(std::string name, tools::Tool::Fn fn, ToolOptions options = {});
@@ -177,11 +177,11 @@ class FastMCP
 
     /// Register a resource template (equivalent to Python's @server.resource for templated URIs).
     /// If parameters_schema_or_simple is empty, parameters are derived from the URI template.
-    FastMCP& resource_template(
-        std::string uri_template, std::string name,
-        std::function<resources::ResourceContent(const Json& params)> provider,
-        const Json& parameters_schema_or_simple = Json::object(),
-        ResourceTemplateOptions options = {});
+    FastMCP&
+    resource_template(std::string uri_template, std::string name,
+                      std::function<resources::ResourceContent(const Json& params)> provider,
+                      const Json& parameters_schema_or_simple = Json::object(),
+                      ResourceTemplateOptions options = {});
 
     // =========================================================================
     // App Mounting

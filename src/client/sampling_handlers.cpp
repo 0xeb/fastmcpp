@@ -76,9 +76,8 @@ static void ensure_curl_initialized()
     }
 }
 
-static CurlResponse curl_post_json(const std::string& url,
-                                  const std::vector<std::string>& headers,
-                                  const std::string& body, int timeout_ms)
+static CurlResponse curl_post_json(const std::string& url, const std::vector<std::string>& headers,
+                                   const std::string& body, int timeout_ms)
 {
     ensure_curl_initialized();
 
@@ -145,7 +144,7 @@ static std::string join_text_blocks(const fastmcpp::Json& content)
 }
 
 static std::vector<fastmcpp::Json> extract_blocks_by_type(const fastmcpp::Json& content,
-                                                         const std::string& type)
+                                                          const std::string& type)
 {
     std::vector<fastmcpp::Json> blocks;
     for (const auto& block : normalize_content_to_array(content))
@@ -167,8 +166,8 @@ static std::string select_model_from_preferences(const fastmcpp::Json& params,
         const auto& mp = params["modelPreferences"];
         if (mp.is_string())
             return mp.get<std::string>();
-        if (mp.is_object() && mp.contains("hints") && mp["hints"].is_array() && !mp["hints"].empty() &&
-            mp["hints"][0].is_string())
+        if (mp.is_object() && mp.contains("hints") && mp["hints"].is_array() &&
+            !mp["hints"].empty() && mp["hints"][0].is_string())
             return mp["hints"][0].get<std::string>();
     }
     return default_model;
@@ -188,9 +187,9 @@ static fastmcpp::Json convert_mcp_tools_to_openai(const fastmcpp::Json& tools)
         if (name.empty())
             continue;
 
-        fastmcpp::Json parameters =
-            t.contains("inputSchema") && t["inputSchema"].is_object() ? t["inputSchema"]
-                                                                      : fastmcpp::Json::object();
+        fastmcpp::Json parameters = t.contains("inputSchema") && t["inputSchema"].is_object()
+                                        ? t["inputSchema"]
+                                        : fastmcpp::Json::object();
         if (!parameters.contains("type"))
             parameters["type"] = "object";
 
@@ -254,19 +253,20 @@ static fastmcpp::Json build_openai_messages(const fastmcpp::Json& params)
             {
                 std::string id = tu.value("id", "");
                 std::string name = tu.value("name", "");
-                fastmcpp::Json input = tu.contains("input") ? tu["input"] : fastmcpp::Json::object();
+                fastmcpp::Json input =
+                    tu.contains("input") ? tu["input"] : fastmcpp::Json::object();
                 if (id.empty() || name.empty())
                     continue;
 
                 tool_calls.push_back(fastmcpp::Json{
                     {"id", id},
                     {"type", "function"},
-                    {"function",
-                     fastmcpp::Json{{"name", name}, {"arguments", input.dump()}}},
+                    {"function", fastmcpp::Json{{"name", name}, {"arguments", input.dump()}}},
                 });
             }
 
-            fastmcpp::Json assistant = fastmcpp::Json{{"role", "assistant"}, {"tool_calls", tool_calls}};
+            fastmcpp::Json assistant =
+                fastmcpp::Json{{"role", "assistant"}, {"tool_calls", tool_calls}};
             if (!text.empty())
                 assistant["content"] = text;
             messages.push_back(std::move(assistant));
@@ -293,7 +293,8 @@ static fastmcpp::Json openai_response_to_mcp_result(const fastmcpp::Json& respon
 
     const auto& msg = choice["message"];
     std::string content_text = msg.value("content", "");
-    fastmcpp::Json tool_calls = msg.contains("tool_calls") ? msg["tool_calls"] : fastmcpp::Json::array();
+    fastmcpp::Json tool_calls =
+        msg.contains("tool_calls") ? msg["tool_calls"] : fastmcpp::Json::array();
 
     std::string finish = choice.value("finish_reason", "");
 
@@ -395,11 +396,10 @@ static fastmcpp::Json build_anthropic_messages(const fastmcpp::Json& params)
                     block.contains("content") ? join_text_blocks(block["content"]) : "";
                 if (tool_use_id.empty())
                     continue;
-                blocks.push_back(
-                    fastmcpp::Json{{"type", "tool_result"},
-                                   {"tool_use_id", tool_use_id},
-                                   {"content", text},
-                                   {"is_error", block.value("isError", false)}});
+                blocks.push_back(fastmcpp::Json{{"type", "tool_result"},
+                                                {"tool_use_id", tool_use_id},
+                                                {"content", text},
+                                                {"is_error", block.value("isError", false)}});
                 continue;
             }
         }
@@ -422,9 +422,9 @@ static fastmcpp::Json convert_mcp_tools_to_anthropic(const fastmcpp::Json& tools
         std::string name = t.value("name", "");
         if (name.empty())
             continue;
-        fastmcpp::Json input_schema =
-            t.contains("inputSchema") && t["inputSchema"].is_object() ? t["inputSchema"]
-                                                                      : fastmcpp::Json::object();
+        fastmcpp::Json input_schema = t.contains("inputSchema") && t["inputSchema"].is_object()
+                                          ? t["inputSchema"]
+                                          : fastmcpp::Json::object();
         if (!input_schema.contains("type"))
             input_schema["type"] = "object";
 
@@ -455,7 +455,8 @@ static fastmcpp::Json anthropic_response_to_mcp_result(const fastmcpp::Json& res
 {
     if (!response.is_object())
         throw std::runtime_error("Anthropic response not an object");
-    if (!response.contains("content") || !response["content"].is_array() || response["content"].empty())
+    if (!response.contains("content") || !response["content"].is_array() ||
+        response["content"].empty())
         throw std::runtime_error("Anthropic response missing content");
 
     std::string stop = response.value("stop_reason", "");
@@ -487,10 +488,8 @@ static fastmcpp::Json anthropic_response_to_mcp_result(const fastmcpp::Json& res
     }
 
     std::string model = response.value("model", requested_model);
-    return fastmcpp::Json{{"role", "assistant"},
-                          {"model", model},
-                          {"stopReason", stop_reason},
-                          {"content", content}};
+    return fastmcpp::Json{
+        {"role", "assistant"}, {"model", model}, {"stopReason", stop_reason}, {"content", content}};
 }
 
 } // namespace
@@ -501,7 +500,10 @@ create_openai_compatible_sampling_callback(OpenAICompatibleOptions options)
 #ifndef FASTMCPP_HAS_CURL
     (void)options;
     return [](const fastmcpp::Json&) -> fastmcpp::Json
-    { throw std::runtime_error("fastmcpp built without libcurl; OpenAI sampling handler unavailable"); };
+    {
+        throw std::runtime_error(
+            "fastmcpp built without libcurl; OpenAI sampling handler unavailable");
+    };
 #else
     return [options = std::move(options)](const fastmcpp::Json& params) -> fastmcpp::Json
     {
@@ -560,7 +562,10 @@ create_anthropic_sampling_callback(AnthropicOptions options)
 #ifndef FASTMCPP_HAS_CURL
     (void)options;
     return [](const fastmcpp::Json&) -> fastmcpp::Json
-    { throw std::runtime_error("fastmcpp built without libcurl; Anthropic sampling handler unavailable"); };
+    {
+        throw std::runtime_error(
+            "fastmcpp built without libcurl; Anthropic sampling handler unavailable");
+    };
 #else
     return [options = std::move(options)](const fastmcpp::Json& params) -> fastmcpp::Json
     {
@@ -574,8 +579,9 @@ create_anthropic_sampling_callback(AnthropicOptions options)
         fastmcpp::Json request = fastmcpp::Json::object();
         request["model"] = model;
         request["max_tokens"] =
-            params.contains("maxTokens") && params["maxTokens"].is_number_integer() ? params["maxTokens"]
-                                                                                   : fastmcpp::Json(512);
+            params.contains("maxTokens") && params["maxTokens"].is_number_integer()
+                ? params["maxTokens"]
+                : fastmcpp::Json(512);
         request["messages"] = build_anthropic_messages(params);
 
         if (params.contains("systemPrompt") && params["systemPrompt"].is_string())
@@ -604,8 +610,8 @@ create_anthropic_sampling_callback(AnthropicOptions options)
 
         CurlResponse r = curl_post_json(url, headers, request.dump(), opts.timeout_ms);
         if (r.status_code >= 400)
-            throw std::runtime_error("Anthropic request failed HTTP " + std::to_string(r.status_code) +
-                                     ": " + r.body);
+            throw std::runtime_error("Anthropic request failed HTTP " +
+                                     std::to_string(r.status_code) + ": " + r.body);
 
         fastmcpp::Json response = fastmcpp::Json::parse(r.body);
         return anthropic_response_to_mcp_result(response, model);

@@ -49,4 +49,3 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)>
 create_anthropic_sampling_callback(AnthropicOptions options);
 
 } // namespace fastmcpp::client::sampling::handlers
-

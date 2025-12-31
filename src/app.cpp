@@ -88,7 +88,8 @@ FastMCP& FastMCP::prompt(std::string name,
     return *this;
 }
 
-FastMCP& FastMCP::prompt_template(std::string name, std::string template_string, PromptOptions options)
+FastMCP& FastMCP::prompt_template(std::string name, std::string template_string,
+                                  PromptOptions options)
 {
     prompts::Prompt p{std::move(template_string)};
     p.name = std::move(name);
@@ -115,10 +116,10 @@ FastMCP& FastMCP::resource(std::string uri, std::string name,
     return *this;
 }
 
-FastMCP& FastMCP::resource_template(
-    std::string uri_template, std::string name,
-    std::function<resources::ResourceContent(const Json& params)> provider,
-    const Json& parameters_schema_or_simple, ResourceTemplateOptions options)
+FastMCP&
+FastMCP::resource_template(std::string uri_template, std::string name,
+                           std::function<resources::ResourceContent(const Json& params)> provider,
+                           const Json& parameters_schema_or_simple, ResourceTemplateOptions options)
 {
     resources::ResourceTemplate templ;
     templ.uri_template = std::move(uri_template);
@@ -136,7 +137,7 @@ FastMCP& FastMCP::resource_template(
     return *this;
 }
 
-void FastMCP::mount(FastMCP& app, const std::string& prefix, bool as_proxy)     
+void FastMCP::mount(FastMCP& app, const std::string& prefix, bool as_proxy)
 {
     mount(app, prefix, as_proxy, std::nullopt);
 }

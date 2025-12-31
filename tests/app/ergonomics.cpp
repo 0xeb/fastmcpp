@@ -7,19 +7,22 @@
 using namespace fastmcpp;
 
 // Avoid abort() / debug assertion dialogs on Windows by returning a non-zero exit code.
-#define CHECK_TRUE(cond, msg)                                                                     \
-    do                                                                                            \
-    {                                                                                             \
-        if (!(cond))                                                                              \
-        {                                                                                         \
-            std::cerr << "FAIL: " << msg << " (line " << __LINE__ << ")" << std::endl;            \
-            return 1;                                                                             \
-        }                                                                                         \
+#define CHECK_TRUE(cond, msg)                                                                      \
+    do                                                                                             \
+    {                                                                                              \
+        if (!(cond))                                                                               \
+        {                                                                                          \
+            std::cerr << "FAIL: " << msg << " (line " << __LINE__ << ")" << std::endl;             \
+            return 1;                                                                              \
+        }                                                                                          \
     } while (0)
 
 static Json make_request(int id, std::string method, Json params = Json::object())
 {
-    return Json{{"jsonrpc", "2.0"}, {"id", id}, {"method", std::move(method)}, {"params", std::move(params)}};
+    return Json{{"jsonrpc", "2.0"},
+                {"id", id},
+                {"method", std::move(method)},
+                {"params", std::move(params)}};
 }
 
 static Json call(const std::function<Json(const Json&)>& handler, int id, std::string method,
@@ -57,8 +60,8 @@ static int test_tool_simple_schema()
         opts.output_schema = Json{{"type", "number"}};
 
         app.tool(
-            "add", Json{{"a", "number"}, {"b", "number"}},
-            [](const Json& in) { return in.at("a").get<double>() + in.at("b").get<double>(); }, opts);
+            "add", Json{{"a", "number"}, {"b", "number"}}, [](const Json& in)
+            { return in.at("a").get<double>() + in.at("b").get<double>(); }, opts);
 
         auto handler = mcp::make_mcp_handler(app);
 
@@ -67,14 +70,16 @@ static int test_tool_simple_schema()
         if (int rc = assert_has_tool(list_resp, "add"); rc != 0)
             return rc;
 
-        auto call_resp =
-            call(handler, 2, "tools/call", Json{{"name", "add"}, {"arguments", Json{{"a", 2}, {"b", 3}}}});
+        auto call_resp = call(handler, 2, "tools/call",
+                              Json{{"name", "add"}, {"arguments", Json{{"a", 2}, {"b", 3}}}});
         CHECK_TRUE(call_resp.contains("result"), "tools/call missing result");
         CHECK_TRUE(call_resp["result"].contains("content"), "tools/call missing content");
         CHECK_TRUE(call_resp["result"]["content"].is_array(), "tools/call content not array");
         CHECK_TRUE(!call_resp["result"]["content"].empty(), "tools/call content empty");
-        CHECK_TRUE(call_resp["result"]["content"][0].value("type", "") == "text", "tools/call first block not text");
-        CHECK_TRUE(call_resp["result"]["content"][0].value("text", "").find("5") != std::string::npos,
+        CHECK_TRUE(call_resp["result"]["content"][0].value("type", "") == "text",
+                   "tools/call first block not text");
+        CHECK_TRUE(call_resp["result"]["content"][0].value("text", "").find("5") !=
+                       std::string::npos,
                    "tools/call output missing expected value");
 
         std::cout << "  PASSED" << std::endl;
@@ -113,17 +118,20 @@ static int test_prompt_and_resources()
         app.resource(
             "file://hello.txt", "hello",
             [](const Json&)
-            { return resources::ResourceContent{"file://hello.txt", "text/plain", std::string{"hello"}}; },
+            {
+                return resources::ResourceContent{"file://hello.txt", "text/plain",
+                                                  std::string{"hello"}};
+            },
             res_opts);
 
-        app.resource_template(
-            "weather://{city}/current", "Weather",
-            [](const Json& params)
-            {
-                const auto city = params.value("city", "unknown");
-                return resources::ResourceContent{"weather://" + city + "/current", "text/plain",
-                                                  std::string{"sunny"}};
-            });
+        app.resource_template("weather://{city}/current", "Weather",
+                              [](const Json& params)
+                              {
+                                  const auto city = params.value("city", "unknown");
+                                  return resources::ResourceContent{
+                                      "weather://" + city + "/current", "text/plain",
+                                      std::string{"sunny"}};
+                              });
 
         auto handler = mcp::make_mcp_handler(app);
 
@@ -136,15 +144,16 @@ static int test_prompt_and_resources()
                 prompt_found = true;
         CHECK_TRUE(prompt_found, "prompt not found in prompts/list");
 
-        auto prompt_get =
-            call(handler, 11, "prompts/get", Json{{"name", "greet"}, {"arguments", Json{{"name", "Ada"}}}});
+        auto prompt_get = call(handler, 11, "prompts/get",
+                               Json{{"name", "greet"}, {"arguments", Json{{"name", "Ada"}}}});
         CHECK_TRUE(prompt_get.contains("result"), "prompts/get missing result");
         CHECK_TRUE(prompt_get["result"].contains("messages"), "prompts/get missing messages");
         CHECK_TRUE(!prompt_get["result"]["messages"].empty(), "prompts/get messages empty");
 
         auto resources_list = call(handler, 20, "resources/list");
         CHECK_TRUE(resources_list.contains("result"), "resources/list missing result");
-        CHECK_TRUE(resources_list["result"].contains("resources"), "resources/list missing resources");
+        CHECK_TRUE(resources_list["result"].contains("resources"),
+                   "resources/list missing resources");
 
         auto read_resp = call(handler, 21, "resources/read", Json{{"uri", "file://hello.txt"}});
         CHECK_TRUE(read_resp.contains("result"), "resources/read missing result");
@@ -162,7 +171,8 @@ static int test_prompt_and_resources()
             {
                 templ_found = true;
                 CHECK_TRUE(t.contains("parameters"), "resource template missing parameters");
-                CHECK_TRUE(t["parameters"].contains("properties"), "resource template parameters missing properties");
+                CHECK_TRUE(t["parameters"].contains("properties"),
+                           "resource template parameters missing properties");
                 CHECK_TRUE(t["parameters"]["properties"].contains("city"),
                            "resource template parameters missing city");
                 break;

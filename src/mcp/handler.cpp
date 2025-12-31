@@ -1377,7 +1377,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
             // Resource templates support
             if (method == "resources/templates/list")
             {
-                fastmcpp::Json templates_array = fastmcpp::Json::array();       
+                fastmcpp::Json templates_array = fastmcpp::Json::array();
                 for (const auto& templ : resources.list_templates())
                 {
                     fastmcpp::Json templ_json = {{"uriTemplate", templ.uri_template},
@@ -1848,7 +1848,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
 
             if (method == "resources/templates/list")
             {
-                fastmcpp::Json templates_array = fastmcpp::Json::array();       
+                fastmcpp::Json templates_array = fastmcpp::Json::array();
                 for (const auto& templ : app.list_all_templates())
                 {
                     fastmcpp::Json templ_json = {{"uriTemplate", templ.uri_template},
@@ -2302,8 +2302,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
 
             if (method == "resources/templates/list")
             {
-                fastmcpp::Json templates_array = fastmcpp::Json::array();       
-                for (const auto& templ : app.list_all_resource_templates())     
+                fastmcpp::Json templates_array = fastmcpp::Json::array();
+                for (const auto& templ : app.list_all_resource_templates())
                 {
                     fastmcpp::Json templ_json = {{"uriTemplate", templ.uriTemplate},
                                                  {"name", templ.name}};
@@ -2690,7 +2690,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
 
             if (method == "resources/templates/list")
             {
-                fastmcpp::Json templates_array = fastmcpp::Json::array();       
+                fastmcpp::Json templates_array = fastmcpp::Json::array();
                 for (const auto& templ : app.list_all_templates())
                 {
                     fastmcpp::Json templ_json = {{"uriTemplate", templ.uri_template},
