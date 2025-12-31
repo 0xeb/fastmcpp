@@ -4,8 +4,11 @@
 #include "fastmcpp/client/types.hpp"
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/mcp/handler.hpp"
+#include "fastmcpp/resources/template.hpp"
+#include "fastmcpp/util/schema_build.hpp"
 
 #include <unordered_set>
+#include <utility>
 
 namespace fastmcpp
 {
@@ -14,6 +17,125 @@ FastMCP::FastMCP(std::string name, std::string version, std::optional<std::strin
                  std::optional<std::vector<Icon>> icons)
     : server_(std::move(name), std::move(version), std::move(website_url), std::move(icons))
 {
+}
+
+namespace
+{
+fastmcpp::Json schema_from_schema_or_simple(const fastmcpp::Json& schema_or_simple)
+{
+    return fastmcpp::util::schema_build::to_object_schema_from_simple(schema_or_simple);
+}
+
+fastmcpp::Json build_resource_template_parameters_schema(const std::string& uri_template)
+{
+    const auto path_params = fastmcpp::resources::extract_path_params(uri_template);
+    const auto query_params = fastmcpp::resources::extract_query_params(uri_template);
+
+    fastmcpp::Json properties = fastmcpp::Json::object();
+    fastmcpp::Json required = fastmcpp::Json::array();
+
+    for (const auto& p : path_params)
+    {
+        properties[p] = fastmcpp::Json{{"type", "string"}};
+        required.push_back(p);
+    }
+    for (const auto& p : query_params)
+        properties[p] = fastmcpp::Json{{"type", "string"}};
+
+    return fastmcpp::Json{
+        {"type", "object"},
+        {"properties", properties},
+        {"required", required},
+    };
+}
+} // namespace
+
+FastMCP& FastMCP::tool(std::string name, const Json& input_schema_or_simple, tools::Tool::Fn fn,
+                       ToolOptions options)
+{
+    auto input_schema = schema_from_schema_or_simple(input_schema_or_simple);
+
+    tools::Tool t{std::move(name),
+                  std::move(input_schema),
+                  std::move(options.output_schema),
+                  std::move(fn),
+                  std::move(options.title),
+                  std::move(options.description),
+                  std::move(options.icons),
+                  std::move(options.exclude_args),
+                  options.task_support};
+
+    tools_.register_tool(t);
+    return *this;
+}
+
+FastMCP& FastMCP::tool(std::string name, tools::Tool::Fn fn, ToolOptions options)
+{
+    return tool(std::move(name), Json::object(), std::move(fn), std::move(options));
+}
+
+FastMCP& FastMCP::prompt(std::string name,
+                         std::function<std::vector<prompts::PromptMessage>(const Json&)> generator,
+                         PromptOptions options)
+{
+    prompts::Prompt p;
+    p.name = std::move(name);
+    p.description = std::move(options.description);
+    p.meta = std::move(options.meta);
+    p.arguments = std::move(options.arguments);
+    p.generator = std::move(generator);
+    p.task_support = options.task_support;
+    prompts_.register_prompt(p);
+    return *this;
+}
+
+FastMCP& FastMCP::prompt_template(std::string name, std::string template_string,
+                                  PromptOptions options)
+{
+    prompts::Prompt p{std::move(template_string)};
+    p.name = std::move(name);
+    p.description = std::move(options.description);
+    p.meta = std::move(options.meta);
+    p.arguments = std::move(options.arguments);
+    p.task_support = options.task_support;
+    prompts_.register_prompt(p);
+    return *this;
+}
+
+FastMCP& FastMCP::resource(std::string uri, std::string name,
+                           std::function<resources::ResourceContent(const Json&)> provider,
+                           ResourceOptions options)
+{
+    resources::Resource r;
+    r.uri = std::move(uri);
+    r.name = std::move(name);
+    r.description = std::move(options.description);
+    r.mime_type = std::move(options.mime_type);
+    r.provider = std::move(provider);
+    r.task_support = options.task_support;
+    resources_.register_resource(r);
+    return *this;
+}
+
+FastMCP&
+FastMCP::resource_template(std::string uri_template, std::string name,
+                           std::function<resources::ResourceContent(const Json& params)> provider,
+                           const Json& parameters_schema_or_simple, ResourceTemplateOptions options)
+{
+    resources::ResourceTemplate templ;
+    templ.uri_template = std::move(uri_template);
+    templ.name = std::move(name);
+    templ.description = std::move(options.description);
+    templ.mime_type = std::move(options.mime_type);
+    templ.provider = std::move(provider);
+
+    if (parameters_schema_or_simple.is_object() && parameters_schema_or_simple.empty())
+        templ.parameters = build_resource_template_parameters_schema(templ.uri_template);
+    else
+        templ.parameters = schema_from_schema_or_simple(parameters_schema_or_simple);
+
+    resources_.register_template(std::move(templ));
+    return *this;
 }
 
 void FastMCP::mount(FastMCP& app, const std::string& prefix, bool as_proxy)
@@ -775,6 +897,42 @@ prompts::PromptResult FastMCP::get_prompt_result(const std::string& name, const 
     }
 
     throw NotFoundError("prompt not found: " + name);
+}
+
+FastMCP& FastMCP::tool(std::string name, const Json& input_schema_or_simple, tools::Tool::Fn fn)
+{
+    return tool(std::move(name), input_schema_or_simple, std::move(fn), ToolOptions{});
+}
+
+FastMCP& FastMCP::tool(std::string name, tools::Tool::Fn fn)
+{
+    return tool(std::move(name), std::move(fn), ToolOptions{});
+}
+
+FastMCP& FastMCP::prompt(std::string name,
+                         std::function<std::vector<prompts::PromptMessage>(const Json&)> generator)
+{
+    return prompt(std::move(name), std::move(generator), PromptOptions{});
+}
+
+FastMCP& FastMCP::prompt_template(std::string name, std::string template_string)
+{
+    return prompt_template(std::move(name), std::move(template_string), PromptOptions{});
+}
+
+FastMCP& FastMCP::resource(std::string uri, std::string name,
+                           std::function<resources::ResourceContent(const Json&)> provider)
+{
+    return resource(std::move(uri), std::move(name), std::move(provider), ResourceOptions{});
+}
+
+FastMCP&
+FastMCP::resource_template(std::string uri_template, std::string name,
+                           std::function<resources::ResourceContent(const Json& params)> provider,
+                           const Json& parameters_schema_or_simple)
+{
+    return resource_template(std::move(uri_template), std::move(name), std::move(provider),
+                             parameters_schema_or_simple, ResourceTemplateOptions{});
 }
 
 } // namespace fastmcpp

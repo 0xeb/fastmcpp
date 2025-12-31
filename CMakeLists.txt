@@ -9,6 +9,7 @@ option(FASTMCPP_BUILD_TESTS "Build tests" ON)
 option(FASTMCPP_BUILD_EXAMPLES "Build examples" ON)
 option(FASTMCPP_ENABLE_POST_STREAMING "Enable POST streaming via libcurl (optional)" OFF)
 option(FASTMCPP_FETCH_CURL "Fetch and build libcurl statically for POST streaming" ON)
+option(FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS "Enable built-in OpenAI/Anthropic sampling handlers (requires libcurl)" OFF)
 option(FASTMCPP_ENABLE_WS_STREAMING_TESTS "Enable WebSocket streaming tests (requires external server)" OFF)
 option(FASTMCPP_ENABLE_LOCAL_WS_TEST "Enable local WebSocket server test (depends on httplib ws server support)" OFF)
 
@@ -37,6 +38,7 @@ add_library(fastmcpp_core STATIC
     src/server/sse_server.cpp
     src/server/streamable_http_server.cpp
     src/client/client.cpp
+    src/client/sampling_handlers.cpp
     src/client/transports.cpp
     src/util/json_schema.cpp
     src/util/json_schema_type.cpp
@@ -94,8 +96,8 @@ endif()
 target_include_directories(fastmcpp_core PUBLIC ${easywsclient_SOURCE_DIR})
 target_sources(fastmcpp_core PRIVATE ${easywsclient_SOURCE_DIR}/easywsclient.cpp)
 
-# Optional: libcurl for POST streaming receive support (modular)
-if(FASTMCPP_ENABLE_POST_STREAMING)
+# Optional: libcurl for POST streaming and sampling handlers (modular)
+if(FASTMCPP_ENABLE_POST_STREAMING OR FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS)
   if(FASTMCPP_FETCH_CURL)
     message(STATUS "FASTMCPP_FETCH_CURL=ON: fetching curl via FetchContent (static-only)")
     include(FetchContent)
@@ -151,10 +153,18 @@ if(FASTMCPP_ENABLE_POST_STREAMING)
   endif()
 
   if(TARGET CURL::libcurl)
-    target_compile_definitions(fastmcpp_core PRIVATE FASTMCPP_POST_STREAMING)
     target_link_libraries(fastmcpp_core PRIVATE CURL::libcurl)
+    target_compile_definitions(fastmcpp_core PRIVATE FASTMCPP_HAS_CURL)
+    if(FASTMCPP_ENABLE_POST_STREAMING)
+      target_compile_definitions(fastmcpp_core PRIVATE FASTMCPP_POST_STREAMING)
+    endif()
   else()
-    message(STATUS "libcurl not found; POST streaming will be disabled at runtime (request_stream_post throws)")
+    if(FASTMCPP_ENABLE_POST_STREAMING)
+      message(STATUS "libcurl not found; POST streaming will be disabled at runtime (request_stream_post throws)")
+    endif()
+    if(FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS)
+      message(STATUS "libcurl not found; built-in sampling handlers will be unavailable")
+    endif()
   endif()
 endif()
 
@@ -222,6 +232,9 @@ if(FASTMCPP_BUILD_TESTS)
 
   add_test(NAME fastmcpp_cli_sum COMMAND fastmcpp client sum 2 3)
   add_test(NAME fastmcpp_cli_tasks_help COMMAND fastmcpp tasks --help)
+  add_test(NAME fastmcpp_cli_tasks_demo COMMAND fastmcpp tasks demo)
+  add_executable(fastmcpp_cli_tasks_ux tests/cli/tasks_cli.cpp)
+  add_test(NAME fastmcpp_cli_tasks_ux COMMAND fastmcpp_cli_tasks_ux)
 
   add_executable(fastmcpp_http_integration tests/server/http_integration.cpp)   
   target_link_libraries(fastmcpp_http_integration PRIVATE fastmcpp_core)        
@@ -414,8 +427,12 @@ if(FASTMCPP_BUILD_TESTS)
   add_test(NAME fastmcpp_client_api_icons COMMAND fastmcpp_client_api_icons)
 
   add_executable(fastmcpp_client_tasks tests/client/tasks.cpp)
-  target_link_libraries(fastmcpp_client_tasks PRIVATE fastmcpp_core)
-  add_test(NAME fastmcpp_client_tasks COMMAND fastmcpp_client_tasks)
+  target_link_libraries(fastmcpp_client_tasks PRIVATE fastmcpp_core)      
+  add_test(NAME fastmcpp_client_tasks COMMAND fastmcpp_client_tasks)      
+
+  add_executable(fastmcpp_client_sampling_handlers tests/client/sampling_handlers.cpp)
+  target_link_libraries(fastmcpp_client_sampling_handlers PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_sampling_handlers COMMAND fastmcpp_client_sampling_handlers)
 
   add_executable(fastmcpp_server_middleware tests/server/middleware.cpp)
   target_link_libraries(fastmcpp_server_middleware PRIVATE fastmcpp_core)
@@ -437,6 +454,11 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_app_mounting tests/app/mounting.cpp)
   target_link_libraries(fastmcpp_app_mounting PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_app_mounting COMMAND fastmcpp_app_mounting)
+
+  # App ergonomics tests
+  add_executable(fastmcpp_app_ergonomics tests/app/ergonomics.cpp)
+  target_link_libraries(fastmcpp_app_ergonomics PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_app_ergonomics COMMAND fastmcpp_app_ergonomics)
 
   # Proxy tests
   add_executable(fastmcpp_proxy_basic tests/proxy/basic.cpp)

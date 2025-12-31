@@ -331,14 +331,15 @@ class Context
     /// @param params Optional sampling parameters
     /// @return SamplingResult with text/image/audio content
     /// @throws std::runtime_error if sampling not available
-    SamplingResult sample(const std::string& message, const SamplingParams& params = {}) const
+    SamplingResult sample(const std::string& message,
+                          const SamplingParams& params = SamplingParams{}) const
     {
         std::vector<SamplingMessage> msgs = {{"user", message}};
         return sample(msgs, params);
     }
 
     SamplingResult sample(const std::vector<SamplingMessage>& messages,
-                          const SamplingParams& params = {}) const
+                          const SamplingParams& params = SamplingParams{}) const
     {
         if (!sampling_callback_)
             throw std::runtime_error("Sampling not available: no sampling callback set");
@@ -346,7 +347,8 @@ class Context
     }
 
     /// Convenience: sample and return just the text content
-    std::string sample_text(const std::string& message, const SamplingParams& params = {}) const
+    std::string sample_text(const std::string& message,
+                            const SamplingParams& params = SamplingParams{}) const
     {
         auto result = sample(message, params);
         return result.content;
