@@ -295,6 +295,8 @@ void HttpTransport::request_stream_post(const std::string& route, const fastmcpp
         throw fastmcpp::TransportError("libcurl init failed");
 
     std::string url = base_url_;
+    if (url.find("://") == std::string::npos)
+        url = "http://" + url;
     if (!url.empty() && url.back() != '/')
         url.push_back('/');
     url += route;
@@ -403,7 +405,7 @@ void HttpTransport::request_stream_post(const std::string& route, const fastmcpp
     // Parse whatever accumulated
     parse_and_emit(true);
 
-    if (code != CURLE_OK)
+    if (code != CURLE_OK && code != CURLE_PARTIAL_FILE)
     {
         throw fastmcpp::TransportError(std::string("HTTP stream POST failed: ") +
                                        curl_easy_strerror(code));
@@ -706,7 +708,7 @@ void SseClientTransport::start_sse_listener()
 
                     if (!aggregated.empty())
                     {
-                        // Handle endpoint event specially - it's not JSON      
+                        // Handle endpoint event specially - it's not JSON
                         if (event_type == "endpoint")
                         {
                             std::lock_guard<std::mutex> lock(endpoint_mutex_);
@@ -719,9 +721,9 @@ void SseClientTransport::start_sse_listener()
                             {
                                 pos += std::string("session_id=").size();
                                 auto end = endpoint_path_.find_first_of("&#", pos);
-                                session_id_ = endpoint_path_.substr(
-                                    pos, end == std::string::npos ? std::string::npos
-                                                              : (end - pos));
+                                session_id_ = endpoint_path_.substr(pos, end == std::string::npos
+                                                                             ? std::string::npos
+                                                                             : (end - pos));
                             }
                         }
                         else
@@ -917,7 +919,7 @@ fastmcpp::Json SseClientTransport::request(const std::string& route, const fastm
     cli.set_connection_timeout(5, 0);
     cli.set_read_timeout(30, 0);
 
-    // Use the endpoint path from SSE if available, otherwise use default       
+    // Use the endpoint path from SSE if available, otherwise use default
     std::string post_path;
     {
         std::lock_guard<std::mutex> lock(endpoint_mutex_);

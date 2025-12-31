@@ -28,7 +28,9 @@ Json make_result_response(const Json& request_id, Json result)
 
 Json make_error_response(const Json& request_id, int code, const std::string& message)
 {
-    return Json{{"jsonrpc", "2.0"}, {"id", request_id}, {"error", Json{{"code", code}, {"message", message}}}};
+    return Json{{"jsonrpc", "2.0"},
+                {"id", request_id},
+                {"error", Json{{"code", code}, {"message", message}}}};
 }
 } // namespace
 
@@ -101,8 +103,8 @@ int main()
 
     std::this_thread::sleep_for(500ms);
 
-    auto transport = std::make_unique<fastmcpp::client::SseClientTransport>(
-        "http://127.0.0.1:" + std::to_string(port));
+    auto transport = std::make_unique<fastmcpp::client::SseClientTransport>("http://127.0.0.1:" +
+                                                                            std::to_string(port));
     auto* sse_transport = transport.get();
     fastmcpp::client::Client client(std::move(transport));
 
@@ -178,7 +180,8 @@ int main()
     Json result;
     try
     {
-        result = session->send_request("sampling/createMessage", params, std::chrono::milliseconds(5000));
+        result = session->send_request("sampling/createMessage", params,
+                                       std::chrono::milliseconds(5000));
     }
     catch (const std::exception& e)
     {
@@ -201,7 +204,8 @@ int main()
     }
     if (result.value("model", std::string()) != "fastmcpp-client")
     {
-        std::cerr << "Unexpected model in sampling response: " << result.value("model", std::string()) << "\n";
+        std::cerr << "Unexpected model in sampling response: "
+                  << result.value("model", std::string()) << "\n";
         sse_server->stop();
         return 1;
     }

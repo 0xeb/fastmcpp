@@ -15,7 +15,7 @@ fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp
 
 **Status:** Beta – core MCP features track the Python `fastmcp` reference.
 
-**Current version:** 2.14.0
+**Current version:** 2.14.1
 
 ## Features
 
@@ -42,7 +42,7 @@ fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp
 
 Optional:
 
-- libcurl (for HTTP POST streaming).
+- libcurl (for HTTP POST streaming; can be fetched when `FASTMCPP_FETCH_CURL=ON`).
 - cpp‑httplib (HTTP server, fetched automatically).
 - easywsclient (WebSocket client, fetched automatically).
 
@@ -75,7 +75,7 @@ Key options:
 |----------------------------------|---------|--------------------------------------------------|
 | `CMAKE_BUILD_TYPE`              | Debug   | Build configuration (Debug/Release/RelWithDebInfo) |
 | `FASTMCPP_ENABLE_POST_STREAMING` | OFF     | Enable HTTP POST streaming (requires libcurl)   |
-| `FASTMCPP_FETCH_CURL`           | OFF     | Fetch and build curl if not found               |
+| `FASTMCPP_FETCH_CURL`           | OFF     | Fetch and build curl (via FetchContent) if not found |
 | `FASTMCPP_ENABLE_STREAMING_TESTS` | OFF   | Enable SSE streaming tests                      |
 | `FASTMCPP_ENABLE_WS_STREAMING_TESTS` | OFF | Enable WebSocket streaming tests                |
 

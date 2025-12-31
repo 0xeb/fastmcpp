@@ -8,11 +8,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(FASTMCPP_BUILD_TESTS "Build tests" ON)
 option(FASTMCPP_BUILD_EXAMPLES "Build examples" ON)
 option(FASTMCPP_ENABLE_POST_STREAMING "Enable POST streaming via libcurl (optional)" OFF)
-option(FASTMCPP_FETCH_CURL "Attempt to fetch libcurl if not found (experimental)" OFF)
+option(FASTMCPP_FETCH_CURL "Fetch and build libcurl statically for POST streaming" ON)
 option(FASTMCPP_ENABLE_WS_STREAMING_TESTS "Enable WebSocket streaming tests (requires external server)" OFF)
 option(FASTMCPP_ENABLE_LOCAL_WS_TEST "Enable local WebSocket server test (depends on httplib ws server support)" OFF)
 
-add_library(fastmcpp_core
+add_library(fastmcpp_core STATIC
     src/types.cpp
     src/util/schema_build.cpp
     src/app.cpp
@@ -96,11 +96,61 @@ target_sources(fastmcpp_core PRIVATE ${easywsclient_SOURCE_DIR}/easywsclient.cpp
 
 # Optional: libcurl for POST streaming receive support (modular)
 if(FASTMCPP_ENABLE_POST_STREAMING)
-  find_package(CURL)
-  if(NOT CURL_FOUND AND FASTMCPP_FETCH_CURL)
-    message(STATUS "CURL not found; FASTMCPP_FETCH_CURL requested (skipping auto-fetch in this build). Please provide CURL via your toolchain or package manager.")
+  if(FASTMCPP_FETCH_CURL)
+    message(STATUS "FASTMCPP_FETCH_CURL=ON: fetching curl via FetchContent (static-only)")
+    include(FetchContent)
+
+    # Configure curl for a minimal library build.
+    set(BUILD_CURL_EXE OFF CACHE BOOL "Build curl executable" FORCE)
+    set(CURL_DISABLE_TESTS ON CACHE BOOL "Disable curl tests" FORCE)
+    set(CURL_DISABLE_INSTALL ON CACHE BOOL "Disable curl install targets" FORCE)
+    set(CURL_DISABLE_LDAP ON CACHE BOOL "Disable LDAP support" FORCE)
+
+    # Prefer platform TLS backends to avoid OpenSSL as a dependency.
+    if(WIN32)
+      set(CURL_USE_SCHANNEL ON CACHE BOOL "Use Windows Schannel for TLS" FORCE)
+      set(CURL_USE_OPENSSL OFF CACHE BOOL "Do not use OpenSSL" FORCE)
+    endif()
+
+    # Always build curl statically to avoid runtime DLL dependencies.
+    if(DEFINED BUILD_SHARED_LIBS)
+      set(_fastmcpp_prev_build_shared_libs "${BUILD_SHARED_LIBS}")
+    else()
+      set(_fastmcpp_prev_build_shared_libs "__UNDEFINED__")
+    endif()
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
+
+    FetchContent_Declare(
+      curl
+      GIT_REPOSITORY https://github.com/curl/curl.git
+      GIT_TAG curl-8_9_1
+    )
+    FetchContent_MakeAvailable(curl)
+
+    if(TARGET libcurl_static AND NOT TARGET CURL::libcurl)
+      add_library(CURL::libcurl ALIAS libcurl_static)
+    endif()
+
+    if(_fastmcpp_prev_build_shared_libs STREQUAL "__UNDEFINED__")
+      unset(BUILD_SHARED_LIBS CACHE)
+    else()
+      set(BUILD_SHARED_LIBS "${_fastmcpp_prev_build_shared_libs}" CACHE BOOL "Build shared libraries" FORCE)
+    endif()
+  else()
+    # Best effort for users who provide a curl toolchain: request static linkage.
+    set(CURL_USE_STATIC_LIBS ON)
+    find_package(CURL QUIET)
+
+    if(CURL_FOUND AND NOT TARGET CURL::libcurl)
+      add_library(CURL::libcurl UNKNOWN IMPORTED)
+      set_target_properties(CURL::libcurl PROPERTIES
+        IMPORTED_LOCATION "${CURL_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${CURL_INCLUDE_DIRS}"
+      )
+    endif()
   endif()
-  if(CURL_FOUND)
+
+  if(TARGET CURL::libcurl)
     target_compile_definitions(fastmcpp_core PRIVATE FASTMCPP_POST_STREAMING)
     target_link_libraries(fastmcpp_core PRIVATE CURL::libcurl)
   else()
@@ -414,17 +464,25 @@ if(FASTMCPP_BUILD_TESTS)
   endif()
 
   if(FASTMCPP_ENABLE_WS_STREAMING_TESTS)
-    add_executable(fastmcpp_ws_streaming tests/transports/ws_streaming.cpp)
+    add_executable(fastmcpp_ws_streaming tests/transports/ws_streaming.cpp)     
     target_link_libraries(fastmcpp_ws_streaming PRIVATE fastmcpp_core)
     add_test(NAME fastmcpp_ws_streaming COMMAND fastmcpp_ws_streaming)
     # Test auto-skips if FASTMCPP_WS_URL is not set
 
     if(FASTMCPP_ENABLE_LOCAL_WS_TEST)
       add_executable(fastmcpp_ws_streaming_local tests/transports/ws_streaming_local.cpp)
-      target_link_libraries(fastmcpp_ws_streaming_local PRIVATE fastmcpp_core)
+      target_link_libraries(fastmcpp_ws_streaming_local PRIVATE fastmcpp_core)  
       add_test(NAME fastmcpp_ws_streaming_local COMMAND fastmcpp_ws_streaming_local)
       set_tests_properties(fastmcpp_ws_streaming_local PROPERTIES RUN_SERIAL TRUE)
     endif()
+  endif()
+
+  # POST streaming transport test (requires libcurl)
+  if(FASTMCPP_ENABLE_POST_STREAMING AND TARGET CURL::libcurl)
+    add_executable(fastmcpp_post_streaming tests/transports/post_streaming.cpp)
+    target_link_libraries(fastmcpp_post_streaming PRIVATE fastmcpp_core)
+    add_test(NAME fastmcpp_post_streaming COMMAND fastmcpp_post_streaming)
+    set_tests_properties(fastmcpp_post_streaming PROPERTIES RUN_SERIAL TRUE)
   endif()
 endif()
 
@@ -506,7 +564,7 @@ if(FASTMCPP_BUILD_EXAMPLES)
   if(FASTMCPP_ENABLE_POST_STREAMING)
     add_executable(fastmcpp_example_streaming_post_demo examples/streaming_post_demo.cpp)
     target_link_libraries(fastmcpp_example_streaming_post_demo PRIVATE fastmcpp_core)
-    if(CURL_FOUND)
+    if(TARGET CURL::libcurl)
       add_test(NAME fastmcpp_example_streaming_post_demo COMMAND fastmcpp_example_streaming_post_demo)
     else()
       message(STATUS "libcurl not found; skipping test fastmcpp_example_streaming_post_demo")

@@ -22,15 +22,14 @@ using SamplingHandlerResult = std::variant<std::string, fastmcpp::Json>;
 using SamplingHandler = std::function<SamplingHandlerResult(const fastmcpp::Json& params)>;
 
 /// Build a minimal MCP CreateMessageResult with a single text content block.
-inline fastmcpp::Json make_text_result(std::string text,
-                                      std::string model = "fastmcpp-client",
-                                      std::string role = "assistant")
+inline fastmcpp::Json make_text_result(std::string text, std::string model = "fastmcpp-client",
+                                       std::string role = "assistant")
 {
     return fastmcpp::Json{
         {"role", std::move(role)},
         {"model", std::move(model)},
-        {"content", fastmcpp::Json::array(
-                        {fastmcpp::Json{{"type", "text"}, {"text", std::move(text)}}})},
+        {"content",
+         fastmcpp::Json::array({fastmcpp::Json{{"type", "text"}, {"text", std::move(text)}}})},
     };
 }
 
@@ -49,4 +48,3 @@ create_sampling_callback(SamplingHandler handler)
 }
 
 } // namespace fastmcpp::client::sampling
-

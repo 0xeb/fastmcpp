@@ -904,7 +904,7 @@ void test_tool_meta_custom_fields()
     std::cout << "Test: tool list with meta fields...\n";
 
     auto srv = create_meta_variations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));   
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     // Test that list_tools_mcp can access list-level _meta
     auto result = c.list_tools_mcp();
@@ -959,7 +959,7 @@ void test_resource_meta_fields()
     std::cout << "Test: resource with meta fields...\n";
 
     auto srv = create_meta_variations_server();
-    client::Client c(std::make_unique<client::LoopbackTransport>(srv));   
+    client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     auto resources = c.list_resources();
     bool found = false;
