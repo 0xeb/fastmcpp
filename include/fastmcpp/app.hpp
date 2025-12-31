@@ -156,32 +156,41 @@ class FastMCP
     /// Register a tool using either a full JSON Schema or a "simple" param map
     /// (e.g., {"a":"number","b":"integer"}).
     FastMCP& tool(std::string name, const Json& input_schema_or_simple, tools::Tool::Fn fn,
-                  ToolOptions options = {});
+                  ToolOptions options);
+    FastMCP& tool(std::string name, const Json& input_schema_or_simple, tools::Tool::Fn fn);
 
     /// Register a zero-argument tool (input schema defaults to {}).
-    FastMCP& tool(std::string name, tools::Tool::Fn fn, ToolOptions options = {});
+    FastMCP& tool(std::string name, tools::Tool::Fn fn, ToolOptions options);
+    FastMCP& tool(std::string name, tools::Tool::Fn fn);
 
     /// Register a prompt generator (equivalent to Python's @server.prompt).
     FastMCP& prompt(std::string name,
                     std::function<std::vector<prompts::PromptMessage>(const Json&)> generator,
-                    PromptOptions options = {});
+                    PromptOptions options);
+    FastMCP& prompt(std::string name,
+                    std::function<std::vector<prompts::PromptMessage>(const Json&)> generator);
 
     /// Register a template-backed prompt (legacy Prompt template string).
-    FastMCP& prompt_template(std::string name, std::string template_string,
-                             PromptOptions options = {});
+    FastMCP& prompt_template(std::string name, std::string template_string, PromptOptions options);
+    FastMCP& prompt_template(std::string name, std::string template_string);
 
     /// Register a concrete resource (equivalent to Python's @server.resource for fixed URIs).
     FastMCP& resource(std::string uri, std::string name,
                       std::function<resources::ResourceContent(const Json&)> provider,
-                      ResourceOptions options = {});
+                      ResourceOptions options);
+    FastMCP& resource(std::string uri, std::string name,
+                      std::function<resources::ResourceContent(const Json&)> provider);
 
     /// Register a resource template (equivalent to Python's @server.resource for templated URIs).
     /// If parameters_schema_or_simple is empty, parameters are derived from the URI template.
     FastMCP&
     resource_template(std::string uri_template, std::string name,
                       std::function<resources::ResourceContent(const Json& params)> provider,
-                      const Json& parameters_schema_or_simple = Json::object(),
-                      ResourceTemplateOptions options = {});
+                      const Json& parameters_schema_or_simple, ResourceTemplateOptions options);
+    FastMCP&
+    resource_template(std::string uri_template, std::string name,
+                      std::function<resources::ResourceContent(const Json& params)> provider,
+                      const Json& parameters_schema_or_simple = Json::object());
 
     // =========================================================================
     // App Mounting

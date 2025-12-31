@@ -899,4 +899,40 @@ prompts::PromptResult FastMCP::get_prompt_result(const std::string& name, const 
     throw NotFoundError("prompt not found: " + name);
 }
 
+FastMCP& FastMCP::tool(std::string name, const Json& input_schema_or_simple, tools::Tool::Fn fn)
+{
+    return tool(std::move(name), input_schema_or_simple, std::move(fn), ToolOptions{});
+}
+
+FastMCP& FastMCP::tool(std::string name, tools::Tool::Fn fn)
+{
+    return tool(std::move(name), std::move(fn), ToolOptions{});
+}
+
+FastMCP& FastMCP::prompt(std::string name,
+                         std::function<std::vector<prompts::PromptMessage>(const Json&)> generator)
+{
+    return prompt(std::move(name), std::move(generator), PromptOptions{});
+}
+
+FastMCP& FastMCP::prompt_template(std::string name, std::string template_string)
+{
+    return prompt_template(std::move(name), std::move(template_string), PromptOptions{});
+}
+
+FastMCP& FastMCP::resource(std::string uri, std::string name,
+                           std::function<resources::ResourceContent(const Json&)> provider)
+{
+    return resource(std::move(uri), std::move(name), std::move(provider), ResourceOptions{});
+}
+
+FastMCP&
+FastMCP::resource_template(std::string uri_template, std::string name,
+                           std::function<resources::ResourceContent(const Json& params)> provider,
+                           const Json& parameters_schema_or_simple)
+{
+    return resource_template(std::move(uri_template), std::move(name), std::move(provider),
+                             parameters_schema_or_simple, ResourceTemplateOptions{});
+}
+
 } // namespace fastmcpp

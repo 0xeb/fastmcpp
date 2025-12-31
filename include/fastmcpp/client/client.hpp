@@ -238,7 +238,7 @@ class Client
     /// @param options Call options (timeout, meta, progress handler)
     /// @return CallToolResult with content, error status, and metadata
     CallToolResult call_tool_mcp(const std::string& name, const fastmcpp::Json& arguments,
-                                 const CallToolOptions& options = {})
+                                 const CallToolOptions& options = CallToolOptions{})
     {
 
         fastmcpp::Json payload = {{"name", name}, {"arguments", arguments}};
