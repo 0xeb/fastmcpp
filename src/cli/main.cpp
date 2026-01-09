@@ -52,6 +52,7 @@ static int tasks_usage(int exit_code = 1)
     std::cout << "  --ws <url>                     WebSocket URL (e.g. ws://127.0.0.1:8765)\n";
     std::cout << "  --stdio <command>              Spawn an MCP stdio server\n";
     std::cout << "    --stdio-arg <arg>            Repeatable args for --stdio\n";
+    std::cout << "    --stdio-one-shot             Spawn a fresh process per request (disables keep-alive)\n";
     std::cout << "\n";
     std::cout << "Notes:\n";
     std::cout << "  - Python fastmcp's `tasks` CLI is for Docket (distributed workers/Redis).\n";
@@ -75,6 +76,7 @@ struct TasksConnection
     std::string url_or_command;
     std::string mcp_path = "/mcp";
     std::vector<std::string> stdio_args;
+    bool stdio_keep_alive = true;
 };
 
 static bool is_flag(const std::string& s)
@@ -158,6 +160,8 @@ static std::optional<TasksConnection> parse_tasks_connection(std::vector<std::st
         conn.url_or_command = *stdio;
         saw_any = true;
     }
+    if (consume_flag(args, "--stdio-one-shot"))
+        conn.stdio_keep_alive = false;
 
     while (true)
     {
@@ -185,7 +189,8 @@ static fastmcpp::client::Client make_client_from_connection(const TasksConnectio
     case TasksConnection::Kind::WebSocket:
         return Client(std::make_unique<WebSocketTransport>(conn.url_or_command));
     case TasksConnection::Kind::Stdio:
-        return Client(std::make_unique<StdioTransport>(conn.url_or_command, conn.stdio_args));
+        return Client(std::make_unique<StdioTransport>(conn.url_or_command, conn.stdio_args,
+                                                       std::nullopt, conn.stdio_keep_alive));
     }
     throw std::runtime_error("Unsupported transport kind");
 }

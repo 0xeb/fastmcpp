@@ -53,8 +53,9 @@ class WebSocketTransport : public ITransport
     std::string url_;
 };
 
-// Launches an MCP stdio server as a subprocess and performs
-// a single JSON-RPC request/response per call.
+// Launches an MCP stdio server as a subprocess and performs JSON-RPC requests
+// over its stdin/stdout. By default, the subprocess is kept alive between calls
+// to better match Python fastmcp behavior; pass keep_alive=false to spawn per call.
 class StdioTransport : public ITransport
 {
   public:
@@ -64,29 +65,44 @@ class StdioTransport : public ITransport
     /// @param log_file Optional path where subprocess stderr will be written.
     ///                 If provided, stderr is redirected to this file in append mode.
     ///                 If not provided, stderr is captured and included in error messages.
+    /// @param keep_alive Whether to keep the subprocess alive between calls. Defaults to true.
     explicit StdioTransport(std::string command, std::vector<std::string> args = {},
-                            std::optional<std::filesystem::path> log_file = std::nullopt)
-        : command_(std::move(command)), args_(std::move(args)), log_file_(std::move(log_file))
-    {
-    }
+                            std::optional<std::filesystem::path> log_file = std::nullopt,
+                            bool keep_alive = true);
 
     /// Construct with ostream pointer for stderr (v2.13.0+)
     /// @param command The command to execute
     /// @param args Command-line arguments
     /// @param log_stream Stream pointer where subprocess stderr will be written
     ///                   Caller retains ownership; must remain valid during request()
-    StdioTransport(std::string command, std::vector<std::string> args, std::ostream* log_stream)
-        : command_(std::move(command)), args_(std::move(args)), log_stream_(log_stream)
-    {
-    }
+    /// @param keep_alive Whether to keep the subprocess alive between calls. Defaults to true.
+    StdioTransport(std::string command, std::vector<std::string> args, std::ostream* log_stream,
+                   bool keep_alive = true);
 
-    fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload);
+    StdioTransport(const StdioTransport&) = delete;
+    StdioTransport& operator=(const StdioTransport&) = delete;
+    StdioTransport(StdioTransport&&) noexcept;
+    StdioTransport& operator=(StdioTransport&&) noexcept;
+
+    ~StdioTransport();
+
+    fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload) override;
+
+    bool keep_alive() const noexcept
+    {
+        return keep_alive_;
+    }
 
   private:
     std::string command_;
     std::vector<std::string> args_;
     std::optional<std::filesystem::path> log_file_;
     std::ostream* log_stream_ = nullptr;
+    bool keep_alive_{true};
+    int64_t next_id_{1};
+
+    struct State;
+    std::unique_ptr<State> state_;
 };
 
 /// SSE client transport for connecting to MCP servers using Server-Sent Events protocol.

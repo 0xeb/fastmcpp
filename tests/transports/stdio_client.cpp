@@ -3,6 +3,7 @@
 #include <cassert>
 #include <filesystem>
 #include <iostream>
+#include <string>
 #include <vector>
 
 static std::string find_stdio_server_binary()
@@ -62,6 +63,33 @@ int main()
         std::string text = content.at(0).value("text", std::string());
         assert(text.find("7") != std::string::npos);
         std::cout << "[PASS] tools/call add returned 7" << std::endl;
+    }
+
+    auto call_counter = [](StdioTransport& transport) -> int
+    {
+        Json params = Json{{"name", "counter"}, {"arguments", Json::object()}};
+        auto resp = transport.request("tools/call", params);
+        auto content = resp["result"]["content"];
+        std::string text = content.at(0).value("text", std::string());
+        return std::stoi(text);
+    };
+
+    // keep_alive (default): state persists across calls
+    {
+        int first = call_counter(tx);
+        int second = call_counter(tx);
+        assert(second == first + 1);
+        std::cout << "[PASS] keep_alive preserved counter state" << std::endl;
+    }
+
+    // keep_alive=false: each request spawns a fresh server (counter resets)
+    {
+        StdioTransport one_shot{find_stdio_server_binary(), {}, std::nullopt, false};
+        int first = call_counter(one_shot);
+        int second = call_counter(one_shot);
+        assert(first == 1);
+        assert(second == 1);
+        std::cout << "[PASS] keep_alive=false resets counter state" << std::endl;
     }
 
     std::cout << "\n[OK] stdio client conformance passed" << std::endl;
