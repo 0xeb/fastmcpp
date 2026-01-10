@@ -1,12 +1,15 @@
 #include "fastmcpp/client/transports.hpp"
 
 #include "fastmcpp/exceptions.hpp"
-#include "fastmcpp/util/json.hpp"
+#include "fastmcpp/util/json.hpp" 
 
 #include <chrono>
-#include <easywsclient.hpp>
+#include <condition_variable>
+#include <deque>
+#include <easywsclient.hpp>       
 #include <fstream>
 #include <httplib.h>
+#include <mutex>
 #include <sstream>
 #include <thread>
 #ifdef FASTMCPP_POST_STREAMING
@@ -16,12 +19,28 @@
 #include <process.hpp>
 #endif
 
-namespace fastmcpp::client
-{
+namespace fastmcpp::client        
+{                    
 
-namespace
+struct StdioTransport::State
 {
-struct ParsedUrl
+#ifdef TINY_PROCESS_LIB_AVAILABLE
+    std::unique_ptr<TinyProcessLib::Process> process;
+    std::ofstream log_file_stream;
+    std::ostream* stderr_target{nullptr};
+
+    std::mutex request_mutex;
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::string stdout_partial;
+    std::deque<std::string> stdout_lines;
+    std::string stderr_data;
+#endif
+};
+
+namespace                    
+{                    
+struct ParsedUrl            
 {
     std::string scheme; // "http" or "https"
     std::string host;
@@ -508,6 +527,20 @@ void WebSocketTransport::request_stream(const std::string& route, const fastmcpp
     ws->close();
 }
 
+StdioTransport::StdioTransport(std::string command, std::vector<std::string> args,
+                               std::optional<std::filesystem::path> log_file, bool keep_alive)
+    : command_(std::move(command)), args_(std::move(args)), log_file_(std::move(log_file)),
+      keep_alive_(keep_alive)
+{
+}
+
+StdioTransport::StdioTransport(std::string command, std::vector<std::string> args,
+                               std::ostream* log_stream, bool keep_alive)
+    : command_(std::move(command)), args_(std::move(args)), log_stream_(log_stream),
+      keep_alive_(keep_alive)
+{
+}
+
 fastmcpp::Json StdioTransport::request(const std::string& route, const fastmcpp::Json& payload)
 {
     // Use TinyProcessLibrary (fetched via CMake) for cross-platform subprocess handling
@@ -519,6 +552,131 @@ fastmcpp::Json StdioTransport::request(const std::string& route, const fastmcpp:
 
 #ifdef TINY_PROCESS_LIB_AVAILABLE
     using namespace TinyProcessLib;
+
+    if (keep_alive_)
+    {
+        if (!state_)
+        {
+            state_ = std::make_unique<State>();
+
+            if (log_file_.has_value())
+            {
+                state_->log_file_stream.open(log_file_.value(), std::ios::app);
+                if (state_->log_file_stream.is_open())
+                    state_->stderr_target = &state_->log_file_stream;
+            }
+            else if (log_stream_ != nullptr)
+            {
+                state_->stderr_target = log_stream_;
+            }
+
+            auto stdout_callback = [st_ptr = state_.get()](const char* bytes, size_t n)
+            {
+                std::lock_guard<std::mutex> lock(st_ptr->mutex);
+                st_ptr->stdout_partial.append(bytes, n);
+
+                for (;;)
+                {
+                    auto pos = st_ptr->stdout_partial.find('\n');
+                    if (pos == std::string::npos)
+                        break;
+
+                    std::string line = st_ptr->stdout_partial.substr(0, pos);
+                    if (!line.empty() && line.back() == '\r')
+                        line.pop_back();
+                    st_ptr->stdout_lines.push_back(std::move(line));
+                    st_ptr->stdout_partial.erase(0, pos + 1);
+                }
+
+                st_ptr->cv.notify_all();
+            };
+
+            auto stderr_callback = [st_ptr = state_.get()](const char* bytes, size_t n)
+            {
+                std::lock_guard<std::mutex> lock(st_ptr->mutex);
+                if (st_ptr->stderr_target != nullptr)
+                {
+                    st_ptr->stderr_target->write(bytes, n);
+                    st_ptr->stderr_target->flush();
+                }
+                st_ptr->stderr_data.append(bytes, n);
+            };
+
+            state_->process = std::make_unique<Process>(cmd.str(), "", stdout_callback,
+                                                        stderr_callback, /*open_stdin*/ true);
+        }
+
+        auto* st = state_.get();
+        std::lock_guard<std::mutex> request_lock(st->request_mutex);
+
+        const int64_t id = next_id_++;
+        fastmcpp::Json request = {
+            {"jsonrpc", "2.0"},
+            {"id", id},
+            {"method", route},
+            {"params", payload},
+        };
+
+        {
+            std::lock_guard<std::mutex> lock(st->mutex);
+            st->stderr_data.clear();
+        }
+
+        if (!st->process->write(request.dump() + "\n"))
+            throw fastmcpp::TransportError("StdioTransport: failed to write request");
+
+        // Wait for a response matching this ID.
+        // Note: stdio servers may emit notifications or logs; ignore non-matching lines.
+        for (;;)
+        {
+            int exit_status = 0;
+            if (st->process->try_get_exit_status(exit_status))
+            {
+                std::lock_guard<std::mutex> lock(st->mutex);
+                throw fastmcpp::TransportError(
+                    "StdioTransport process exited with code: " +
+                    std::to_string(exit_status) +
+                    (st->stderr_data.empty() ? std::string("")
+                                             : ("; stderr: ") + st->stderr_data));
+            }
+
+            std::unique_lock<std::mutex> lock(st->mutex);
+            if (!st->cv.wait_for(lock, std::chrono::seconds(30),
+                                 [&]() { return !st->stdout_lines.empty(); }))
+            {
+                throw fastmcpp::TransportError("StdioTransport: timed out waiting for response");
+            }
+
+            while (!st->stdout_lines.empty())
+            {
+                auto line = std::move(st->stdout_lines.front());
+                st->stdout_lines.pop_front();
+                lock.unlock();
+
+                if (line.empty())
+                {
+                    lock.lock();
+                    continue;
+                }
+
+                try
+                {
+                    auto parsed = fastmcpp::util::json::parse(line);
+                    if (parsed.contains("id") && parsed["id"].is_number_integer() &&
+                        parsed["id"].get<int64_t>() == id)
+                    {
+                        return parsed;
+                    }
+                }
+                catch (...)
+                {
+                    // Ignore non-JSON stdout lines (e.g., server logs).
+                }
+
+                lock.lock();
+            }
+        }
+    }
     std::string stdout_data;
     std::string stderr_data;
 
@@ -579,6 +737,29 @@ fastmcpp::Json StdioTransport::request(const std::string& route, const fastmcpp:
     return fastmcpp::util::json::parse(first_line);
 #else
     throw fastmcpp::TransportError("TinyProcessLib is not integrated; cannot run StdioTransport");
+#endif
+}
+
+StdioTransport::StdioTransport(StdioTransport&&) noexcept = default;
+StdioTransport& StdioTransport::operator=(StdioTransport&&) noexcept = default;
+
+StdioTransport::~StdioTransport()
+{
+#ifdef TINY_PROCESS_LIB_AVAILABLE
+    if (state_ && state_->process)
+    {
+        state_->process->close_stdin();
+
+        int exit_status = 0;
+        for (int i = 0; i < 10; i++)
+        {
+            if (state_->process->try_get_exit_status(exit_status))
+                return;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        state_->process->kill(false);
+    }
 #endif
 }
 
