@@ -19,12 +19,13 @@ class ToolManager
     {
         return tools_.at(name);
     }
-    fastmcpp::Json invoke(const std::string& name, const fastmcpp::Json& input) const
+    fastmcpp::Json invoke(const std::string& name, const fastmcpp::Json& input,
+                          bool enforce_timeout = true) const
     {
         auto it = tools_.find(name);
         if (it == tools_.end())
             throw fastmcpp::NotFoundError("tool not found: " + name);
-        return it->second.invoke(input);
+        return it->second.invoke(input, enforce_timeout);
     }
 
     std::vector<std::string> list_names() const

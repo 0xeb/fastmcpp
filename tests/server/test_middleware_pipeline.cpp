@@ -4,8 +4,10 @@
 #include "fastmcpp/server/middleware_pipeline.hpp"
 
 #include <cassert>
+#include <atomic>
 #include <chrono>
 #include <iostream>
+#include <thread>
 #include <vector>
 
 using namespace fastmcpp;
@@ -264,6 +266,43 @@ void test_rate_limiting_middleware()
     std::cout << "PASSED\n";
 }
 
+void test_ping_middleware()
+{
+    std::cout << "  test_ping_middleware... " << std::flush;
+
+    std::shared_ptr<ServerSession> session;
+    std::atomic<int> ping_count{0};
+
+    session = std::make_shared<ServerSession>(
+        "session_ping",
+        [&](const Json& msg)
+        {
+            if (ServerSession::is_request(msg) && msg.value("method", "") == "ping")
+            {
+                ping_count.fetch_add(1);
+                Json response = {{"jsonrpc", "2.0"},
+                                 {"id", msg.at("id")},
+                                 {"result", Json::object()}};
+                session->handle_response(response);
+            }
+        });
+
+    MiddlewarePipeline pipeline;
+    pipeline.add(std::make_shared<PingMiddleware>(std::chrono::milliseconds(10)));
+
+    MiddlewareContext ctx;
+    ctx.method = "tools/list";
+    ctx.session = session;
+
+    pipeline.execute(ctx, [](const MiddlewareContext&) { return Json{{"tools", Json::array()}}; });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    assert(ping_count.load() > 0);
+
+    std::cout << "PASSED\n";
+}
+
 void test_error_handling_middleware()
 {
     std::cout << "  test_error_handling_middleware... " << std::flush;
@@ -397,6 +436,7 @@ int main()
         test_timing_middleware();
         test_caching_middleware();
         test_rate_limiting_middleware();
+        test_ping_middleware();
         test_error_handling_middleware();
         test_combined_pipeline();
         test_method_specific_hooks();

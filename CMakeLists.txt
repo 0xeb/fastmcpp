@@ -226,6 +226,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_tools_manager PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_tools_manager COMMAND fastmcpp_tools_manager)
 
+  add_executable(fastmcpp_tools_timeout tests/tools/test_tool_timeout.cpp)
+  target_link_libraries(fastmcpp_tools_timeout PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_tools_timeout COMMAND fastmcpp_tools_timeout)
+
   add_executable(fastmcpp_integration tests/integration.cpp)
   target_link_libraries(fastmcpp_integration PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_integration COMMAND fastmcpp_integration)

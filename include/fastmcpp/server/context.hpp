@@ -36,6 +36,13 @@ enum class LogLevel
     Error
 };
 
+enum class TransportType
+{
+    Stdio,
+    Sse,
+    StreamableHttp
+};
+
 // ============================================================================
 // Sampling types (for Context.sample())
 // ============================================================================
@@ -146,6 +153,21 @@ inline std::string to_string(LogLevel level)
     }
 }
 
+inline std::string to_string(TransportType transport)
+{
+    switch (transport)
+    {
+    case TransportType::Stdio:
+        return "stdio";
+    case TransportType::Sse:
+        return "sse";
+    case TransportType::StreamableHttp:
+        return "streamable-http";
+    default:
+        return "unknown";
+    }
+}
+
 using LogCallback = std::function<void(LogLevel, const std::string&, const std::string&)>;
 using ProgressCallback =
     std::function<void(const std::string&, double, double, const std::string&)>;
@@ -158,7 +180,8 @@ class Context
     Context(const resources::ResourceManager& rm, const prompts::PromptManager& pm,
             std::optional<fastmcpp::Json> request_meta,
             std::optional<std::string> request_id = std::nullopt,
-            std::optional<std::string> session_id = std::nullopt);
+            std::optional<std::string> session_id = std::nullopt,
+            std::optional<TransportType> transport = std::nullopt);
 
     std::vector<resources::Resource> list_resources() const;
     std::vector<prompts::Prompt> list_prompts() const;
@@ -176,6 +199,16 @@ class Context
     const std::optional<std::string>& session_id() const
     {
         return session_id_;
+    }
+    std::optional<std::string> transport() const
+    {
+        if (!transport_.has_value())
+            return std::nullopt;
+        return to_string(*transport_);
+    }
+    std::optional<TransportType> transport_type() const
+    {
+        return transport_;
     }
 
     std::optional<std::string> client_id() const
@@ -398,6 +431,7 @@ class Context
     std::optional<fastmcpp::Json> request_meta_;
     std::optional<std::string> request_id_;
     std::optional<std::string> session_id_;
+    std::optional<TransportType> transport_;
     mutable std::unordered_map<std::string, std::any> state_;
     LogCallback log_callback_;
     ProgressCallback progress_callback_;

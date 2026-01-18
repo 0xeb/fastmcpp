@@ -292,6 +292,18 @@ class ServerSession
     }
 
     /**
+     * Send a ping request to the client and wait for a response.
+     *
+     * @param timeout How long to wait for response
+     * @throws RequestTimeoutError if timeout exceeded
+     * @throws ClientError if client returns an error
+     */
+    void send_ping(std::chrono::milliseconds timeout = DEFAULT_TIMEOUT)
+    {
+        (void)send_request("ping", Json::object(), timeout);
+    }
+
+    /**
      * Send a progress notification to the client.
      *
      * @param progress_token Token identifying the operation (from request _meta.progressToken)

@@ -64,6 +64,8 @@ FastMCP& FastMCP::tool(std::string name, const Json& input_schema_or_simple, too
                   std::move(options.icons),
                   std::move(options.exclude_args),
                   options.task_support};
+    if (options.timeout)
+        t.set_timeout(*options.timeout);
 
     tools_.register_tool(t);
     return *this;
@@ -546,12 +548,12 @@ std::vector<std::pair<std::string, const prompts::Prompt*>> FastMCP::list_all_pr
 // Routing
 // =========================================================================
 
-Json FastMCP::invoke_tool(const std::string& name, const Json& args) const
+Json FastMCP::invoke_tool(const std::string& name, const Json& args, bool enforce_timeout) const
 {
     // Try local tools first
     try
     {
-        return tools_.invoke(name, args);
+        return tools_.invoke(name, args, enforce_timeout);
     }
     catch (const NotFoundError&)
     {
@@ -587,7 +589,7 @@ Json FastMCP::invoke_tool(const std::string& name, const Json& args) const
 
         try
         {
-            return mounted.app->invoke_tool(try_name, args);
+            return mounted.app->invoke_tool(try_name, args, enforce_timeout);
         }
         catch (const NotFoundError&)
         {
@@ -621,7 +623,7 @@ Json FastMCP::invoke_tool(const std::string& name, const Json& args) const
 
         try
         {
-            auto result = proxy_mount.proxy->invoke_tool(try_name, args);
+            auto result = proxy_mount.proxy->invoke_tool(try_name, args, enforce_timeout);
             if (!result.isError && !result.content.empty())
             {
                 // Extract result from CallToolResult

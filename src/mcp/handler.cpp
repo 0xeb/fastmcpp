@@ -32,6 +32,13 @@ static fastmcpp::Json jsonrpc_error(const fastmcpp::Json& id, int code, const st
                           {"error", fastmcpp::Json{{"code", code}, {"message", message}}}};
 }
 
+static fastmcpp::Json jsonrpc_tool_error(const fastmcpp::Json& id, const std::exception& e)
+{
+    if (dynamic_cast<const fastmcpp::ToolTimeoutError*>(&e))
+        return jsonrpc_error(id, -32000, e.what());
+    return jsonrpc_error(id, -32603, e.what());
+}
+
 static bool schema_is_object(const fastmcpp::Json& schema)
 {
     if (!schema.is_object())
@@ -855,7 +862,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 }
                 catch (const std::exception& e)
                 {
-                    return jsonrpc_error(id, -32603, e.what());
+                    return jsonrpc_tool_error(id, e);
                 }
             }
 
@@ -1008,7 +1015,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
                 }
                 catch (const std::exception& e)
                 {
-                    return jsonrpc_error(id, -32603, e.what());
+                    return jsonrpc_tool_error(id, e);
                 }
             }
 
@@ -1217,7 +1224,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 }
                 catch (const std::exception& e)
                 {
-                    return jsonrpc_error(id, -32603, e.what());
+                    return jsonrpc_tool_error(id, e);
                 }
             }
 
@@ -1355,7 +1362,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 }
                 catch (const std::exception& e)
                 {
-                    return jsonrpc_error(id, -32603, e.what());
+                    return jsonrpc_tool_error(id, e);
                 }
             }
 
@@ -1453,7 +1460,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 }
                 catch (const std::exception& e)
                 {
-                    return jsonrpc_error(id, -32603, e.what());
+                    return jsonrpc_tool_error(id, e);
                 }
             }
 
@@ -1514,7 +1521,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 }
                 catch (const std::exception& e)
                 {
-                    return jsonrpc_error(id, -32603, e.what());
+                    return jsonrpc_tool_error(id, e);
                 }
             }
 
@@ -1677,7 +1684,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                             task_id,
                             [&app, name, args, has_output_schema]() -> fastmcpp::Json
                             {
-                                auto invoke_result = app.invoke_tool(name, args);
+                                auto invoke_result = app.invoke_tool(name, args, false);
                                 return build_fastmcp_tool_result(invoke_result, has_output_schema);
                             });
 
@@ -1716,7 +1723,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 }
                 catch (const std::exception& e)
                 {
-                    return jsonrpc_error(id, -32603, e.what());
+                    return jsonrpc_tool_error(id, e);
                 }
             }
 
