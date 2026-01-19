@@ -858,12 +858,10 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
                 if (name.empty())
                     return jsonrpc_error(id, -32602, "Missing tool name");
-                auto span =
-                    telemetry::server_span("tool " + name, "tools/call", server_name, "tool",
-                                           name, extract_request_meta(params),
-                                           session_id.empty() ? std::nullopt
-                                                              : std::optional<std::string>(
-                                                                    session_id));
+                auto span = telemetry::server_span(
+                    "tool " + name, "tools/call", server_name, "tool", name,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     const auto& tool = tools.get(name);
@@ -1099,8 +1097,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
             {
                 std::string prompt_name = params.value("name", "");
                 auto span = telemetry::server_span(
-                    "prompt " + prompt_name, "prompts/get", server.name(), "prompt",
-                    prompt_name, extract_request_meta(params),
+                    "prompt " + prompt_name, "prompts/get", server.name(), "prompt", prompt_name,
+                    extract_request_meta(params),
                     session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
@@ -1300,8 +1298,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
             {
                 std::string prompt_name = params.value("name", "");
                 auto span = telemetry::server_span(
-                    "prompt " + prompt_name, "prompts/get", server.name(), "prompt",
-                    prompt_name, extract_request_meta(params),
+                    "prompt " + prompt_name, "prompts/get", server.name(), "prompt", prompt_name,
+                    extract_request_meta(params),
                     session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {

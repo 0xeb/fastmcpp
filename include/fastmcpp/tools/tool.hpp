@@ -81,30 +81,30 @@ class Tool
         auto future = promise.get_future();
         auto timeout = *timeout_;
 
-        std::thread worker([promise = std::move(promise), input, fn = fn_]() mutable
-                           {
-                               try
-                               {
-                                   promise.set_value(fn(input));
-                               }
-                               catch (...)
-                               {
-                                   try
-                                   {
-                                       promise.set_exception(std::current_exception());
-                                   }
-                                   catch (...)
-                                   {
-                                   }
-                               }
-                           });
+        std::thread worker(
+            [promise = std::move(promise), input, fn = fn_]() mutable
+            {
+                try
+                {
+                    promise.set_value(fn(input));
+                }
+                catch (...)
+                {
+                    try
+                    {
+                        promise.set_exception(std::current_exception());
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+            });
 
         if (future.wait_for(timeout) == std::future_status::timeout)
         {
             if (worker.joinable())
                 worker.detach();
-            throw fastmcpp::ToolTimeoutError("Tool '" + name_ +
-                                             "' execution timed out after " +
+            throw fastmcpp::ToolTimeoutError("Tool '" + name_ + "' execution timed out after " +
                                              format_timeout_seconds(timeout) + "s");
         }
 

@@ -292,9 +292,7 @@ SpanScope client_span(const std::string& name, const std::string& method,
         return span;
 
     span.span().set_attributes(
-        {{"rpc.system", "mcp"},
-         {"rpc.method", method},
-         {"fastmcp.component.key", component_key}});
+        {{"rpc.system", "mcp"}, {"rpc.method", method}, {"fastmcp.component.key", component_key}});
     if (session_id && !session_id->empty())
         span.span().set_attribute("fastmcp.session.id", *session_id);
     return span;
@@ -307,19 +305,18 @@ SpanScope server_span(const std::string& name, const std::string& method,
                       const std::optional<std::string>& session_id)
 {
     auto parent_ctx = extract_trace_context(request_meta);
-    auto span = get_tracer().start_span(name, SpanKind::Server,
-                                        parent_ctx.is_valid() ? std::optional<SpanContext>(parent_ctx)
-                                                              : std::nullopt);
+    auto span = get_tracer().start_span(
+        name, SpanKind::Server,
+        parent_ctx.is_valid() ? std::optional<SpanContext>(parent_ctx) : std::nullopt);
     if (!span.active())
         return span;
 
-    span.span().set_attributes(
-        {{"rpc.system", "mcp"},
-         {"rpc.service", server_name},
-         {"rpc.method", method},
-         {"fastmcp.server.name", server_name},
-         {"fastmcp.component.type", component_type},
-         {"fastmcp.component.key", component_key}});
+    span.span().set_attributes({{"rpc.system", "mcp"},
+                                {"rpc.service", server_name},
+                                {"rpc.method", method},
+                                {"fastmcp.server.name", server_name},
+                                {"fastmcp.component.type", component_type},
+                                {"fastmcp.component.key", component_key}});
     if (session_id && !session_id->empty())
         span.span().set_attribute("fastmcp.session.id", *session_id);
     return span;

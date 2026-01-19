@@ -3,8 +3,8 @@
 
 #include "fastmcpp/server/middleware_pipeline.hpp"
 
-#include <cassert>
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <iostream>
 #include <thread>
@@ -280,9 +280,8 @@ void test_ping_middleware()
             if (ServerSession::is_request(msg) && msg.value("method", "") == "ping")
             {
                 ping_count.fetch_add(1);
-                Json response = {{"jsonrpc", "2.0"},
-                                 {"id", msg.at("id")},
-                                 {"result", Json::object()}};
+                Json response = {
+                    {"jsonrpc", "2.0"}, {"id", msg.at("id")}, {"result", Json::object()}};
                 session->handle_response(response);
             }
         });

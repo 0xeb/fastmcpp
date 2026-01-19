@@ -87,8 +87,7 @@ int main()
         FastMCP app("test-server");
         tools::Tool tool(
             "echo",
-            Json{{"type", "object"},
-                 {"properties", Json{{"message", Json{{"type", "string"}}}}}},
+            Json{{"type", "object"}, {"properties", Json{{"message", Json{{"type", "string"}}}}}},
             Json::object(),
             [](const Json& input) { return Json{{"message", input.value("message", "")}}; });
         app.tools().register_tool(tool);

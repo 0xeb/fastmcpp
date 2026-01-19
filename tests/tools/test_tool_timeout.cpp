@@ -17,15 +17,12 @@ void test_tool_timeout_triggers()
 {
     std::cout << "  test_tool_timeout_triggers... " << std::flush;
 
-    Tool slow_tool(
-        "slow",
-        Json::object(),
-        Json::object(),
-        [](const Json&) -> Json
-        {
-            std::this_thread::sleep_for(50ms);
-            return Json{{"ok", true}};
-        });
+    Tool slow_tool("slow", Json::object(), Json::object(),
+                   [](const Json&) -> Json
+                   {
+                       std::this_thread::sleep_for(50ms);
+                       return Json{{"ok", true}};
+                   });
 
     slow_tool.set_timeout(10ms);
 
@@ -47,15 +44,12 @@ void test_tool_timeout_disabled()
 {
     std::cout << "  test_tool_timeout_disabled... " << std::flush;
 
-    Tool slow_tool(
-        "slow_no_timeout",
-        Json::object(),
-        Json::object(),
-        [](const Json&) -> Json
-        {
-            std::this_thread::sleep_for(30ms);
-            return Json{{"ok", true}};
-        });
+    Tool slow_tool("slow_no_timeout", Json::object(), Json::object(),
+                   [](const Json&) -> Json
+                   {
+                       std::this_thread::sleep_for(30ms);
+                       return Json{{"ok", true}};
+                   });
 
     slow_tool.set_timeout(5ms);
 
@@ -68,15 +62,12 @@ void test_manager_timeout_toggle()
 {
     std::cout << "  test_manager_timeout_toggle... " << std::flush;
 
-    Tool slow_tool(
-        "slow_manager",
-        Json::object(),
-        Json::object(),
-        [](const Json&) -> Json
-        {
-            std::this_thread::sleep_for(40ms);
-            return Json{{"ok", true}};
-        });
+    Tool slow_tool("slow_manager", Json::object(), Json::object(),
+                   [](const Json&) -> Json
+                   {
+                       std::this_thread::sleep_for(40ms);
+                       return Json{{"ok", true}};
+                   });
 
     slow_tool.set_timeout(10ms);
 

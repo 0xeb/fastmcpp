@@ -1,12 +1,12 @@
 #include "fastmcpp/client/transports.hpp"
 
 #include "fastmcpp/exceptions.hpp"
-#include "fastmcpp/util/json.hpp" 
+#include "fastmcpp/util/json.hpp"
 
 #include <chrono>
 #include <condition_variable>
 #include <deque>
-#include <easywsclient.hpp>       
+#include <easywsclient.hpp>
 #include <fstream>
 #include <httplib.h>
 #include <mutex>
@@ -19,8 +19,8 @@
 #include <process.hpp>
 #endif
 
-namespace fastmcpp::client        
-{                    
+namespace fastmcpp::client
+{
 
 struct StdioTransport::State
 {
@@ -38,9 +38,9 @@ struct StdioTransport::State
 #endif
 };
 
-namespace                    
-{                    
-struct ParsedUrl            
+namespace
+{
+struct ParsedUrl
 {
     std::string scheme; // "http" or "https"
     std::string host;
@@ -634,10 +634,8 @@ fastmcpp::Json StdioTransport::request(const std::string& route, const fastmcpp:
             {
                 std::lock_guard<std::mutex> lock(st->mutex);
                 throw fastmcpp::TransportError(
-                    "StdioTransport process exited with code: " +
-                    std::to_string(exit_status) +
-                    (st->stderr_data.empty() ? std::string("")
-                                             : ("; stderr: ") + st->stderr_data));
+                    "StdioTransport process exited with code: " + std::to_string(exit_status) +
+                    (st->stderr_data.empty() ? std::string("") : ("; stderr: ") + st->stderr_data));
             }
 
             std::unique_lock<std::mutex> lock(st->mutex);
