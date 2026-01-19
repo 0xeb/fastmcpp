@@ -382,6 +382,76 @@ void test_error_handling()
     server.stop();
 }
 
+void test_default_timeout_allows_slow_tool()
+{
+    std::cout << "  test_default_timeout_allows_slow_tool... " << std::flush;
+
+    const int port = 18355;
+    const std::string host = "127.0.0.1";
+
+    tools::ToolManager tool_mgr;
+    tools::Tool slow_tool{"slow_tool",
+                          Json{{"type", "object"},
+                               {"properties", Json{{"duration", Json{{"type", "integer"}}}}},
+                               {"required", Json::array({"duration"})}},
+                          Json{{"type", "string"}}, [](const Json& input) -> Json
+                          {
+                              int duration = input.value("duration", 6);
+                              std::this_thread::sleep_for(std::chrono::seconds(duration));
+                              return "Completed in " + std::to_string(duration) + " seconds";
+                          }};
+    tool_mgr.register_tool(slow_tool);
+
+    std::unordered_map<std::string, std::string> descriptions = {{"slow_tool", "Slow tool"}};
+    auto handler = mcp::make_mcp_handler("timeout_test", "1.0.0", tool_mgr, descriptions);
+
+    server::StreamableHttpServerWrapper server(handler, host, port, "/mcp");
+    bool started = server.start();
+    std::cout << "(server.start=" << started << ", running=" << server.running() << ") "
+              << std::flush;
+    assert(started && "Server failed to start");
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    std::cout << "(testing direct client) " << std::flush;
+    httplib::Client direct_cli(host, port);
+    direct_cli.set_connection_timeout(5, 0);
+    direct_cli.set_read_timeout(5, 0);
+    auto direct_res = direct_cli.Get("/mcp");
+    std::cout << "(GET result: " << (direct_res ? std::to_string(direct_res->status) : "null")
+              << ") " << std::flush;
+
+    try
+    {
+        client::StreamableHttpTransport transport("http://" + host + ":" + std::to_string(port));
+
+        Json init_params = {{"protocolVersion", "2024-11-05"},
+                            {"capabilities", Json::object()},
+                            {"clientInfo", {{"name", "test"}, {"version", "1.0"}}}};
+
+        transport.request("initialize", init_params);
+
+        Json call_params = {{"name", "slow_tool"}, {"arguments", {{"duration", 6}}}};
+        auto call_result = transport.request("tools/call", call_params);
+
+        assert(call_result.contains("content") && "Should have content");
+        auto& content = call_result["content"];
+        assert(content.is_array() && content.size() > 0 && "Should have content array");
+        assert(content[0]["type"] == "text" && "Content should be text");
+        assert(content[0]["text"] == "Completed in 6 seconds" && "Slow tool should complete");
+
+        std::cout << "PASSED\n";
+    }
+    catch (const std::exception& e)
+    {
+        std::cout << "FAILED: " << e.what() << "\n";
+        server.stop();
+        throw;
+    }
+
+    server.stop();
+}
+
 int main()
 {
     std::cout << "Streamable HTTP Integration Tests\n";
@@ -394,6 +464,7 @@ int main()
         test_session_management();
         test_server_info();
         test_error_handling();
+        test_default_timeout_allows_slow_tool();
 
         std::cout << "\nAll tests passed!\n";
         return 0;

@@ -1303,8 +1303,8 @@ fastmcpp::Json StreamableHttpTransport::request(const std::string& route,
     for (int redirects = 0; redirects <= 5; ++redirects)
     {
         httplib::Client cli(full_url.c_str());
-        cli.set_connection_timeout(10, 0);
-        cli.set_read_timeout(60, 0); // Longer timeout for streaming
+        cli.set_connection_timeout(30, 0);
+        cli.set_read_timeout(300, 0); // Align with MCP HTTP defaults (30s connect, 5min read)
         cli.set_keep_alive(true);
         cli.set_follow_location(false);
 
