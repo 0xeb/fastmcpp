@@ -7,6 +7,7 @@
 #include "fastmcpp/server/server.hpp"
 #include "fastmcpp/tools/manager.hpp"
 
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -65,6 +66,7 @@ class FastMCP
         std::vector<std::string> exclude_args;
         TaskSupport task_support{TaskSupport::Forbidden};
         Json output_schema{Json::object()};
+        std::optional<std::chrono::milliseconds> timeout;
     };
 
     struct PromptOptions
@@ -250,7 +252,7 @@ class FastMCP
     // =========================================================================
 
     /// Invoke a tool by name (handles prefixed routing)
-    Json invoke_tool(const std::string& name, const Json& args) const;
+    Json invoke_tool(const std::string& name, const Json& args, bool enforce_timeout = true) const;
 
     /// Read a resource by URI (handles prefixed routing)
     resources::ResourceContent read_resource(const std::string& uri,

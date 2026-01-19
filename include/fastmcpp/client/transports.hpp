@@ -114,7 +114,8 @@ class StdioTransport : public ITransport
 /// 3. Server sends JSON-RPC responses back via the SSE stream
 class SseClientTransport : public ITransport,
                            public IServerRequestTransport,
-                           public IResettableTransport
+                           public IResettableTransport,
+                           public ISessionTransport
 {
   public:
     /// Construct an SSE client transport
@@ -179,7 +180,9 @@ class SseClientTransport : public ITransport,
 /// 3. Session ID management via Mcp-Session-Id header
 ///
 /// Reference: https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/
-class StreamableHttpTransport : public ITransport, public IResettableTransport
+class StreamableHttpTransport : public ITransport,
+                                public IResettableTransport,
+                                public ISessionTransport
 {
   public:
     /// Construct a Streamable HTTP client transport

@@ -1,9 +1,16 @@
 #pragma once
+#include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/types.hpp"
 
+#include <algorithm>
+#include <chrono>
 #include <functional>
+#include <future>
+#include <iomanip>
 #include <optional>
+#include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fastmcpp::tools
@@ -65,9 +72,45 @@ class Tool
     {
         return output_schema_;
     }
-    fastmcpp::Json invoke(const fastmcpp::Json& input) const
+    fastmcpp::Json invoke(const fastmcpp::Json& input, bool enforce_timeout = true) const
     {
-        return fn_(input);
+        if (!enforce_timeout || !timeout_.has_value() || timeout_->count() <= 0)
+            return fn_(input);
+
+        std::promise<fastmcpp::Json> promise;
+        auto future = promise.get_future();
+        auto timeout = *timeout_;
+
+        std::thread worker(
+            [promise = std::move(promise), input, fn = fn_]() mutable
+            {
+                try
+                {
+                    promise.set_value(fn(input));
+                }
+                catch (...)
+                {
+                    try
+                    {
+                        promise.set_exception(std::current_exception());
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+            });
+
+        if (future.wait_for(timeout) == std::future_status::timeout)
+        {
+            if (worker.joinable())
+                worker.detach();
+            throw fastmcpp::ToolTimeoutError("Tool '" + name_ + "' execution timed out after " +
+                                             format_timeout_seconds(timeout) + "s");
+        }
+
+        if (worker.joinable())
+            worker.join();
+        return future.get();
     }
 
     fastmcpp::TaskSupport task_support() const
@@ -96,8 +139,31 @@ class Tool
         task_support_ = support;
         return *this;
     }
+    Tool& set_timeout(std::optional<std::chrono::milliseconds> timeout)
+    {
+        timeout_ = timeout;
+        return *this;
+    }
+    const std::optional<std::chrono::milliseconds>& timeout() const
+    {
+        return timeout_;
+    }
 
   private:
+    static std::string format_timeout_seconds(std::chrono::milliseconds timeout)
+    {
+        std::ostringstream oss;
+        double seconds = std::chrono::duration<double>(timeout).count();
+        oss << std::fixed << std::setprecision(3) << seconds;
+        auto out = oss.str();
+        auto trim_pos = out.find_last_not_of('0');
+        if (trim_pos != std::string::npos && trim_pos + 1 < out.size())
+            out.erase(trim_pos + 1);
+        if (!out.empty() && out.back() == '.')
+            out.pop_back();
+        return out;
+    }
+
     fastmcpp::Json prune_schema(const fastmcpp::Json& schema) const
     {
         // Work on a copy to avoid mutating shared $defs or properties
@@ -140,6 +206,7 @@ class Tool
     Fn fn_;
     std::vector<std::string> exclude_args_;
     fastmcpp::TaskSupport task_support_{fastmcpp::TaskSupport::Forbidden};
+    std::optional<std::chrono::milliseconds> timeout_;
 };
 
 } // namespace fastmcpp::tools

@@ -207,12 +207,13 @@ std::vector<client::PromptInfo> ProxyApp::list_all_prompts() const
 // Routing
 // =========================================================================
 
-client::CallToolResult ProxyApp::invoke_tool(const std::string& name, const Json& args) const
+client::CallToolResult ProxyApp::invoke_tool(const std::string& name, const Json& args,
+                                             bool enforce_timeout) const
 {
     // Try local first
     try
     {
-        auto result_json = local_tools_.invoke(name, args);
+        auto result_json = local_tools_.invoke(name, args, enforce_timeout);
 
         // Convert to CallToolResult
         client::CallToolResult result;

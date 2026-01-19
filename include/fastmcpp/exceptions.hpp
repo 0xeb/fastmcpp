@@ -20,6 +20,11 @@ struct ValidationError : public Error
     using Error::Error;
 };
 
+struct ToolTimeoutError : public Error
+{
+    using Error::Error;
+};
+
 struct TransportError : public Error
 {
     using Error::Error;

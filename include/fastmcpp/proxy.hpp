@@ -107,7 +107,8 @@ class ProxyApp
 
     /// Invoke a tool by name
     /// Tries local tools first, falls back to remote
-    client::CallToolResult invoke_tool(const std::string& name, const Json& args) const;
+    client::CallToolResult invoke_tool(const std::string& name, const Json& args,
+                                       bool enforce_timeout = true) const;
 
     /// Read a resource by URI
     /// Tries local resources first, falls back to remote

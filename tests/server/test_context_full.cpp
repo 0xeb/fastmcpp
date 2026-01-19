@@ -8,6 +8,7 @@
 #include <cassert>
 #include <functional>
 #include <iostream>
+#include <optional>
 #include <vector>
 
 using namespace fastmcpp;
@@ -185,6 +186,29 @@ void test_client_id()
     Context ctx2(rm, pm, meta);
     assert(ctx2.client_id().has_value());
     assert(ctx2.client_id().value() == "client123");
+
+    std::cout << "PASSED\n";
+}
+
+void test_transport()
+{
+    std::cout << "  test_transport... " << std::flush;
+
+    resources::ResourceManager rm;
+    prompts::PromptManager pm;
+
+    Context ctx_default(rm, pm);
+    assert(!ctx_default.transport().has_value());
+    assert(!ctx_default.transport_type().has_value());
+
+    Context ctx_stdio(rm, pm, std::nullopt, std::nullopt, std::nullopt, TransportType::Stdio);
+    assert(ctx_stdio.transport().has_value());
+    assert(ctx_stdio.transport().value() == "stdio");
+    assert(ctx_stdio.transport_type().has_value());
+    assert(ctx_stdio.transport_type().value() == TransportType::Stdio);
+
+    Context ctx_sse(rm, pm, std::nullopt, std::nullopt, std::nullopt, TransportType::Sse);
+    assert(ctx_sse.transport().value() == "sse");
 
     std::cout << "PASSED\n";
 }
@@ -391,6 +415,7 @@ int main()
         test_progress_without_token();
         test_notifications();
         test_client_id();
+        test_transport();
         test_progress_token_types();
         test_log_level_to_string();
         test_e2e_tool_logging_to_notifications();

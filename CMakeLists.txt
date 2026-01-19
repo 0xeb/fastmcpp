@@ -40,6 +40,7 @@ add_library(fastmcpp_core STATIC
     src/client/client.cpp
     src/client/sampling_handlers.cpp
     src/client/transports.cpp
+    src/telemetry.cpp
     src/util/json_schema.cpp
     src/util/json_schema_type.cpp
     src/settings.cpp
@@ -225,6 +226,10 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_tools_manager tests/tools/test_tool_manager.cpp)
   target_link_libraries(fastmcpp_tools_manager PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_tools_manager COMMAND fastmcpp_tools_manager)
+
+  add_executable(fastmcpp_tools_timeout tests/tools/test_tool_timeout.cpp)
+  target_link_libraries(fastmcpp_tools_timeout PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_tools_timeout COMMAND fastmcpp_tools_timeout)
 
   add_executable(fastmcpp_integration tests/integration.cpp)
   target_link_libraries(fastmcpp_integration PRIVATE fastmcpp_core)
@@ -441,6 +446,10 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_server_middleware_pipeline tests/server/test_middleware_pipeline.cpp)
   target_link_libraries(fastmcpp_server_middleware_pipeline PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_middleware_pipeline COMMAND fastmcpp_server_middleware_pipeline)
+
+  add_executable(fastmcpp_telemetry tests/telemetry/tracing.cpp)
+  target_link_libraries(fastmcpp_telemetry PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_telemetry COMMAND fastmcpp_telemetry)
 
   add_executable(fastmcpp_stdio_client tests/transports/stdio_client.cpp)
   target_link_libraries(fastmcpp_stdio_client PRIVATE fastmcpp_core)

@@ -31,26 +31,23 @@ int main()
     tm.register_tool(add);
 
     fastmcpp::tools::Tool counter{
-        "counter",
-        Json{{"type", "object"}, {"properties", Json::object()}},
+        "counter", Json{{"type", "object"}, {"properties", Json::object()}},
         Json{{"type", "array"},
-             {"items",
-              Json::array({Json{{"type", "object"},
-                                {"properties", Json{{"type", Json{{"type", "string"}}},
-                                                    {"text", Json{{"type", "string"}}}}},
-                                {"required", Json::array({"type", "text"})}}})}},
+             {"items", Json::array({Json{{"type", "object"},
+                                         {"properties", Json{{"type", Json{{"type", "string"}}},
+                                                             {"text", Json{{"type", "string"}}}}},
+                                         {"required", Json::array({"type", "text"})}}})}},
         [&counter_value](const Json&) -> Json
         {
             counter_value += 1;
-            return Json{{"content",
-                         Json::array({Json{{"type", "text"}, {"text", std::to_string(counter_value)}}})}};
+            return Json{{"content", Json::array({Json{{"type", "text"},
+                                                      {"text", std::to_string(counter_value)}}})}};
         }};
     tm.register_tool(counter);
 
-    auto handler =
-        fastmcpp::mcp::make_mcp_handler("demo_stdio", "0.1.0", tm,
-                                        {{"add", "Add two numbers"},
-                                         {"counter", "Increment and return an in-process counter"}});
+    auto handler = fastmcpp::mcp::make_mcp_handler(
+        "demo_stdio", "0.1.0", tm,
+        {{"add", "Add two numbers"}, {"counter", "Increment and return an in-process counter"}});
     fastmcpp::server::StdioServerWrapper server(handler);
     server.run();
     return 0;

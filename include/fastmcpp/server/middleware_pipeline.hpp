@@ -7,16 +7,23 @@
 /// - Middleware base class with virtual hooks
 /// - Built-in implementations: Logging, Timing, Caching, RateLimiting, ErrorHandling
 
+#include "fastmcpp/server/session.hpp"
 #include "fastmcpp/types.hpp"
 
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace fastmcpp::server
@@ -34,6 +41,7 @@ struct MiddlewareContext
     std::string type{"request"};                     ///< Message type: "request" or "notification"
     std::chrono::steady_clock::time_point timestamp; ///< Request timestamp
     std::optional<std::string> request_id;           ///< Request ID if available
+    std::shared_ptr<ServerSession> session;          ///< ServerSession for this request (optional)
     std::optional<std::string> tool_name;            ///< Tool name for tools/call
     std::optional<std::string> resource_uri;         ///< Resource URI for resources/read
     std::optional<std::string> prompt_name;          ///< Prompt name for prompts/get
@@ -571,6 +579,124 @@ class ErrorHandlingMiddleware : public Middleware
     bool include_trace_;
     mutable std::mutex mutex_;
     std::unordered_map<std::string, size_t> error_counts_;
+};
+
+/// Ping middleware - sends periodic pings to keep client connections alive
+class PingMiddleware : public Middleware
+{
+  public:
+    explicit PingMiddleware(std::chrono::milliseconds interval = std::chrono::milliseconds(30000))
+        : interval_(interval)
+    {
+        if (interval_.count() <= 0)
+            throw std::invalid_argument("interval must be positive");
+    }
+
+    explicit PingMiddleware(int interval_ms)
+        : PingMiddleware(std::chrono::milliseconds(interval_ms))
+    {
+    }
+
+    ~PingMiddleware() override
+    {
+        stop();
+    }
+
+    Json operator()(const MiddlewareContext& ctx, CallNext call_next) override
+    {
+        if (ctx.session)
+            ensure_session(ctx.session);
+        return call_next(ctx);
+    }
+
+  private:
+    void ensure_session(const std::shared_ptr<ServerSession>& session)
+    {
+        const std::string key = session_key(session);
+        if (key.empty())
+            return;
+
+        bool should_start = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (active_sessions_.insert(key).second)
+                should_start = true;
+        }
+
+        if (!should_start)
+            return;
+
+        std::weak_ptr<ServerSession> weak_session = session;
+        std::thread worker([this, weak_session, key]() { ping_loop(weak_session, key); });
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            threads_.push_back(std::move(worker));
+        }
+    }
+
+    void ping_loop(std::weak_ptr<ServerSession> weak_session, const std::string& key)
+    {
+        while (true)
+        {
+            {
+                std::unique_lock<std::mutex> lock(mutex_);
+                if (cv_.wait_for(lock, interval_, [this]() { return stop_.load(); }))
+                    break;
+            }
+
+            if (stop_.load())
+                break;
+
+            auto session = weak_session.lock();
+            if (!session)
+                break;
+
+            try
+            {
+                session->send_ping(interval_);
+            }
+            catch (const std::exception&)
+            {
+                break;
+            }
+        }
+
+        std::lock_guard<std::mutex> lock(mutex_);
+        active_sessions_.erase(key);
+    }
+
+    void stop()
+    {
+        stop_.store(true);
+        cv_.notify_all();
+
+        std::vector<std::thread> threads;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            threads.swap(threads_);
+        }
+
+        for (auto& t : threads)
+            if (t.joinable())
+                t.join();
+    }
+
+    static std::string session_key(const std::shared_ptr<ServerSession>& session)
+    {
+        if (!session)
+            return {};
+        auto key = session->session_id();
+        if (!key.empty())
+            return key;
+        return "session@" + std::to_string(reinterpret_cast<std::uintptr_t>(session.get()));
+    }
+
+    std::chrono::milliseconds interval_;
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    std::unordered_set<std::string> active_sessions_;
+    std::vector<std::thread> threads_;
+    std::atomic<bool> stop_{false};
 };
 
 } // namespace fastmcpp::server

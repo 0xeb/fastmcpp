@@ -217,8 +217,10 @@ create_transformed_tool(const Tool& parent, std::optional<std::string> new_name 
         new_description.has_value() ? new_description : parent.description();
 
     // Create new tool with transformed schema
-    return Tool(tool_name, transform_result.schema, parent.output_schema(), forwarding_fn,
-                parent.title(), tool_desc, parent.icons());
+    Tool tool(tool_name, transform_result.schema, parent.output_schema(), forwarding_fn,
+              parent.title(), tool_desc, parent.icons());
+    tool.set_timeout(parent.timeout());
+    return tool;
 }
 
 /// Configuration for applying transformations via JSON/config
@@ -310,6 +312,7 @@ class TransformedTool
 
         result.tool_ = Tool(tool_name, transform_result.schema, parent.output_schema(),
                             forwarding_fn, parent.title(), tool_desc, parent.icons());
+        result.tool_.set_timeout(parent.timeout());
 
         return result;
     }
