@@ -4,6 +4,7 @@
 #include "fastmcpp/mcp/tasks.hpp"
 #include "fastmcpp/proxy.hpp"
 #include "fastmcpp/server/sse_server.hpp"
+#include "fastmcpp/telemetry.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -65,6 +66,13 @@ static std::string extract_session_id(const fastmcpp::Json& params)
         params["_meta"].contains("session_id") && params["_meta"]["session_id"].is_string())
         return params["_meta"]["session_id"].get<std::string>();
     return "";
+}
+
+static std::optional<fastmcpp::Json> extract_request_meta(const fastmcpp::Json& params)
+{
+    if (params.contains("_meta") && params["_meta"].is_object())
+        return params["_meta"];
+    return std::nullopt;
 }
 
 static fastmcpp::Json normalize_output_schema_for_mcp(const fastmcpp::Json& schema)
@@ -778,6 +786,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
             const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
             std::string method = message.value("method", "");
             fastmcpp::Json params = message.value("params", fastmcpp::Json::object());
+            const std::string session_id = extract_session_id(params);
 
             if (method == "initialize")
             {
@@ -849,6 +858,12 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
                 if (name.empty())
                     return jsonrpc_error(id, -32602, "Missing tool name");
+                auto span =
+                    telemetry::server_span("tool " + name, "tools/call", server_name, "tool",
+                                           name, extract_request_meta(params),
+                                           session_id.empty() ? std::nullopt
+                                                              : std::optional<std::string>(
+                                                                    session_id));
                 try
                 {
                     const auto& tool = tools.get(name);
@@ -862,6 +877,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 }
                 catch (const std::exception& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_tool_error(id, e);
                 }
             }
@@ -929,6 +946,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
             const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
             std::string method = message.value("method", "");
             fastmcpp::Json params = message.value("params", fastmcpp::Json::object());
+            const std::string session_id = extract_session_id(params);
 
             if (method == "initialize")
             {
@@ -1006,6 +1024,10 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
                 fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
                 if (name.empty())
                     return jsonrpc_error(id, -32602, "Missing tool name");
+                auto span = telemetry::server_span(
+                    "tool " + name, "tools/call", server.name(), "tool", name,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     auto result = server.handle(name, args);
@@ -1015,6 +1037,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
                 }
                 catch (const std::exception& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_tool_error(id, e);
                 }
             }
@@ -1036,6 +1060,11 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
             }
             if (method == "resources/read")
             {
+                std::string uri = params.value("uri", "");
+                auto span = telemetry::server_span(
+                    "resource " + uri, "resources/read", server.name(), "resource", uri,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     auto routed = server.handle(method, params);
@@ -1043,6 +1072,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
                 }
                 catch (...)
                 {
+                    if (span.active())
+                        span.span().record_exception("resource read failed");
                     return fastmcpp::Json{
                         {"jsonrpc", "2.0"},
                         {"id", id},
@@ -1066,6 +1097,11 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
             }
             if (method == "prompts/get")
             {
+                std::string prompt_name = params.value("name", "");
+                auto span = telemetry::server_span(
+                    "prompt " + prompt_name, "prompts/get", server.name(), "prompt",
+                    prompt_name, extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     auto routed = server.handle(method, params);
@@ -1073,6 +1109,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
                 }
                 catch (...)
                 {
+                    if (span.active())
+                        span.span().record_exception("prompt get failed");
                     return fastmcpp::Json{
                         {"jsonrpc", "2.0"},
                         {"id", id},
@@ -1136,6 +1174,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
             const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
             std::string method = message.value("method", "");
             fastmcpp::Json params = message.value("params", fastmcpp::Json::object());
+            const std::string session_id = extract_session_id(params);
 
             if (method == "initialize")
             {
@@ -1210,6 +1249,10 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
                 if (name.empty())
                     return jsonrpc_error(id, -32602, "Missing tool name");
+                auto span = telemetry::server_span(
+                    "tool " + name, "tools/call", server.name(), "tool", name,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     const auto& tool = tools.get(name);
@@ -1224,13 +1267,59 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 }
                 catch (const std::exception& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_tool_error(id, e);
                 }
             }
 
-            // Resources, prompts, etc. - route through server
-            if (method == "resources/list" || method == "resources/read" ||
-                method == "prompts/list" || method == "prompts/get")
+            if (method == "resources/read")
+            {
+                std::string uri = params.value("uri", "");
+                auto span = telemetry::server_span(
+                    "resource " + uri, "resources/read", server.name(), "resource", uri,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
+                try
+                {
+                    auto routed = server.handle(method, params);
+                    return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", routed}};
+                }
+                catch (...)
+                {
+                    if (span.active())
+                        span.span().record_exception("resource read failed");
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"},
+                        {"id", id},
+                        {"result", fastmcpp::Json{{"contents", fastmcpp::Json::array()}}}};
+                }
+            }
+
+            if (method == "prompts/get")
+            {
+                std::string prompt_name = params.value("name", "");
+                auto span = telemetry::server_span(
+                    "prompt " + prompt_name, "prompts/get", server.name(), "prompt",
+                    prompt_name, extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
+                try
+                {
+                    auto routed = server.handle(method, params);
+                    return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", routed}};
+                }
+                catch (...)
+                {
+                    if (span.active())
+                        span.span().record_exception("prompt get failed");
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"},
+                        {"id", id},
+                        {"result", fastmcpp::Json{{"messages", fastmcpp::Json::array()}}}};
+                }
+            }
+
+            if (method == "resources/list" || method == "prompts/list")
             {
                 try
                 {
@@ -1239,27 +1328,15 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 }
                 catch (...)
                 {
-                    // Return empty result for unimplemented
                     if (method == "resources/list")
                         return fastmcpp::Json{
                             {"jsonrpc", "2.0"},
                             {"id", id},
                             {"result", fastmcpp::Json{{"resources", fastmcpp::Json::array()}}}};
-                    if (method == "resources/read")
-                        return fastmcpp::Json{
-                            {"jsonrpc", "2.0"},
-                            {"id", id},
-                            {"result", fastmcpp::Json{{"contents", fastmcpp::Json::array()}}}};
-                    if (method == "prompts/list")
-                        return fastmcpp::Json{
-                            {"jsonrpc", "2.0"},
-                            {"id", id},
-                            {"result", fastmcpp::Json{{"prompts", fastmcpp::Json::array()}}}};
-                    if (method == "prompts/get")
-                        return fastmcpp::Json{
-                            {"jsonrpc", "2.0"},
-                            {"id", id},
-                            {"result", fastmcpp::Json{{"messages", fastmcpp::Json::array()}}}};
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"},
+                        {"id", id},
+                        {"result", fastmcpp::Json{{"prompts", fastmcpp::Json::array()}}}};
                 }
             }
 
@@ -1287,6 +1364,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
             const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
             std::string method = message.value("method", "");
             fastmcpp::Json params = message.value("params", fastmcpp::Json::object());
+            const std::string session_id = extract_session_id(params);
 
             if (method == "initialize")
             {
@@ -1349,6 +1427,10 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
                 if (name.empty())
                     return jsonrpc_error(id, -32602, "Missing tool name");
+                auto span = telemetry::server_span(
+                    "tool " + name, "tools/call", server.name(), "tool", name,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     const auto& tool = tools.get(name);
@@ -1362,6 +1444,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 }
                 catch (const std::exception& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_tool_error(id, e);
                 }
             }
@@ -1414,6 +1498,10 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 // Strip trailing slashes for compatibility with Python fastmcp
                 while (!uri.empty() && uri.back() == '/')
                     uri.pop_back();
+                auto span = telemetry::server_span(
+                    "resource " + uri, "resources/read", server.name(), "resource", uri,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     auto content = resources.read(uri, params);
@@ -1498,6 +1586,10 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 std::string name = params.value("name", "");
                 if (name.empty())
                     return jsonrpc_error(id, -32602, "Missing prompt name");
+                auto span = telemetry::server_span(
+                    "prompt " + name, "prompts/get", server.name(), "prompt", name,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
@@ -1517,10 +1609,14 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 }
                 catch (const NotFoundError& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_error(id, -32602, e.what());
                 }
                 catch (const std::exception& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_tool_error(id, e);
                 }
             }
@@ -1551,6 +1647,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
             const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
             std::string method = message.value("method", "");
             fastmcpp::Json params = message.value("params", fastmcpp::Json::object());
+            const std::string session_id = extract_session_id(params);
 
             if (method == "initialize")
             {
@@ -1635,6 +1732,10 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
                 if (name.empty())
                     return jsonrpc_error(id, -32602, "Missing tool name");
+                auto span = telemetry::server_span(
+                    "tool " + name, "tools/call", app.name(), "tool", name,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     bool has_output_schema = false;
@@ -1723,6 +1824,8 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 }
                 catch (const std::exception& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_tool_error(id, e);
                 }
             }
@@ -1884,6 +1987,10 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                     return jsonrpc_error(id, -32602, "Missing resource URI");
                 while (!uri.empty() && uri.back() == '/')
                     uri.pop_back();
+                auto span = telemetry::server_span(
+                    "resource " + uri, "resources/read", app.name(), "resource", uri,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     int ttl_ms = 60000;
@@ -2015,10 +2122,14 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 }
                 catch (const NotFoundError& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_error(id, -32602, e.what());
                 }
                 catch (const std::exception& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_error(id, -32603, e.what());
                 }
             }
@@ -2060,6 +2171,10 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 std::string name = params.value("name", "");
                 if (name.empty())
                     return jsonrpc_error(id, -32602, "Missing prompt name");
+                auto span = telemetry::server_span(
+                    "prompt " + name, "prompts/get", app.name(), "prompt", name,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     int ttl_ms = 60000;
@@ -2148,10 +2263,14 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 }
                 catch (const NotFoundError& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_error(id, -32602, e.what());
                 }
                 catch (const std::exception& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_error(id, -32603, e.what());
                 }
             }
@@ -2175,6 +2294,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
             const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
             std::string method = message.value("method", "");
             fastmcpp::Json params = message.value("params", fastmcpp::Json::object());
+            const std::string session_id = extract_session_id(params);
 
             if (method == "initialize")
             {
@@ -2241,6 +2361,10 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 fastmcpp::Json arguments = params.value("arguments", fastmcpp::Json::object());
                 if (name.empty())
                     return jsonrpc_error(id, -32602, "Missing tool name");
+                auto span = telemetry::server_span(
+                    "tool " + name, "tools/call", app.name(), "tool", name,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     auto result = app.invoke_tool(name, arguments);
@@ -2288,6 +2412,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 }
                 catch (const std::exception& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_error(id, -32603, e.what());
                 }
             }
@@ -2338,6 +2464,10 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 std::string uri = params.value("uri", "");
                 if (uri.empty())
                     return jsonrpc_error(id, -32602, "Missing resource URI");
+                auto span = telemetry::server_span(
+                    "resource " + uri, "resources/read", app.name(), "resource", uri,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     auto result = app.read_resource(uri);
@@ -2370,10 +2500,14 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 }
                 catch (const NotFoundError& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_error(id, -32602, e.what());
                 }
                 catch (const std::exception& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_error(id, -32603, e.what());
                 }
             }
@@ -2412,6 +2546,10 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 std::string name = params.value("name", "");
                 if (name.empty())
                     return jsonrpc_error(id, -32602, "Missing prompt name");
+                auto span = telemetry::server_span(
+                    "prompt " + name, "prompts/get", app.name(), "prompt", name,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
@@ -2459,10 +2597,14 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 }
                 catch (const NotFoundError& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_error(id, -32602, e.what());
                 }
                 catch (const std::exception& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_error(id, -32603, e.what());
                 }
             }
@@ -2541,7 +2683,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
             fastmcpp::Json params = message.value("params", fastmcpp::Json::object());
 
             // Extract session_id for sampling support
-            std::string session_id = extract_session_id(params);
+            const std::string session_id = extract_session_id(params);
 
             if (method == "initialize")
             {
@@ -2637,6 +2779,10 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
                 if (name.empty())
                     return jsonrpc_error(id, -32602, "Missing tool name");
+                auto span = telemetry::server_span(
+                    "tool " + name, "tools/call", app.name(), "tool", name,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
 
                 bool has_output_schema = false;
                 for (const auto& tool_info : app.list_all_tools_info())
@@ -2673,6 +2819,8 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 }
                 catch (const std::exception& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_error(id, -32603, e.what());
                 }
             }
@@ -2726,6 +2874,10 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                     return jsonrpc_error(id, -32602, "Missing resource URI");
                 while (!uri.empty() && uri.back() == '/')
                     uri.pop_back();
+                auto span = telemetry::server_span(
+                    "resource " + uri, "resources/read", app.name(), "resource", uri,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     auto content = app.read_resource(uri, params);
@@ -2766,10 +2918,14 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 }
                 catch (const NotFoundError& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_error(id, -32602, e.what());
                 }
                 catch (const std::exception& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_error(id, -32603, e.what());
                 }
             }
@@ -2808,6 +2964,10 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 std::string prompt_name = params.value("name", "");
                 if (prompt_name.empty())
                     return jsonrpc_error(id, -32602, "Missing prompt name");
+                auto span = telemetry::server_span(
+                    "prompt " + prompt_name, "prompts/get", app.name(), "prompt", prompt_name,
+                    extract_request_meta(params),
+                    session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
                     fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
@@ -2836,10 +2996,14 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 }
                 catch (const NotFoundError& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_error(id, -32602, e.what());
                 }
                 catch (const std::exception& e)
                 {
+                    if (span.active())
+                        span.span().record_exception(e.what());
                     return jsonrpc_error(id, -32603, e.what());
                 }
             }

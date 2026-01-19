@@ -7,6 +7,7 @@
 #include "fastmcpp/client/types.hpp"
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/server/server.hpp"
+#include "fastmcpp/telemetry.hpp"
 #include "fastmcpp/types.hpp"
 #include "fastmcpp/util/json_schema.hpp"
 #include "fastmcpp/util/json_schema_type.hpp"
@@ -66,6 +67,15 @@ class IServerRequestTransport
   public:
     virtual ~IServerRequestTransport() = default;
     virtual void set_server_request_handler(ServerRequestHandler handler) = 0;
+};
+
+/// Optional transport interface: some transports expose MCP session IDs.
+class ISessionTransport
+{
+  public:
+    virtual ~ISessionTransport() = default;
+    virtual std::string session_id() const = 0;
+    virtual bool has_session() const = 0;
 };
 
 /// Loopback transport for in-process server testing
@@ -240,12 +250,15 @@ class Client
     CallToolResult call_tool_mcp(const std::string& name, const fastmcpp::Json& arguments,
                                  const CallToolOptions& options = CallToolOptions{})
     {
+        auto span =
+            telemetry::client_span("tool " + name, "tools/call", name, transport_session_id());
 
         fastmcpp::Json payload = {{"name", name}, {"arguments", arguments}};
 
         // Add _meta if provided
-        if (options.meta)
-            payload["_meta"] = *options.meta;
+        auto propagated_meta = telemetry::inject_trace_context(options.meta);
+        if (propagated_meta)
+            payload["_meta"] = *propagated_meta;
 
         if (options.progress_handler)
             options.progress_handler(0.0f, std::nullopt, "request started");
@@ -439,7 +452,13 @@ class Client
     /// Read a resource by URI
     ReadResourceResult read_resource_mcp(const std::string& uri)
     {
-        auto response = call("resources/read", {{"uri", uri}});
+        auto span = telemetry::client_span("resource " + uri, "resources/read", uri,
+                                           transport_session_id());
+        fastmcpp::Json payload = {{"uri", uri}};
+        auto propagated_meta = telemetry::inject_trace_context(std::nullopt);
+        if (propagated_meta)
+            payload["_meta"] = *propagated_meta;
+        auto response = call("resources/read", payload);
         return parse_read_resource_result(response);
     }
 
@@ -477,7 +496,8 @@ class Client
     GetPromptResult get_prompt_mcp(const std::string& name,
                                    const fastmcpp::Json& arguments = fastmcpp::Json::object())
     {
-
+        auto span =
+            telemetry::client_span("prompt " + name, "prompts/get", name, transport_session_id());
         fastmcpp::Json payload = {{"name", name}};
         if (!arguments.empty())
         {
@@ -490,6 +510,10 @@ class Client
                     stringArgs[key] = value.dump();
             payload["arguments"] = stringArgs;
         }
+
+        auto propagated_meta = telemetry::inject_trace_context(std::nullopt);
+        if (propagated_meta)
+            payload["_meta"] = *propagated_meta;
 
         auto response = call("prompts/get", payload);
         return parse_get_prompt_result(response);
@@ -808,6 +832,18 @@ class Client
                     throw fastmcpp::Error("Unsupported server request method: " + method);
                 });
         }
+    }
+
+    std::optional<std::string> transport_session_id() const
+    {
+        if (!transport_)
+            return std::nullopt;
+        if (auto* session_transport = dynamic_cast<ISessionTransport*>(transport_.get()))
+        {
+            if (session_transport->has_session())
+                return session_transport->session_id();
+        }
+        return std::nullopt;
     }
 
     // Internal constructor for cloning
@@ -1541,6 +1577,9 @@ inline std::shared_ptr<ResourceTask> Client::read_resource_task(const std::strin
 
     fastmcpp::Json task_meta = {{"ttl", ttl_ms}};
     payload["_meta"] = fastmcpp::Json{{"modelcontextprotocol.io/task", std::move(task_meta)}};
+    auto propagated_meta = telemetry::inject_trace_context(payload["_meta"]);
+    if (propagated_meta)
+        payload["_meta"] = *propagated_meta;
 
     auto response = call("resources/read", payload);
 
@@ -1575,6 +1614,9 @@ Client::get_prompt_task(const std::string& name, const fastmcpp::Json& arguments
 
     fastmcpp::Json task_meta = {{"ttl", ttl_ms}};
     payload["_meta"] = fastmcpp::Json{{"modelcontextprotocol.io/task", std::move(task_meta)}};
+    auto propagated_meta = telemetry::inject_trace_context(payload["_meta"]);
+    if (propagated_meta)
+        payload["_meta"] = *propagated_meta;
 
     auto response = call("prompts/get", payload);
 
