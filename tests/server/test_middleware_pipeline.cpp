@@ -6,7 +6,9 @@
 #include <atomic>
 #include <cassert>
 #include <chrono>
+#include <condition_variable>
 #include <iostream>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -272,6 +274,8 @@ void test_ping_middleware()
 
     std::shared_ptr<ServerSession> session;
     std::atomic<int> ping_count{0};
+    std::condition_variable ping_cv;
+    std::mutex ping_mutex;
 
     session = std::make_shared<ServerSession>(
         "session_ping",
@@ -280,6 +284,7 @@ void test_ping_middleware()
             if (ServerSession::is_request(msg) && msg.value("method", "") == "ping")
             {
                 ping_count.fetch_add(1);
+                ping_cv.notify_one();
                 Json response = {
                     {"jsonrpc", "2.0"}, {"id", msg.at("id")}, {"result", Json::object()}};
                 session->handle_response(response);
@@ -295,9 +300,10 @@ void test_ping_middleware()
 
     pipeline.execute(ctx, [](const MiddlewareContext&) { return Json{{"tools", Json::array()}}; });
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-    assert(ping_count.load() > 0);
+    std::unique_lock<std::mutex> lock(ping_mutex);
+    bool pinged = ping_cv.wait_for(lock, std::chrono::milliseconds(500),
+                                   [&]() { return ping_count.load() > 0; });
+    assert(pinged);
 
     std::cout << "PASSED\n";
 }

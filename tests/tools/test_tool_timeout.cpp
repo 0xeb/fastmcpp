@@ -13,6 +13,13 @@ using namespace fastmcpp;
 using namespace fastmcpp::tools;
 using namespace std::chrono_literals;
 
+static void sleep_for_at_least(std::chrono::milliseconds duration)
+{
+    auto deadline = std::chrono::steady_clock::now() + duration;
+    while (std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(1ms);
+}
+
 void test_tool_timeout_triggers()
 {
     std::cout << "  test_tool_timeout_triggers... " << std::flush;
@@ -20,7 +27,7 @@ void test_tool_timeout_triggers()
     Tool slow_tool("slow", Json::object(), Json::object(),
                    [](const Json&) -> Json
                    {
-                       std::this_thread::sleep_for(50ms);
+                       sleep_for_at_least(50ms);
                        return Json{{"ok", true}};
                    });
 
@@ -47,7 +54,7 @@ void test_tool_timeout_disabled()
     Tool slow_tool("slow_no_timeout", Json::object(), Json::object(),
                    [](const Json&) -> Json
                    {
-                       std::this_thread::sleep_for(30ms);
+                       sleep_for_at_least(30ms);
                        return Json{{"ok", true}};
                    });
 
@@ -65,7 +72,7 @@ void test_manager_timeout_toggle()
     Tool slow_tool("slow_manager", Json::object(), Json::object(),
                    [](const Json&) -> Json
                    {
-                       std::this_thread::sleep_for(40ms);
+                       sleep_for_at_least(40ms);
                        return Json{{"ok", true}};
                    });
 
