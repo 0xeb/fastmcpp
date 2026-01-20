@@ -452,6 +452,78 @@ void test_default_timeout_allows_slow_tool()
     server.stop();
 }
 
+void test_notification_handling()
+{
+    std::cout << "  test_notification_handling... " << std::flush;
+
+    const int port = 18356;
+    const std::string host = "127.0.0.1";
+
+    // Create minimal handler
+    tools::ToolManager tool_mgr;
+    std::unordered_map<std::string, std::string> descriptions;
+    auto handler = mcp::make_mcp_handler("notification_test", "1.0.0", tool_mgr, descriptions);
+
+    server::StreamableHttpServerWrapper server(handler, host, port, "/mcp");
+    bool started = server.start();
+    assert(started && "Server failed to start");
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    try
+    {
+        httplib::Client cli(host, port);
+        cli.set_connection_timeout(5, 0);
+        cli.set_read_timeout(5, 0);
+
+        // First initialize to get a session
+        Json init_request = {{"jsonrpc", "2.0"},
+                             {"id", 1},
+                             {"method", "initialize"},
+                             {"params",
+                              {{"protocolVersion", "2024-11-05"},
+                               {"capabilities", Json::object()},
+                               {"clientInfo", {{"name", "test"}, {"version", "1.0"}}}}}};
+
+        auto init_res = cli.Post("/mcp", init_request.dump(), "application/json");
+        assert(init_res && init_res->status == 200);
+
+        std::string session_id = init_res->get_header_value("Mcp-Session-Id");
+        assert(!session_id.empty() && "Should have session ID");
+
+        // Now send a notification (no "id" field = notification per JSON-RPC 2.0)
+        // JSON-RPC 2.0 spec: server MUST NOT reply to notifications
+        Json notification = {{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}};
+
+        httplib::Headers headers = {{"Mcp-Session-Id", session_id}};
+        auto notif_res = cli.Post("/mcp", headers, notification.dump(), "application/json");
+
+        // Server should return 202 Accepted with no content body
+        assert(notif_res && "Notification request should succeed");
+        assert(notif_res->status == 202 && "Notification should return 202 Accepted");
+        assert(notif_res->body.empty() && "Notification response should have no body");
+
+        // Test another common notification: notifications/cancelled
+        Json cancel_notification = {{"jsonrpc", "2.0"},
+                                    {"method", "notifications/cancelled"},
+                                    {"params", {{"requestId", "123"}, {"reason", "timeout"}}}};
+
+        auto cancel_res = cli.Post("/mcp", headers, cancel_notification.dump(), "application/json");
+        assert(cancel_res && cancel_res->status == 202 && "Cancel notification should return 202");
+        assert(cancel_res->body.empty() && "Cancel notification response should have no body");
+
+        std::cout << "PASSED\n";
+    }
+    catch (const std::exception& e)
+    {
+        std::cout << "FAILED: " << e.what() << "\n";
+        server.stop();
+        throw;
+    }
+
+    server.stop();
+}
+
 int main()
 {
     std::cout << "Streamable HTTP Integration Tests\n";
@@ -465,6 +537,7 @@ int main()
         test_server_info();
         test_error_handling();
         test_default_timeout_allows_slow_tool();
+        test_notification_handling();
 
         std::cout << "\nAll tests passed!\n";
         return 0;
