@@ -256,6 +256,15 @@ fastmcpp/
   README.md           # This file
 ```
 
+## Projects Using This Library
+
+| Project | Description |
+|---------|-------------|
+| [copilot-sdk-cpp](https://github.com/0xeb/copilot-sdk-cpp) | C++ SDK for GitHub Copilot CLI |
+| [claude-agent-sdk-cpp](https://github.com/0xeb/claude-agent-sdk-cpp) | C++ SDK for Claude Code CLI with MCP support |
+
+Want to add your project? Open a PR!
+
 ## Contributing
 
 Contributions are welcome. Please:
