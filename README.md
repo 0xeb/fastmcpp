@@ -274,6 +274,12 @@ Contributions are welcome. Please:
 3. Add tests for new features.
 4. Update documentation as needed.
 
+## Author
+
+Elias Bachaalany ([@0xeb](https://github.com/0xeb))
+
+Pair-programmed with Claude Code and Codex.
+
 ## License
 
 Copyright 2025 Elias Bachaalany
