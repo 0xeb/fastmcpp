@@ -355,11 +355,12 @@ client::GetPromptResult ProxyApp::get_prompt(const std::string& name, const Json
 // Factory Functions Implementation
 // ===============================================================================
 
-// Specialization for URL string (assumes HTTP/SSE/WebSocket based on URL)
-template<>
-ProxyApp create_proxy<std::string>(std::string&& url, std::string name, std::string version)
+namespace
 {
-    auto factory = [url = std::move(url)]() -> client::Client {
+// Helper to create client factory from URL
+ProxyApp::ClientFactory make_url_factory(std::string url)
+{
+    return [url = std::move(url)]() -> client::Client {
         // Detect transport type from URL
         if (url.find("ws://") == 0 || url.find("wss://") == 0)
         {
@@ -376,18 +377,23 @@ ProxyApp create_proxy<std::string>(std::string&& url, std::string name, std::str
             throw std::invalid_argument("Unsupported URL scheme: " + url);
         }
     };
+}
+} // anonymous namespace
 
-    return ProxyApp(std::move(factory), std::move(name), std::move(version));
+// Non-template overload for const std::string& (lvalue strings)
+ProxyApp create_proxy(const std::string& url, std::string name, std::string version)
+{
+    return ProxyApp(make_url_factory(url), std::move(name), std::move(version));
 }
 
-// Explicit instantiation for std::string
-template ProxyApp create_proxy<std::string>(std::string&& url, std::string name,
-                                             std::string version);
+// Non-template overload for const char* (string literals)
+ProxyApp create_proxy(const char* url, std::string name, std::string version)
+{
+    return ProxyApp(make_url_factory(std::string(url)), std::move(name), std::move(version));
+}
 
-// Specialization for Client instance (always creates fresh session)
-template<>
-ProxyApp create_proxy<client::Client>(client::Client&& base_client, std::string name,
-                                        std::string version)
+// Non-template overload for Client&& (takes ownership)
+ProxyApp create_proxy(client::Client&& base_client, std::string name, std::string version)
 {
     auto factory = [base_client = std::move(base_client)]() mutable -> client::Client {
         // Create fresh session from existing client configuration
@@ -397,16 +403,10 @@ ProxyApp create_proxy<client::Client>(client::Client&& base_client, std::string 
     return ProxyApp(std::move(factory), std::move(name), std::move(version));
 }
 
-// Explicit instantiation for client::Client
-template ProxyApp create_proxy<client::Client>(client::Client&& base_client, std::string name,
-                                               std::string version);
-
-// Note: unique_ptr<ITransport> specialization not implemented.
-// Create a Client from the transport first, then pass to create_proxy().
-// Example: create_proxy(client::Client(std::move(transport)));
-
-// Note: FastMCP* proxy specialization not implemented
-// Use FastMCP::mount() for mounting another FastMCP server instead
+// Note: To proxy to a unique_ptr<ITransport>, create a Client first:
+//   create_proxy(client::Client(std::move(transport)));
+//
+// Note: To proxy to another FastMCP server instance, use FastMCP::mount() instead.
 // This avoids circular dependencies between FastMCP and ProxyApp
 
 } // namespace fastmcpp

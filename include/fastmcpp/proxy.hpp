@@ -185,7 +185,18 @@ class ProxyApp
 /// client::Client client(std::make_unique<client::HttpTransport>("http://remote/mcp"));
 /// auto proxy = create_proxy(std::move(client));
 /// ```
-template<typename TargetT>
-ProxyApp create_proxy(TargetT&& target, std::string name = "proxy", std::string version = "1.0.0");
+
+// Non-template overloads for common use cases (preferred for usability)
+
+/// Create proxy from URL string (lvalue or literal)
+ProxyApp create_proxy(const std::string& url, std::string name = "proxy",
+                      std::string version = "1.0.0");
+
+/// Create proxy from string literal
+ProxyApp create_proxy(const char* url, std::string name = "proxy", std::string version = "1.0.0");
+
+/// Create proxy from existing Client (takes ownership)
+ProxyApp create_proxy(client::Client&& client, std::string name = "proxy",
+                      std::string version = "1.0.0");
 
 } // namespace fastmcpp
