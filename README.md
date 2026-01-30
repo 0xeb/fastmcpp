@@ -232,6 +232,43 @@ int main() {
 }
 ```
 
+### Proxy server
+
+Create a proxy that forwards requests to a backend MCP server while allowing local overrides:
+
+```cpp
+#include <fastmcpp/proxy.hpp>
+
+int main() {
+    // Create a proxy to a remote backend using URL
+    auto proxy = fastmcpp::create_proxy("http://backend:8080/mcp");
+
+    // Or create from an existing client
+    // auto proxy = fastmcpp::create_proxy(std::move(client), "MyProxy", "1.0.0");
+
+    // Add local tools that override or extend remote capabilities
+    fastmcpp::tools::Tool local_tool{
+        "local_calculator",
+        fastmcpp::Json{{"type", "object"}, {"properties", {{"n", {{"type", "number"}}}}}},
+        fastmcpp::Json{{"type", "number"}},
+        [](const fastmcpp::Json& args) { return args.at("n").get<int>() * 2; }
+    };
+    proxy.local_tools().register_tool(local_tool);
+
+    // Create MCP handler and serve
+    auto handler = fastmcpp::mcp::make_mcp_handler(proxy);
+    // Use handler with your preferred server transport...
+
+    return 0;
+}
+```
+
+The `create_proxy()` factory function automatically detects the transport type from the URL:
+- `http://` or `https://` URLs use HTTP transport
+- `ws://` or `wss://` URLs use WebSocket transport
+
+Local tools, resources, and prompts take precedence over remote ones with the same name.
+
 ## Examples
 
 See the `examples/` directory for complete programs, including:

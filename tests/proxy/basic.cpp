@@ -344,6 +344,126 @@ void test_proxy_backend_unavailable()
     std::cout << "  PASSED" << std::endl;
 }
 
+// =========================================================================
+// create_proxy() factory function tests
+// =========================================================================
+
+void test_create_proxy_from_client()
+{
+    std::cout << "test_create_proxy_from_client..." << std::endl;
+
+    // Create a client with mock transport
+    auto handler = create_backend_handler();
+    client::Client base_client(std::make_unique<MockTransport>(handler));
+
+    // Use create_proxy() factory function
+    auto proxy = create_proxy(std::move(base_client), "ClientProxy", "2.0.0");
+
+    assert(proxy.name() == "ClientProxy");
+    assert(proxy.version() == "2.0.0");
+
+    // Should be able to list remote tools
+    auto tools = proxy.list_all_tools();
+    assert(tools.size() == 2); // backend_add, backend_echo
+
+    // Should be able to invoke remote tools
+    auto result = proxy.invoke_tool("backend_add", Json{{"a", 10}, {"b", 20}});
+    assert(!result.isError);
+
+    std::cout << "  PASSED" << std::endl;
+}
+
+void test_create_proxy_url_detection()
+{
+    std::cout << "test_create_proxy_url_detection..." << std::endl;
+
+    // Test that create_proxy() correctly detects URL schemes
+    // Note: These will fail to connect but should parse correctly
+
+    // HTTP URL - should create HttpTransport
+    try
+    {
+        auto proxy = create_proxy(std::string("http://localhost:9999/mcp"));
+        assert(proxy.name() == "proxy"); // default name
+        assert(proxy.version() == "1.0.0"); // default version
+        // Getting client will fail (no server), but proxy creation succeeded
+        std::cout << "  HTTP URL: OK" << std::endl;
+    }
+    catch (const std::exception& e)
+    {
+        // Unexpected - URL parsing should work
+        std::cerr << "  HTTP URL failed unexpectedly: " << e.what() << std::endl;
+        assert(false);
+    }
+
+    // WebSocket URL - should create WebSocketTransport
+    try
+    {
+        auto proxy = create_proxy(std::string("ws://localhost:9999/mcp"), "WsProxy");
+        assert(proxy.name() == "WsProxy");
+        std::cout << "  WS URL: OK" << std::endl;
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr << "  WS URL failed unexpectedly: " << e.what() << std::endl;
+        assert(false);
+    }
+
+    // Invalid URL scheme - should throw
+    try
+    {
+        auto proxy = create_proxy(std::string("ftp://localhost/path"));
+        // Try to use it - this should fail
+        proxy.list_all_tools();
+        assert(false); // Should have thrown
+    }
+    catch (const std::invalid_argument& e)
+    {
+        // Expected - unsupported scheme
+        std::cout << "  Invalid scheme: correctly rejected" << std::endl;
+    }
+    catch (const std::exception&)
+    {
+        // Also acceptable - failed during use
+        std::cout << "  Invalid scheme: rejected on use" << std::endl;
+    }
+
+    std::cout << "  PASSED" << std::endl;
+}
+
+void test_create_proxy_with_local_tools()
+{
+    std::cout << "test_create_proxy_with_local_tools..." << std::endl;
+
+    // Create proxy from client
+    auto handler = create_backend_handler();
+    client::Client base_client(std::make_unique<MockTransport>(handler));
+    auto proxy = create_proxy(std::move(base_client));
+
+    // Add local tools
+    tools::Tool local_tool{"local_calc",
+                           Json{{"type", "object"},
+                                {"properties", Json{{"n", Json{{"type", "number"}}}}},
+                                {"required", Json::array({"n"})}},
+                           Json{{"type", "number"}},
+                           [](const Json& args) { return args.at("n").get<int>() * 100; }};
+    proxy.local_tools().register_tool(local_tool);
+
+    // Should see both local and remote tools
+    auto tools = proxy.list_all_tools();
+    assert(tools.size() == 3); // local_calc + backend_add + backend_echo
+
+    // Local tool should work
+    auto local_result = proxy.invoke_tool("local_calc", Json{{"n", 5}});
+    assert(!local_result.isError);
+
+    // Remote tool should work
+    auto remote_result = proxy.invoke_tool("backend_echo", Json{{"message", "test"}});
+    assert(!remote_result.isError);
+
+    std::cout << "  PASSED" << std::endl;
+}
+
 int main()
 {
     std::cout << "=== ProxyApp Tests ===" << std::endl;
@@ -357,6 +477,12 @@ int main()
     test_proxy_prompts();
     test_proxy_mcp_handler();
     test_proxy_backend_unavailable();
+
+    std::cout << "\n=== create_proxy() Factory Tests ===" << std::endl;
+
+    test_create_proxy_from_client();
+    test_create_proxy_url_detection();
+    test_create_proxy_with_local_tools();
 
     std::cout << "\n=== All tests PASSED ===" << std::endl;
     return 0;
