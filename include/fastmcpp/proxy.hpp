@@ -149,4 +149,43 @@ class ProxyApp
     static client::PromptInfo prompt_to_info(const prompts::Prompt& prompt);
 };
 
+// ===============================================================================
+// Factory Functions
+// ===============================================================================
+
+/// Create a proxy server for the given target.
+///
+/// This is the recommended way to create a proxy server. For lower-level control,
+/// use ProxyApp directly.
+///
+/// The target can be:
+/// - A client::Client instance
+/// - A URL string (HTTP/SSE/WebSocket)
+///
+/// Note: To proxy to another FastMCP server instance, use FastMCP::mount() instead.
+/// For transports, create a Client first then pass it to create_proxy().
+///
+/// Session strategy: Always creates fresh sessions per request for safety.
+/// This differs from Python's behavior which can reuse connected client sessions.
+///
+/// Args:
+///     target: The backend to proxy to (Client or URL)
+///     name: Optional proxy server name (defaults to "proxy")
+///     version: Optional version string (defaults to "1.0.0")
+///
+/// Returns:
+///     A ProxyApp that proxies to target
+///
+/// Example:
+/// ```cpp
+/// // Create a proxy to a remote HTTP server
+/// auto proxy = create_proxy("http://localhost:8080/mcp");
+///
+/// // Create a proxy from an existing client
+/// client::Client client(std::make_unique<client::HttpTransport>("http://remote/mcp"));
+/// auto proxy = create_proxy(std::move(client));
+/// ```
+template<typename TargetT>
+ProxyApp create_proxy(TargetT&& target, std::string name = "proxy", std::string version = "1.0.0");
+
 } // namespace fastmcpp

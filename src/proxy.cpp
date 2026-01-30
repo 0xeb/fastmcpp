@@ -1,6 +1,7 @@
 #include "fastmcpp/proxy.hpp"
 
 #include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/client/transports.hpp"
 
 #include <unordered_set>
 
@@ -340,5 +341,63 @@ client::GetPromptResult ProxyApp::get_prompt(const std::string& name, const Json
     auto client = client_factory_();
     return client.get_prompt_mcp(name, args);
 }
+
+// ===============================================================================
+// Factory Functions Implementation
+// ===============================================================================
+
+// Specialization for URL string (assumes HTTP/SSE/WebSocket based on URL)
+template<>
+ProxyApp create_proxy<std::string>(std::string&& url, std::string name, std::string version)
+{
+    auto factory = [url = std::move(url)]() -> client::Client {
+        // Detect transport type from URL
+        if (url.find("ws://") == 0 || url.find("wss://") == 0)
+        {
+            return client::Client(std::make_unique<client::WebSocketTransport>(url));
+        }
+        else if (url.find("http://") == 0 || url.find("https://") == 0)
+        {
+            // Default to HTTP transport for regular HTTP URLs
+            // For SSE, user should create HttpSseTransport explicitly
+            return client::Client(std::make_unique<client::HttpTransport>(url));
+        }
+        else
+        {
+            throw std::invalid_argument("Unsupported URL scheme: " + url);
+        }
+    };
+
+    return ProxyApp(std::move(factory), std::move(name), std::move(version));
+}
+
+// Explicit instantiation for std::string
+template ProxyApp create_proxy<std::string>(std::string&& url, std::string name,
+                                             std::string version);
+
+// Specialization for Client instance (always creates fresh session)
+template<>
+ProxyApp create_proxy<client::Client>(client::Client&& base_client, std::string name,
+                                        std::string version)
+{
+    auto factory = [base_client = std::move(base_client)]() mutable -> client::Client {
+        // Create fresh session from existing client configuration
+        return base_client.new_();
+    };
+
+    return ProxyApp(std::move(factory), std::move(name), std::move(version));
+}
+
+// Explicit instantiation for client::Client
+template ProxyApp create_proxy<client::Client>(client::Client&& base_client, std::string name,
+                                               std::string version);
+
+// Note: unique_ptr<ITransport> specialization not implemented.
+// Create a Client from the transport first, then pass to create_proxy().
+// Example: create_proxy(client::Client(std::move(transport)));
+
+// Note: FastMCP* proxy specialization not implemented
+// Use FastMCP::mount() for mounting another FastMCP server instead
+// This avoids circular dependencies between FastMCP and ProxyApp
 
 } // namespace fastmcpp
