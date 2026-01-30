@@ -1,5 +1,6 @@
 #include "fastmcpp/proxy.hpp"
 
+#include "fastmcpp/client/transports.hpp"
 #include "fastmcpp/exceptions.hpp"
 
 #include <unordered_set>
@@ -23,7 +24,7 @@ client::ToolInfo ProxyApp::tool_to_info(const tools::Tool& tool)
     info.name = tool.name();
     info.description = tool.description();
     info.inputSchema = tool.input_schema();
-    if (!tool.output_schema().is_null())
+    if (!tool.output_schema().is_null() && tool.output_schema().value("type", "") == "object")
         info.outputSchema = tool.output_schema();
     if (tool.task_support() != TaskSupport::Forbidden)
         info.execution = fastmcpp::Json{{"taskSupport", to_string(tool.task_support())}};
@@ -214,6 +215,7 @@ client::CallToolResult ProxyApp::invoke_tool(const std::string& name, const Json
     try
     {
         auto result_json = local_tools_.invoke(name, args, enforce_timeout);
+        const auto& tool = local_tools_.get(name);
 
         // Convert to CallToolResult
         client::CallToolResult result;
@@ -221,8 +223,16 @@ client::CallToolResult ProxyApp::invoke_tool(const std::string& name, const Json
 
         // Wrap result as text content
         client::TextContent text;
-        text.text = result_json.dump();
+        // If result is already a string, use it directly; otherwise dump as JSON
+        if (result_json.is_string())
+            text.text = result_json.get<std::string>();
+        else
+            text.text = result_json.dump();
         result.content.push_back(text);
+
+        // If tool has output schema, set structuredContent
+        if (!tool.output_schema().is_null() && tool.output_schema().value("type", "") == "object")
+            result.structuredContent = result_json;
 
         return result;
     }
@@ -340,5 +350,65 @@ client::GetPromptResult ProxyApp::get_prompt(const std::string& name, const Json
     auto client = client_factory_();
     return client.get_prompt_mcp(name, args);
 }
+
+// ===============================================================================
+// Factory Functions Implementation
+// ===============================================================================
+
+namespace
+{
+// Helper to create client factory from URL
+ProxyApp::ClientFactory make_url_factory(std::string url)
+{
+    return [url = std::move(url)]() -> client::Client
+    {
+        // Detect transport type from URL
+        if (url.find("ws://") == 0 || url.find("wss://") == 0)
+        {
+            return client::Client(std::make_unique<client::WebSocketTransport>(url));
+        }
+        else if (url.find("http://") == 0 || url.find("https://") == 0)
+        {
+            // Default to HTTP transport for regular HTTP URLs
+            // For SSE, user should create HttpSseTransport explicitly
+            return client::Client(std::make_unique<client::HttpTransport>(url));
+        }
+        else
+        {
+            throw std::invalid_argument("Unsupported URL scheme: " + url);
+        }
+    };
+}
+} // anonymous namespace
+
+// Non-template overload for const std::string& (lvalue strings)
+ProxyApp create_proxy(const std::string& url, std::string name, std::string version)
+{
+    return ProxyApp(make_url_factory(url), std::move(name), std::move(version));
+}
+
+// Non-template overload for const char* (string literals)
+ProxyApp create_proxy(const char* url, std::string name, std::string version)
+{
+    return ProxyApp(make_url_factory(std::string(url)), std::move(name), std::move(version));
+}
+
+// Non-template overload for Client&& (takes ownership)
+ProxyApp create_proxy(client::Client&& base_client, std::string name, std::string version)
+{
+    auto factory = [base_client = std::move(base_client)]() mutable -> client::Client
+    {
+        // Create fresh session from existing client configuration
+        return base_client.new_();
+    };
+
+    return ProxyApp(std::move(factory), std::move(name), std::move(version));
+}
+
+// Note: To proxy to a unique_ptr<ITransport>, create a Client first:
+//   create_proxy(client::Client(std::move(transport)));
+//
+// Note: To proxy to another FastMCP server instance, use FastMCP::mount() instead.
+// This avoids circular dependencies between FastMCP and ProxyApp
 
 } // namespace fastmcpp

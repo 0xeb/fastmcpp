@@ -474,6 +474,11 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_proxy_basic PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_proxy_basic COMMAND fastmcpp_proxy_basic)
 
+  # Main header compile test
+  add_executable(fastmcpp_main_header tests/main_header/compile_test.cpp)
+  target_link_libraries(fastmcpp_main_header PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_main_header COMMAND fastmcpp_main_header)
+
   set_tests_properties(fastmcpp_stdio_client PROPERTIES
     LABELS "conformance"
     WORKING_DIRECTORY "$<TARGET_FILE_DIR:fastmcpp_stdio_client>"
