@@ -162,17 +162,25 @@ int main() {
 #include <fastmcpp/client/transports.hpp>
 
 int main() {
-    auto transport = std::make_shared<fastmcpp::client::HttpTransport>(
-        "http://localhost:8080"
+    // Create client with HTTP transport
+    fastmcpp::client::Client client(
+        std::make_unique<fastmcpp::client::HttpTransport>("http://localhost:8080")
     );
 
-    fastmcpp::client::Client client(transport);
-    auto response = client.call("tool/invoke", {
-        {"name", "calculator"},
-        {"input", {{"operation", "add"}, {"a", 5}, {"b", 3}}}
-    });
+    // Initialize MCP session
+    auto init = client.initialize();
+    std::cout << "Connected to: " << init.serverInfo.name << std::endl;
 
-    std::cout << response.dump() << std::endl;
+    // List available tools
+    auto tools = client.list_tools();
+    for (const auto& tool : tools) {
+        std::cout << "Tool: " << tool.name << std::endl;
+    }
+
+    // Call a tool
+    auto result = client.call_tool("calculator", {{"a", 5}, {"b", 3}});
+    std::cout << "Result: " << result.text() << std::endl;
+
     return 0;
 }
 ```
@@ -207,27 +215,25 @@ int main() {
 ### Streamable HTTP client
 
 ```cpp
+#include <fastmcpp/client/client.hpp>
 #include <fastmcpp/client/transports.hpp>
 
 int main() {
-    fastmcpp::client::StreamableHttpTransport transport(
-        "http://localhost:8080", "/mcp"
+    // Create client with Streamable HTTP transport (MCP spec 2025-03-26)
+    fastmcpp::client::Client client(
+        std::make_unique<fastmcpp::client::StreamableHttpTransport>(
+            "http://localhost:8080", "/mcp"
+        )
     );
 
-    // Send initialize request
-    auto init_response = transport.request("mcp", {
-        {"jsonrpc", "2.0"},
-        {"id", 1},
-        {"method", "initialize"},
-        {"params", {
-            {"protocolVersion", "2024-11-05"},
-            {"capabilities", {}},
-            {"clientInfo", {{"name", "client"}, {"version", "1.0"}}}
-        }}
-    });
+    // Initialize MCP session (session ID managed automatically)
+    auto init = client.initialize();
+    std::cout << "Server: " << init.serverInfo.name << std::endl;
 
-    // Session ID is automatically managed via Mcp-Session-Id header
-    std::cout << "Session: " << transport.session_id() << std::endl;
+    // Use the same clean API as other transports
+    auto tools = client.list_tools();
+    auto result = client.call_tool("echo", {{"message", "Hello!"}});
+
     return 0;
 }
 ```
@@ -238,27 +244,26 @@ Create a proxy that forwards requests to a backend MCP server while allowing loc
 
 ```cpp
 #include <fastmcpp/proxy.hpp>
+#include <fastmcpp/server/sse_server.hpp>
 
 int main() {
-    // Create a proxy to a remote backend using URL
+    // Create a proxy to a remote backend
     auto proxy = fastmcpp::create_proxy("http://backend:8080/mcp");
 
-    // Or create from an existing client
-    // auto proxy = fastmcpp::create_proxy(std::move(client), "MyProxy", "1.0.0");
+    // Add local tools that extend or override remote capabilities
+    proxy.local_tools().register_tool({
+        "double",                                              // name
+        {{"type", "object"}, {"properties", {{"n", {{"type", "number"}}}}}},
+        {{"type", "number"}},                                // output schema
+        [](const fastmcpp::Json& args) { return args["n"].get<int>() * 2; }
+    });
 
-    // Add local tools that override or extend remote capabilities
-    fastmcpp::tools::Tool local_tool{
-        "local_calculator",
-        fastmcpp::Json{{"type", "object"}, {"properties", {{"n", {{"type", "number"}}}}}},
-        fastmcpp::Json{{"type", "number"}},
-        [](const fastmcpp::Json& args) { return args.at("n").get<int>() * 2; }
-    };
-    proxy.local_tools().register_tool(local_tool);
-
-    // Create MCP handler and serve
+    // Create MCP handler and serve via SSE
     auto handler = fastmcpp::mcp::make_mcp_handler(proxy);
-    // Use handler with your preferred server transport...
+    fastmcpp::server::SseServerWrapper server(handler, "127.0.0.1", 8080);
+    server.start();
 
+    // Server runs until stopped...
     return 0;
 }
 ```
