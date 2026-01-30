@@ -384,7 +384,7 @@ void test_create_proxy_url_detection()
     try
     {
         auto proxy = create_proxy(std::string("http://localhost:9999/mcp"));
-        assert(proxy.name() == "proxy"); // default name
+        assert(proxy.name() == "proxy");    // default name
         assert(proxy.version() == "1.0.0"); // default version
         // Getting client will fail (no server), but proxy creation succeeded
         std::cout << "  HTTP URL: OK" << std::endl;

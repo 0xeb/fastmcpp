@@ -1,7 +1,7 @@
 #include "fastmcpp/proxy.hpp"
 
-#include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/client/transports.hpp"
+#include "fastmcpp/exceptions.hpp"
 
 #include <unordered_set>
 
@@ -360,7 +360,8 @@ namespace
 // Helper to create client factory from URL
 ProxyApp::ClientFactory make_url_factory(std::string url)
 {
-    return [url = std::move(url)]() -> client::Client {
+    return [url = std::move(url)]() -> client::Client
+    {
         // Detect transport type from URL
         if (url.find("ws://") == 0 || url.find("wss://") == 0)
         {
@@ -395,7 +396,8 @@ ProxyApp create_proxy(const char* url, std::string name, std::string version)
 // Non-template overload for Client&& (takes ownership)
 ProxyApp create_proxy(client::Client&& base_client, std::string name, std::string version)
 {
-    auto factory = [base_client = std::move(base_client)]() mutable -> client::Client {
+    auto factory = [base_client = std::move(base_client)]() mutable -> client::Client
+    {
         // Create fresh session from existing client configuration
         return base_client.new_();
     };

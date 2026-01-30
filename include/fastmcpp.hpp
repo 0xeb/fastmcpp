@@ -25,10 +25,10 @@
 /// @endcode
 
 // Core types and exceptions
-#include "fastmcpp/types.hpp"
-#include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/content.hpp"
+#include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/settings.hpp"
+#include "fastmcpp/types.hpp"
 
 // Client
 #include "fastmcpp/client/client.hpp"
@@ -36,16 +36,16 @@
 #include "fastmcpp/client/types.hpp"
 
 // Server
-#include "fastmcpp/server/server.hpp"
 #include "fastmcpp/server/context.hpp"
+#include "fastmcpp/server/server.hpp"
 
 // Tools, Resources, Prompts
-#include "fastmcpp/tools/tool.hpp"
-#include "fastmcpp/tools/manager.hpp"
-#include "fastmcpp/resources/resource.hpp"
-#include "fastmcpp/resources/manager.hpp"
-#include "fastmcpp/prompts/prompt.hpp"
 #include "fastmcpp/prompts/manager.hpp"
+#include "fastmcpp/prompts/prompt.hpp"
+#include "fastmcpp/resources/manager.hpp"
+#include "fastmcpp/resources/resource.hpp"
+#include "fastmcpp/tools/manager.hpp"
+#include "fastmcpp/tools/tool.hpp"
 
 // MCP handler
 #include "fastmcpp/mcp/handler.hpp"
