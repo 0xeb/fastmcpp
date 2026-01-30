@@ -24,7 +24,7 @@ client::ToolInfo ProxyApp::tool_to_info(const tools::Tool& tool)
     info.name = tool.name();
     info.description = tool.description();
     info.inputSchema = tool.input_schema();
-    if (!tool.output_schema().is_null())
+    if (!tool.output_schema().is_null() && tool.output_schema().value("type", "") == "object")
         info.outputSchema = tool.output_schema();
     if (tool.task_support() != TaskSupport::Forbidden)
         info.execution = fastmcpp::Json{{"taskSupport", to_string(tool.task_support())}};
@@ -215,6 +215,7 @@ client::CallToolResult ProxyApp::invoke_tool(const std::string& name, const Json
     try
     {
         auto result_json = local_tools_.invoke(name, args, enforce_timeout);
+        const auto& tool = local_tools_.get(name);
 
         // Convert to CallToolResult
         client::CallToolResult result;
@@ -222,8 +223,16 @@ client::CallToolResult ProxyApp::invoke_tool(const std::string& name, const Json
 
         // Wrap result as text content
         client::TextContent text;
-        text.text = result_json.dump();
+        // If result is already a string, use it directly; otherwise dump as JSON
+        if (result_json.is_string())
+            text.text = result_json.get<std::string>();
+        else
+            text.text = result_json.dump();
         result.content.push_back(text);
+
+        // If tool has output schema, set structuredContent
+        if (!tool.output_schema().is_null() && tool.output_schema().value("type", "") == "object")
+            result.structuredContent = result_json;
 
         return result;
     }

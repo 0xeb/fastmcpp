@@ -2583,7 +2583,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
 
                         std::string role_str =
                             (msg.role == client::Role::Assistant) ? "assistant" : "user";
-                        messages_array.push_back({{"role", role_str}, {"content", content_array}});
+                        fastmcpp::Json content_val = (content_array.size() == 1) ? content_array[0] : content_array;
+                        messages_array.push_back({{"role", role_str}, {"content", content_val}});
                     }
 
                     fastmcpp::Json response_result = {{"messages", messages_array}};
