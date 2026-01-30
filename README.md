@@ -245,16 +245,19 @@ Create a proxy that forwards requests to a backend MCP server while allowing loc
 ```cpp
 #include <fastmcpp/proxy.hpp>
 #include <fastmcpp/server/sse_server.hpp>
+#include <fastmcpp/util/schema_build.hpp>
 
 int main() {
+    using fastmcpp::util::schema_build::to_object_schema_from_simple;
+
     // Create a proxy to a remote backend
     auto proxy = fastmcpp::create_proxy("http://backend:8080/mcp");
 
     // Add local tools that extend or override remote capabilities
     proxy.local_tools().register_tool({
-        "double",                                              // name
-        {{"type", "object"}, {"properties", {{"n", {{"type", "number"}}}}}},
-        {{"type", "number"}},                                // output schema
+        "double",
+        to_object_schema_from_simple({{"n", "number"}}),  // input: {n: number}
+        {{"type", "number"}},                             // output schema
         [](const fastmcpp::Json& args) { return args["n"].get<int>() * 2; }
     });
 
