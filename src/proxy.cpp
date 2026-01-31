@@ -106,8 +106,11 @@ std::vector<client::ToolInfo> ProxyApp::list_all_tools() const
                 result.push_back(tool);
         }
     }
-    catch (const std::exception&)
+    catch (const std::exception& e)
     {
+        // Surface bad URL/transport; otherwise fall back to local-only
+        if (dynamic_cast<const std::invalid_argument*>(&e))
+            throw;
         // Remote not available, continue with local only
     }
 
@@ -136,8 +139,10 @@ std::vector<client::ResourceInfo> ProxyApp::list_all_resources() const
             if (local_uris.find(res.uri) == local_uris.end())
                 result.push_back(res);
     }
-    catch (const std::exception&)
+    catch (const std::exception& e)
     {
+        if (dynamic_cast<const std::invalid_argument*>(&e))
+            throw;
         // Remote not available
     }
 
@@ -166,8 +171,10 @@ std::vector<client::ResourceTemplate> ProxyApp::list_all_resource_templates() co
             if (local_templates.find(templ.uriTemplate) == local_templates.end())
                 result.push_back(templ);
     }
-    catch (const std::exception&)
+    catch (const std::exception& e)
     {
+        if (dynamic_cast<const std::invalid_argument*>(&e))
+            throw;
         // Remote not available
     }
 
@@ -196,8 +203,10 @@ std::vector<client::PromptInfo> ProxyApp::list_all_prompts() const
             if (local_names.find(prompt.name) == local_names.end())
                 result.push_back(prompt);
     }
-    catch (const std::exception&)
+    catch (const std::exception& e)
     {
+        if (dynamic_cast<const std::invalid_argument*>(&e))
+            throw;
         // Remote not available
     }
 
@@ -357,6 +366,12 @@ client::GetPromptResult ProxyApp::get_prompt(const std::string& name, const Json
 
 namespace
 {
+bool is_supported_url_scheme(const std::string& url)
+{
+    return url.rfind("ws://", 0) == 0 || url.rfind("wss://", 0) == 0 ||
+           url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0;
+}
+
 // Helper to create client factory from URL
 ProxyApp::ClientFactory make_url_factory(std::string url)
 {
@@ -384,12 +399,16 @@ ProxyApp::ClientFactory make_url_factory(std::string url)
 // Non-template overload for const std::string& (lvalue strings)
 ProxyApp create_proxy(const std::string& url, std::string name, std::string version)
 {
+    if (!is_supported_url_scheme(url))
+        throw std::invalid_argument("Unsupported URL scheme: " + url);
     return ProxyApp(make_url_factory(url), std::move(name), std::move(version));
 }
 
 // Non-template overload for const char* (string literals)
 ProxyApp create_proxy(const char* url, std::string name, std::string version)
 {
+    if (!is_supported_url_scheme(url))
+        throw std::invalid_argument(std::string("Unsupported URL scheme: ") + url);
     return ProxyApp(make_url_factory(std::string(url)), std::move(name), std::move(version));
 }
 
