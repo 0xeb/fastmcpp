@@ -478,7 +478,7 @@ void test_proxy_resource_annotations()
     annotated_res.mime_type = "text/plain";
     annotated_res.title = "My Annotated Resource";
     annotated_res.annotations = Json{{"audience", Json::array({"assistant"})}, {"priority", 0.9}};
-    annotated_res.icons = std::vector<Icon>{{.src = "icon.png", .mime_type = "image/png"}};
+    annotated_res.icons = std::vector<Icon>{{"icon.png", "image/png"}};
     annotated_res.provider = [](const Json&)
     {
         return resources::ResourceContent{"file://annotated.txt", "text/plain",
