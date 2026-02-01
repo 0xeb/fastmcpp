@@ -17,6 +17,11 @@
 namespace fastmcpp
 {
 
+namespace providers
+{
+class Provider;
+} // namespace providers
+
 /// Mounted app reference with prefix (direct mode)
 struct MountedApp
 {
@@ -81,6 +86,9 @@ class FastMCP
     {
         std::optional<std::string> description;
         std::optional<std::string> mime_type;
+        std::optional<std::string> title;
+        std::optional<Json> annotations;
+        std::optional<std::vector<Icon>> icons;
         TaskSupport task_support{TaskSupport::Forbidden};
     };
 
@@ -88,13 +96,17 @@ class FastMCP
     {
         std::optional<std::string> description;
         std::optional<std::string> mime_type;
+        std::optional<std::string> title;
+        std::optional<Json> annotations;
+        std::optional<std::vector<Icon>> icons;
         TaskSupport task_support{TaskSupport::Forbidden};
     };
 
     /// Construct app with metadata
     explicit FastMCP(std::string name = "fastmcpp_app", std::string version = "1.0.0",
                      std::optional<std::string> website_url = std::nullopt,
-                     std::optional<std::vector<Icon>> icons = std::nullopt);
+                     std::optional<std::vector<Icon>> icons = std::nullopt,
+                     std::vector<std::shared_ptr<providers::Provider>> providers = {});
 
     // Metadata accessors
     const std::string& name() const
@@ -227,6 +239,12 @@ class FastMCP
         return proxy_mounted_;
     }
 
+    void add_provider(std::shared_ptr<providers::Provider> provider);
+    const std::vector<std::shared_ptr<providers::Provider>>& providers() const
+    {
+        return providers_;
+    }
+
     // =========================================================================
     // Aggregated Lists (includes mounted apps)
     // =========================================================================
@@ -270,8 +288,11 @@ class FastMCP
     tools::ToolManager tools_;
     resources::ResourceManager resources_;
     prompts::PromptManager prompts_;
+    std::vector<std::shared_ptr<providers::Provider>> providers_;
     std::vector<MountedApp> mounted_;
     std::vector<ProxyMountedApp> proxy_mounted_;
+    mutable std::vector<tools::Tool> provider_tools_cache_;
+    mutable std::vector<prompts::Prompt> provider_prompts_cache_;
 
     // Prefix utilities
     static std::string add_prefix(const std::string& name, const std::string& prefix);

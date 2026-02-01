@@ -19,6 +19,10 @@ class ToolManager
     {
         return tools_.at(name);
     }
+    bool has(const std::string& name) const
+    {
+        return tools_.count(name) > 0;
+    }
     fastmcpp::Json invoke(const std::string& name, const fastmcpp::Json& input,
                           bool enforce_timeout = true) const
     {

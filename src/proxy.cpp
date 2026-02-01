@@ -40,6 +40,9 @@ client::ResourceInfo ProxyApp::resource_to_info(const resources::Resource& res)
     info.name = res.name;
     info.description = res.description;
     info.mimeType = res.mime_type;
+    info.title = res.title;
+    info.annotations = res.annotations;
+    info.icons = res.icons;
     return info;
 }
 
@@ -50,6 +53,9 @@ client::ResourceTemplate ProxyApp::template_to_info(const resources::ResourceTem
     info.name = templ.name;
     info.description = templ.description;
     info.mimeType = templ.mime_type;
+    info.title = templ.title;
+    info.annotations = templ.annotations;
+    info.icons = templ.icons;
     return info;
 }
 

@@ -1459,6 +1459,24 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                         res_json["description"] = *res.description;
                     if (res.mime_type)
                         res_json["mimeType"] = *res.mime_type;
+                    if (res.title)
+                        res_json["title"] = *res.title;
+                    if (res.annotations)
+                        res_json["annotations"] = *res.annotations;
+                    if (res.icons)
+                    {
+                        fastmcpp::Json icons_json = fastmcpp::Json::array();
+                        for (const auto& icon : *res.icons)
+                        {
+                            fastmcpp::Json icon_obj = {{"src", icon.src}};
+                            if (icon.mime_type)
+                                icon_obj["mimeType"] = *icon.mime_type;
+                            if (icon.sizes)
+                                icon_obj["sizes"] = *icon.sizes;
+                            icons_json.push_back(icon_obj);
+                        }
+                        res_json["icons"] = icons_json;
+                    }
                     resources_array.push_back(res_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -1478,6 +1496,24 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                         templ_json["description"] = *templ.description;
                     if (templ.mime_type)
                         templ_json["mimeType"] = *templ.mime_type;
+                    if (templ.title)
+                        templ_json["title"] = *templ.title;
+                    if (templ.annotations)
+                        templ_json["annotations"] = *templ.annotations;
+                    if (templ.icons)
+                    {
+                        fastmcpp::Json icons_json = fastmcpp::Json::array();
+                        for (const auto& icon : *templ.icons)
+                        {
+                            fastmcpp::Json icon_obj = {{"src", icon.src}};
+                            if (icon.mime_type)
+                                icon_obj["mimeType"] = *icon.mime_type;
+                            if (icon.sizes)
+                                icon_obj["sizes"] = *icon.sizes;
+                            icons_json.push_back(icon_obj);
+                        }
+                        templ_json["icons"] = icons_json;
+                    }
                     templ_json["parameters"] =
                         templ.parameters.is_null() ? fastmcpp::Json::object() : templ.parameters;
                     templates_array.push_back(templ_json);
@@ -1950,6 +1986,24 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                         res_json["description"] = *res.description;
                     if (res.mime_type)
                         res_json["mimeType"] = *res.mime_type;
+                    if (res.title)
+                        res_json["title"] = *res.title;
+                    if (res.annotations)
+                        res_json["annotations"] = *res.annotations;
+                    if (res.icons)
+                    {
+                        fastmcpp::Json icons_json = fastmcpp::Json::array();
+                        for (const auto& icon : *res.icons)
+                        {
+                            fastmcpp::Json icon_obj = {{"src", icon.src}};
+                            if (icon.mime_type)
+                                icon_obj["mimeType"] = *icon.mime_type;
+                            if (icon.sizes)
+                                icon_obj["sizes"] = *icon.sizes;
+                            icons_json.push_back(icon_obj);
+                        }
+                        res_json["icons"] = icons_json;
+                    }
                     resources_array.push_back(res_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -1968,6 +2022,24 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                         templ_json["description"] = *templ.description;
                     if (templ.mime_type)
                         templ_json["mimeType"] = *templ.mime_type;
+                    if (templ.title)
+                        templ_json["title"] = *templ.title;
+                    if (templ.annotations)
+                        templ_json["annotations"] = *templ.annotations;
+                    if (templ.icons)
+                    {
+                        fastmcpp::Json icons_json = fastmcpp::Json::array();
+                        for (const auto& icon : *templ.icons)
+                        {
+                            fastmcpp::Json icon_obj = {{"src", icon.src}};
+                            if (icon.mime_type)
+                                icon_obj["mimeType"] = *icon.mime_type;
+                            if (icon.sizes)
+                                icon_obj["sizes"] = *icon.sizes;
+                            icons_json.push_back(icon_obj);
+                        }
+                        templ_json["icons"] = icons_json;
+                    }
                     templ_json["parameters"] =
                         templ.parameters.is_null() ? fastmcpp::Json::object() : templ.parameters;
                     templates_array.push_back(templ_json);
@@ -2427,6 +2499,24 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         res_json["description"] = *res.description;
                     if (res.mimeType)
                         res_json["mimeType"] = *res.mimeType;
+                    if (res.title)
+                        res_json["title"] = *res.title;
+                    if (res.annotations)
+                        res_json["annotations"] = *res.annotations;
+                    if (res.icons && !res.icons->empty())
+                    {
+                        fastmcpp::Json icons_json = fastmcpp::Json::array();
+                        for (const auto& icon : *res.icons)
+                        {
+                            fastmcpp::Json icon_obj = {{"src", icon.src}};
+                            if (icon.mime_type)
+                                icon_obj["mimeType"] = *icon.mime_type;
+                            if (icon.sizes)
+                                icon_obj["sizes"] = *icon.sizes;
+                            icons_json.push_back(icon_obj);
+                        }
+                        res_json["icons"] = icons_json;
+                    }
                     resources_array.push_back(res_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -2445,6 +2535,24 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         templ_json["description"] = *templ.description;
                     if (templ.mimeType)
                         templ_json["mimeType"] = *templ.mimeType;
+                    if (templ.title)
+                        templ_json["title"] = *templ.title;
+                    if (templ.annotations)
+                        templ_json["annotations"] = *templ.annotations;
+                    if (templ.icons && !templ.icons->empty())
+                    {
+                        fastmcpp::Json icons_json = fastmcpp::Json::array();
+                        for (const auto& icon : *templ.icons)
+                        {
+                            fastmcpp::Json icon_obj = {{"src", icon.src}};
+                            if (icon.mime_type)
+                                icon_obj["mimeType"] = *icon.mime_type;
+                            if (icon.sizes)
+                                icon_obj["sizes"] = *icon.sizes;
+                            icons_json.push_back(icon_obj);
+                        }
+                        templ_json["icons"] = icons_json;
+                    }
                     if (templ.parameters)
                         templ_json["parameters"] = *templ.parameters;
                     else
@@ -2839,6 +2947,24 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                         res_json["description"] = *res.description;
                     if (res.mime_type)
                         res_json["mimeType"] = *res.mime_type;
+                    if (res.title)
+                        res_json["title"] = *res.title;
+                    if (res.annotations)
+                        res_json["annotations"] = *res.annotations;
+                    if (res.icons)
+                    {
+                        fastmcpp::Json icons_json = fastmcpp::Json::array();
+                        for (const auto& icon : *res.icons)
+                        {
+                            fastmcpp::Json icon_obj = {{"src", icon.src}};
+                            if (icon.mime_type)
+                                icon_obj["mimeType"] = *icon.mime_type;
+                            if (icon.sizes)
+                                icon_obj["sizes"] = *icon.sizes;
+                            icons_json.push_back(icon_obj);
+                        }
+                        res_json["icons"] = icons_json;
+                    }
                     resources_array.push_back(res_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -2857,6 +2983,24 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                         templ_json["description"] = *templ.description;
                     if (templ.mime_type)
                         templ_json["mimeType"] = *templ.mime_type;
+                    if (templ.title)
+                        templ_json["title"] = *templ.title;
+                    if (templ.annotations)
+                        templ_json["annotations"] = *templ.annotations;
+                    if (templ.icons)
+                    {
+                        fastmcpp::Json icons_json = fastmcpp::Json::array();
+                        for (const auto& icon : *templ.icons)
+                        {
+                            fastmcpp::Json icon_obj = {{"src", icon.src}};
+                            if (icon.mime_type)
+                                icon_obj["mimeType"] = *icon.mime_type;
+                            if (icon.sizes)
+                                icon_obj["sizes"] = *icon.sizes;
+                            icons_json.push_back(icon_obj);
+                        }
+                        templ_json["icons"] = icons_json;
+                    }
                     templ_json["parameters"] =
                         templ.parameters.is_null() ? fastmcpp::Json::object() : templ.parameters;
                     templates_array.push_back(templ_json);

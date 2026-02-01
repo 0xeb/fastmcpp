@@ -464,6 +464,71 @@ void test_create_proxy_with_local_tools()
     std::cout << "  PASSED" << std::endl;
 }
 
+void test_proxy_resource_annotations()
+{
+    std::cout << "test_proxy_resource_annotations..." << std::endl;
+
+    ProxyApp proxy(create_backend_factory(), "TestProxy", "1.0.0");
+
+    // Add a local resource with title, annotations, and icons
+    resources::Resource annotated_res;
+    annotated_res.uri = "file://annotated.txt";
+    annotated_res.name = "Annotated Resource";
+    annotated_res.description = "A resource with annotations";
+    annotated_res.mime_type = "text/plain";
+    annotated_res.title = "My Annotated Resource";
+    annotated_res.annotations = Json{{"audience", Json::array({"assistant"})}, {"priority", 0.9}};
+    annotated_res.icons = std::vector<Icon>{{.src = "icon.png", .mime_type = "image/png"}};
+    annotated_res.provider = [](const Json&)
+    {
+        return resources::ResourceContent{"file://annotated.txt", "text/plain",
+                                          std::string("Content")};
+    };
+    proxy.local_resources().register_resource(annotated_res);
+
+    // Create MCP handler
+    auto handler = mcp::make_mcp_handler(proxy);
+
+    // Initialize first
+    handler(Json{{"jsonrpc", "2.0"},
+                 {"id", 1},
+                 {"method", "initialize"},
+                 {"params", Json{{"protocolVersion", "2024-11-05"},
+                                 {"capabilities", Json::object()},
+                                 {"clientInfo", Json{{"name", "test"}, {"version", "1.0"}}}}}});
+
+    // Test resources/list serialization
+    auto resources_response = handler(
+        Json{{"jsonrpc", "2.0"}, {"id", 2}, {"method", "resources/list"}, {"params", Json::object()}});
+    assert(resources_response.contains("result"));
+    assert(resources_response["result"].contains("resources"));
+
+    // Find our annotated resource and verify fields including new MCP 2025-11-25 fields
+    bool found_annotated = false;
+    for (const auto& res : resources_response["result"]["resources"])
+    {
+        if (res["uri"] == "file://annotated.txt")
+        {
+            found_annotated = true;
+            assert(res["name"] == "Annotated Resource");
+            assert(res["description"] == "A resource with annotations");
+            assert(res["mimeType"] == "text/plain");
+            // Verify MCP 2025-11-25 fields are serialized
+            assert(res.contains("title"));
+            assert(res["title"] == "My Annotated Resource");
+            assert(res.contains("annotations"));
+            assert(res["annotations"]["priority"] == 0.9);
+            assert(res.contains("icons"));
+            assert(res["icons"].size() == 1);
+            assert(res["icons"][0]["src"] == "icon.png");
+            break;
+        }
+    }
+    assert(found_annotated);
+
+    std::cout << "  PASSED" << std::endl;
+}
+
 int main()
 {
     std::cout << "=== ProxyApp Tests ===" << std::endl;
@@ -476,6 +541,7 @@ int main()
     test_proxy_resources();
     test_proxy_prompts();
     test_proxy_mcp_handler();
+    test_proxy_resource_annotations();
     test_proxy_backend_unavailable();
 
     std::cout << "\n=== create_proxy() Factory Tests ===" << std::endl;

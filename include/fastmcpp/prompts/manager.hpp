@@ -47,6 +47,15 @@ class PromptManager
         return result;
     }
 
+    std::vector<std::string> list_names() const
+    {
+        std::vector<std::string> names;
+        names.reserve(prompts_.size());
+        for (const auto& entry : prompts_)
+            names.push_back(entry.first);
+        return names;
+    }
+
     std::vector<PromptMessage> render(const std::string& name,
                                       const Json& args = Json::object()) const
     {

@@ -25,6 +25,9 @@ struct Resource
     std::string name;                                     // Human-readable name
     std::optional<std::string> description;               // Optional description
     std::optional<std::string> mime_type;                 // MIME type hint
+    std::optional<std::string> title;                     // Human-readable display title
+    std::optional<fastmcpp::Json> annotations;            // {audience, priority, lastModified}
+    std::optional<std::vector<fastmcpp::Icon>> icons;     // Icons for UI display
     std::function<ResourceContent(const Json&)> provider; // Content provider function
     fastmcpp::TaskSupport task_support{fastmcpp::TaskSupport::Forbidden}; // SEP-1686 task mode
 

@@ -27,11 +27,15 @@ struct TemplateParameter
 ///   - {?a,b,c} - query parameters
 struct ResourceTemplate
 {
-    std::string uri_template;               // e.g., "weather://{city}/current"
-    std::string name;                       // Human-readable name
-    std::optional<std::string> description; // Optional description
-    std::optional<std::string> mime_type;   // MIME type hint
-    Json parameters;                        // JSON schema for parameters
+    std::string uri_template;                         // e.g., "weather://{city}/current"
+    std::string name;                                 // Human-readable name
+    std::optional<std::string> description;           // Optional description
+    std::optional<std::string> mime_type;             // MIME type hint
+    std::optional<std::string> title;                 // Human-readable display title
+    std::optional<fastmcpp::Json> annotations;        // {audience, priority, lastModified}
+    std::optional<std::vector<fastmcpp::Icon>> icons; // Icons for UI display
+    Json parameters;                                  // JSON schema for parameters
+    fastmcpp::TaskSupport task_support{fastmcpp::TaskSupport::Forbidden}; // SEP-1686 task mode
 
     // Provider function: takes extracted params, returns content
     std::function<ResourceContent(const Json& params)> provider;

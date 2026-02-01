@@ -203,12 +203,14 @@ create_transformed_tool(const Tool& parent, std::optional<std::string> new_name 
     // Capture mappings and parent for the forwarding function
     auto arg_mapping = transform_result.arg_mapping;
     auto hidden_defaults = transform_result.hidden_defaults;
+    auto parent_copy = parent;
 
     // Create forwarding function that maps args and calls parent
-    Tool::Fn forwarding_fn = [&parent, arg_mapping, hidden_defaults](const Json& args)
+    Tool::Fn forwarding_fn =
+        [parent_copy = std::move(parent_copy), arg_mapping, hidden_defaults](const Json& args)
     {
         Json parent_args = transform_args_to_parent(args, arg_mapping, hidden_defaults);
-        return parent.invoke(parent_args);
+        return parent_copy.invoke(parent_args);
     };
 
     // Get tool properties
@@ -218,7 +220,7 @@ create_transformed_tool(const Tool& parent, std::optional<std::string> new_name 
 
     // Create new tool with transformed schema
     Tool tool(tool_name, transform_result.schema, parent.output_schema(), forwarding_fn,
-              parent.title(), tool_desc, parent.icons());
+              parent.title(), tool_desc, parent.icons(), {}, parent.task_support());
     tool.set_timeout(parent.timeout());
     return tool;
 }
@@ -310,8 +312,9 @@ class TransformedTool
         std::optional<std::string> tool_desc =
             new_description.has_value() ? new_description : parent.description();
 
-        result.tool_ = Tool(tool_name, transform_result.schema, parent.output_schema(),
-                            forwarding_fn, parent.title(), tool_desc, parent.icons());
+        result.tool_ =
+            Tool(tool_name, transform_result.schema, parent.output_schema(), forwarding_fn,
+                 parent.title(), tool_desc, parent.icons(), {}, parent.task_support());
         result.tool_.set_timeout(parent.timeout());
 
         return result;

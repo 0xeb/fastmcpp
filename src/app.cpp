@@ -4,6 +4,7 @@
 #include "fastmcpp/client/types.hpp"
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/mcp/handler.hpp"
+#include "fastmcpp/providers/provider.hpp"
 #include "fastmcpp/resources/template.hpp"
 #include "fastmcpp/util/schema_build.hpp"
 
@@ -14,9 +15,14 @@ namespace fastmcpp
 {
 
 FastMCP::FastMCP(std::string name, std::string version, std::optional<std::string> website_url,
-                 std::optional<std::vector<Icon>> icons)
-    : server_(std::move(name), std::move(version), std::move(website_url), std::move(icons))
+                 std::optional<std::vector<Icon>> icons,
+                 std::vector<std::shared_ptr<providers::Provider>> providers)
+    : server_(std::move(name), std::move(version), std::move(website_url), std::move(icons)),
+      providers_(std::move(providers))
 {
+    for (const auto& provider : providers_)
+        if (!provider)
+            throw ValidationError("provider cannot be null");
 }
 
 namespace
@@ -113,6 +119,9 @@ FastMCP& FastMCP::resource(std::string uri, std::string name,
     r.name = std::move(name);
     r.description = std::move(options.description);
     r.mime_type = std::move(options.mime_type);
+    r.title = std::move(options.title);
+    r.annotations = std::move(options.annotations);
+    r.icons = std::move(options.icons);
     r.provider = std::move(provider);
     r.task_support = options.task_support;
     resources_.register_resource(r);
@@ -129,6 +138,10 @@ FastMCP::resource_template(std::string uri_template, std::string name,
     templ.name = std::move(name);
     templ.description = std::move(options.description);
     templ.mime_type = std::move(options.mime_type);
+    templ.title = std::move(options.title);
+    templ.annotations = std::move(options.annotations);
+    templ.icons = std::move(options.icons);
+    templ.task_support = options.task_support;
     templ.provider = std::move(provider);
 
     if (parameters_schema_or_simple.is_object() && parameters_schema_or_simple.empty())
@@ -197,6 +210,13 @@ void FastMCP::mount(FastMCP& app, const std::string& prefix, bool as_proxy,
     {
         mounted_.push_back({prefix, &app, std::move(tool_names)});
     }
+}
+
+void FastMCP::add_provider(std::shared_ptr<providers::Provider> provider)
+{
+    if (!provider)
+        throw ValidationError("provider cannot be null");
+    providers_.push_back(std::move(provider));
 }
 
 // =========================================================================
@@ -278,10 +298,32 @@ bool FastMCP::has_resource_prefix(const std::string& uri, const std::string& pre
 std::vector<std::pair<std::string, const tools::Tool*>> FastMCP::list_all_tools() const
 {
     std::vector<std::pair<std::string, const tools::Tool*>> result;
+    std::unordered_set<std::string> seen;
+
+    provider_tools_cache_.clear();
+
+    auto add_tool = [&](std::string name, const tools::Tool* tool)
+    {
+        if (seen.insert(name).second)
+            result.emplace_back(std::move(name), tool);
+    };
 
     // Add local tools first
     for (const auto& name : tools_.list_names())
-        result.emplace_back(name, &tools_.get(name));
+        add_tool(name, &tools_.get(name));
+
+    // Add tools from providers
+    for (const auto& provider : providers_)
+    {
+        for (const auto& tool : provider->list_tools_transformed())
+        {
+            const auto& name = tool.name();
+            if (!seen.insert(name).second)
+                continue;
+            provider_tools_cache_.push_back(tool);
+            result.emplace_back(name, &provider_tools_cache_.back());
+        }
+    }
 
     // Add tools from directly mounted apps (in reverse order for precedence)
     for (auto it = mounted_.rbegin(); it != mounted_.rend(); ++it)
@@ -304,7 +346,7 @@ std::vector<std::pair<std::string, const tools::Tool*>> FastMCP::list_all_tools(
             {
                 prefixed_name = add_prefix(child_name, mounted.prefix);
             }
-            result.emplace_back(prefixed_name, tool);
+            add_tool(prefixed_name, tool);
         }
     }
 
@@ -333,7 +375,7 @@ std::vector<std::pair<std::string, const tools::Tool*>> FastMCP::list_all_tools(
             }
             // We can't return a pointer for proxy tools, so we add a placeholder
             // This is a limitation - users should prefer list_all_tools_info() for full access
-            result.emplace_back(prefixed_name, nullptr);
+            add_tool(prefixed_name, nullptr);
         }
     }
 
@@ -343,11 +385,12 @@ std::vector<std::pair<std::string, const tools::Tool*>> FastMCP::list_all_tools(
 std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
 {
     std::vector<client::ToolInfo> result;
+    std::unordered_set<std::string> seen;
 
-    // Add local tools first
-    for (const auto& name : tools_.list_names())
+    auto append_tool_info = [&](const tools::Tool& tool, const std::string& name)
     {
-        const auto& tool = tools_.get(name);
+        if (!seen.insert(name).second)
+            return;
         client::ToolInfo info;
         info.name = name;
         info.inputSchema = tool.input_schema();
@@ -360,7 +403,19 @@ std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
             info.execution = Json{{"taskSupport", to_string(tool.task_support())}};
         info.icons = tool.icons();
         result.push_back(info);
+    };
+
+    // Add local tools first
+    for (const auto& name : tools_.list_names())
+    {
+        const auto& tool = tools_.get(name);
+        append_tool_info(tool, name);
     }
+
+    // Add tools from providers
+    for (const auto& provider : providers_)
+        for (const auto& tool : provider->list_tools_transformed())
+            append_tool_info(tool, tool.name());
 
     // Add tools from directly mounted apps
     for (auto it = mounted_.rbegin(); it != mounted_.rend(); ++it)
@@ -382,7 +437,8 @@ std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
             {
                 tool_info.name = add_prefix(tool_info.name, mounted.prefix);
             }
-            result.push_back(tool_info);
+            if (seen.insert(tool_info.name).second)
+                result.push_back(tool_info);
         }
     }
 
@@ -406,7 +462,8 @@ std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
             {
                 tool_info.name = add_prefix(tool_info.name, proxy_mount.prefix);
             }
-            result.push_back(tool_info);
+            if (seen.insert(tool_info.name).second)
+                result.push_back(tool_info);
         }
     }
 
@@ -416,10 +473,22 @@ std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
 std::vector<resources::Resource> FastMCP::list_all_resources() const
 {
     std::vector<resources::Resource> result;
+    std::unordered_set<std::string> seen;
+
+    auto add_resource = [&](const resources::Resource& res)
+    {
+        if (seen.insert(res.uri).second)
+            result.push_back(res);
+    };
 
     // Add local resources first
     for (const auto& res : resources_.list())
-        result.push_back(res);
+        add_resource(res);
+
+    // Add resources from providers
+    for (const auto& provider : providers_)
+        for (const auto& res : provider->list_resources_transformed())
+            add_resource(res);
 
     // Add resources from directly mounted apps
     for (auto it = mounted_.rbegin(); it != mounted_.rend(); ++it)
@@ -432,7 +501,7 @@ std::vector<resources::Resource> FastMCP::list_all_resources() const
             // Create copy with prefixed URI
             resources::Resource prefixed_res = res;
             prefixed_res.uri = add_resource_prefix(res.uri, mounted.prefix);
-            result.push_back(prefixed_res);
+            add_resource(prefixed_res);
         }
     }
 
@@ -453,7 +522,7 @@ std::vector<resources::Resource> FastMCP::list_all_resources() const
             if (res_info.mimeType)
                 res.mime_type = *res_info.mimeType;
             // Note: provider is not set - reading goes through invoke_tool routing
-            result.push_back(res);
+            add_resource(res);
         }
     }
 
@@ -463,10 +532,22 @@ std::vector<resources::Resource> FastMCP::list_all_resources() const
 std::vector<resources::ResourceTemplate> FastMCP::list_all_templates() const
 {
     std::vector<resources::ResourceTemplate> result;
+    std::unordered_set<std::string> seen;
+
+    auto add_template = [&](const resources::ResourceTemplate& templ)
+    {
+        if (seen.insert(templ.uri_template).second)
+            result.push_back(templ);
+    };
 
     // Add local templates first
     for (const auto& templ : resources_.list_templates())
-        result.push_back(templ);
+        add_template(templ);
+
+    // Add templates from providers
+    for (const auto& provider : providers_)
+        for (const auto& templ : provider->list_resource_templates_transformed())
+            add_template(templ);
 
     // Add templates from directly mounted apps
     for (auto it = mounted_.rbegin(); it != mounted_.rend(); ++it)
@@ -479,7 +560,7 @@ std::vector<resources::ResourceTemplate> FastMCP::list_all_templates() const
             // Create copy with prefixed URI template
             resources::ResourceTemplate prefixed_templ = templ;
             prefixed_templ.uri_template = add_resource_prefix(templ.uri_template, mounted.prefix);
-            result.push_back(prefixed_templ);
+            add_template(prefixed_templ);
         }
     }
 
@@ -499,7 +580,7 @@ std::vector<resources::ResourceTemplate> FastMCP::list_all_templates() const
                 templ.description = *templ_info.description;
             if (templ_info.mimeType)
                 templ.mime_type = *templ_info.mimeType;
-            result.push_back(templ);
+            add_template(templ);
         }
     }
 
@@ -509,10 +590,31 @@ std::vector<resources::ResourceTemplate> FastMCP::list_all_templates() const
 std::vector<std::pair<std::string, const prompts::Prompt*>> FastMCP::list_all_prompts() const
 {
     std::vector<std::pair<std::string, const prompts::Prompt*>> result;
+    std::unordered_set<std::string> seen;
+
+    provider_prompts_cache_.clear();
+
+    auto add_prompt = [&](std::string name, const prompts::Prompt* prompt)
+    {
+        if (seen.insert(name).second)
+            result.emplace_back(std::move(name), prompt);
+    };
 
     // Add local prompts first
     for (const auto& prompt : prompts_.list())
-        result.emplace_back(prompt.name, &prompts_.get(prompt.name));
+        add_prompt(prompt.name, &prompts_.get(prompt.name));
+
+    // Add prompts from providers
+    for (const auto& provider : providers_)
+    {
+        for (const auto& prompt : provider->list_prompts_transformed())
+        {
+            if (!seen.insert(prompt.name).second)
+                continue;
+            provider_prompts_cache_.push_back(prompt);
+            result.emplace_back(prompt.name, &provider_prompts_cache_.back());
+        }
+    }
 
     // Add prompts from directly mounted apps
     for (auto it = mounted_.rbegin(); it != mounted_.rend(); ++it)
@@ -523,7 +625,7 @@ std::vector<std::pair<std::string, const prompts::Prompt*>> FastMCP::list_all_pr
         for (const auto& [child_name, prompt] : child_prompts)
         {
             std::string prefixed_name = add_prefix(child_name, mounted.prefix);
-            result.emplace_back(prefixed_name, prompt);
+            add_prompt(prefixed_name, prompt);
         }
     }
 
@@ -537,7 +639,7 @@ std::vector<std::pair<std::string, const prompts::Prompt*>> FastMCP::list_all_pr
         for (const auto& prompt_info : proxy_prompts)
         {
             std::string prefixed_name = add_prefix(prompt_info.name, proxy_mount.prefix);
-            result.emplace_back(prefixed_name, nullptr);
+            add_prompt(prefixed_name, nullptr);
         }
     }
 
@@ -558,6 +660,14 @@ Json FastMCP::invoke_tool(const std::string& name, const Json& args, bool enforc
     catch (const NotFoundError&)
     {
         // Fall through to check mounted apps
+    }
+
+    // Check provider tools
+    for (const auto& provider : providers_)
+    {
+        auto tool = provider->get_tool_transformed(name);
+        if (tool)
+            return tool->invoke(args, enforce_timeout);
     }
 
     // Check directly mounted apps (in reverse order - last mounted takes precedence)
@@ -680,6 +790,34 @@ resources::ResourceContent FastMCP::read_resource(const std::string& uri, const 
     catch (const NotFoundError&)
     {
         // Fall through to check mounted apps
+    }
+
+    // Check provider resources
+    for (const auto& provider : providers_)
+    {
+        if (auto res = provider->get_resource_transformed(uri))
+        {
+            if (res->provider)
+                return res->provider(params);
+            return resources::ResourceContent{uri, res->mime_type, std::string{}};
+        }
+
+        if (auto templ = provider->get_resource_template_transformed(uri))
+        {
+            auto match_params = templ->match(uri);
+            if (!match_params)
+                continue;
+
+            Json merged_params = Json::object();
+            for (const auto& [key, value] : *match_params)
+                merged_params[key] = value;
+            for (const auto& [key, value] : params.items())
+                merged_params[key] = value;
+
+            if (templ->provider)
+                return templ->provider(merged_params);
+            return resources::ResourceContent{uri, templ->mime_type, std::string{}};
+        }
     }
 
     // Check directly mounted apps
@@ -816,6 +954,23 @@ prompts::PromptResult FastMCP::get_prompt_result(const std::string& name, const 
     catch (const NotFoundError&)
     {
         // Fall through to check mounted apps
+    }
+
+    // Check provider prompts
+    for (const auto& provider : providers_)
+    {
+        auto prompt = provider->get_prompt_transformed(name);
+        if (!prompt)
+            continue;
+
+        prompts::PromptResult out;
+        out.description = prompt->description;
+        out.meta = prompt->meta;
+        if (prompt->generator)
+            out.messages = prompt->generator(args);
+        else
+            out.messages = {{{"user", prompt->template_string()}}};
+        return out;
     }
 
     // Check directly mounted apps

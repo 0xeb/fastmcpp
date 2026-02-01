@@ -17,6 +17,10 @@ add_library(fastmcpp_core STATIC
     src/types.cpp
     src/util/schema_build.cpp
     src/app.cpp
+    src/providers/transforms/namespace.cpp
+    src/providers/transforms/tool_transform.cpp
+    src/providers/transforms/visibility.cpp
+    src/providers/filesystem_provider.cpp
     src/proxy.cpp
     src/mcp/handler.cpp
     src/mcp/tasks.cpp
@@ -468,6 +472,26 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_app_ergonomics tests/app/ergonomics.cpp)
   target_link_libraries(fastmcpp_app_ergonomics PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_app_ergonomics COMMAND fastmcpp_app_ergonomics)
+
+  # Filesystem provider tests
+  add_library(fastmcpp_fs_test_plugin SHARED tests/fs/test_plugin.cpp)
+  target_compile_definitions(fastmcpp_fs_test_plugin PRIVATE FASTMCPP_PROVIDER_EXPORTS)
+  target_link_libraries(fastmcpp_fs_test_plugin PRIVATE nlohmann_json::nlohmann_json)
+  target_include_directories(fastmcpp_fs_test_plugin PRIVATE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  )
+
+  add_executable(fastmcpp_fs_provider tests/fs/provider.cpp)
+  target_link_libraries(fastmcpp_fs_provider PRIVATE fastmcpp_core)
+  add_dependencies(fastmcpp_fs_provider fastmcpp_fs_test_plugin)
+  add_test(NAME fastmcpp_fs_provider COMMAND fastmcpp_fs_provider)
+  set_tests_properties(fastmcpp_fs_provider PROPERTIES
+    WORKING_DIRECTORY "$<TARGET_FILE_DIR:fastmcpp_fs_provider>"
+  )
+
+  add_executable(fastmcpp_provider_transforms tests/providers/transforms.cpp)
+  target_link_libraries(fastmcpp_provider_transforms PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_provider_transforms COMMAND fastmcpp_provider_transforms)
 
   # Proxy tests
   add_executable(fastmcpp_proxy_basic tests/proxy/basic.cpp)
