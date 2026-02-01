@@ -15,7 +15,7 @@ fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp
 
 **Status:** Beta – core MCP features track the Python `fastmcp` reference.
 
-**Current version:** 2.14.1
+**Current version:** 2.15.0
 
 ## Features
 
@@ -25,9 +25,12 @@ fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp
 - Tool management and invocation.
 - Resources and prompts support.
 - Resource templates with URI pattern matching.
+- Resource annotations (MCP 2025-11-25): audience targeting, priority hints, icons.
 - JSON Schema validation.
 - FastMCP high-level application class.
 - ProxyApp for backend server proxying.
+- Providers system for modular tool/resource composition.
+- Provider transforms: namespace prefixing, visibility filtering, tool wrapping.
 - ServerSession for bidirectional communication, sampling, and server-initiated notifications.
 - Built-in middleware: Logging, Timing, Caching, RateLimiting, ErrorHandling.
 - Tool transforms for input/output processing.
@@ -276,6 +279,69 @@ The `create_proxy()` factory function automatically detects the transport type f
 - `ws://` or `wss://` URLs use WebSocket transport
 
 Local tools, resources, and prompts take precedence over remote ones with the same name.
+
+### Providers
+
+Providers enable modular composition of tools and resources with automatic transforms:
+
+```cpp
+#include <fastmcpp/providers/filesystem_provider.hpp>
+#include <fastmcpp/providers/local_provider.hpp>
+
+int main() {
+    using namespace fastmcpp::providers;
+
+    // Create a filesystem provider that exposes directory contents
+    FilesystemProvider fs_provider("./data", {
+        .allowed_extensions = {".txt", ".json", ".md"},
+        .max_file_size = 1024 * 1024  // 1MB
+    });
+
+    // Create a local provider with custom tools
+    LocalProvider local;
+    local.add_tool("greet", /*...*/);
+
+    // Apply namespace transform to prefix all tool names
+    auto namespaced = apply_transform<NamespaceTransform>(local, "myapp");
+    // Tools now: myapp_greet, etc.
+
+    auto handler = fastmcpp::mcp::make_mcp_handler(namespaced);
+    // ...
+}
+```
+
+**Provider Transforms:**
+
+| Transform | Description |
+|-----------|-------------|
+| `NamespaceTransform` | Prefix tool/resource names (e.g., `math_add`) |
+| `VisibilityTransform` | Filter which tools/resources are exposed |
+| `ToolTransform` | Wrap tool inputs/outputs for preprocessing |
+
+### Resource Annotations (MCP 2025-11-25)
+
+Resources can include metadata hints for clients:
+
+```cpp
+fastmcpp::resources::ResourceDefinition res;
+res.uri = "config://settings";
+res.name = "Application Settings";
+res.mime_type = "application/json";
+res.annotations = Json{
+    {"audience", Json::array({"user", "assistant"})},
+    {"priority", 0.8}
+};
+res.icons = {{"icon.png", "image/png"}};
+res.provider = [](const Json&) {
+    return ResourceContent{"config://settings", "application/json",
+                           R"({"theme": "dark"})"};
+};
+```
+
+Annotations help clients:
+- **audience**: Who should see this resource (`user`, `assistant`, or both)
+- **priority**: Relative importance (0.0–1.0) for display ordering
+- **icons**: Visual indicators for UI rendering
 
 ## Examples
 
