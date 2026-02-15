@@ -3,6 +3,7 @@
 #include "fastmcpp/types.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <filesystem>
 #include <future>
@@ -23,7 +24,12 @@ class ITransport;
 class HttpTransport : public ITransport
 {
   public:
-    explicit HttpTransport(std::string base_url) : base_url_(std::move(base_url)) {}
+    explicit HttpTransport(std::string base_url,
+                           std::chrono::seconds timeout = std::chrono::seconds(300),
+                           std::unordered_map<std::string, std::string> headers = {})
+        : base_url_(std::move(base_url)), timeout_(timeout), headers_(std::move(headers))
+    {
+    }
     fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload);
     // Optional streaming parity: receive SSE/stream-like responses
     void request_stream(const std::string& route, const fastmcpp::Json& payload,
@@ -33,24 +39,15 @@ class HttpTransport : public ITransport
     void request_stream_post(const std::string& route, const fastmcpp::Json& payload,
                              const std::function<void(const fastmcpp::Json&)>& on_event);
 
+    std::chrono::seconds timeout() const
+    {
+        return timeout_;
+    }
+
   private:
     std::string base_url_;
-};
-
-class WebSocketTransport : public ITransport
-{
-  public:
-    explicit WebSocketTransport(std::string url) : url_(std::move(url)) {}
-    fastmcpp::Json request(const std::string& /*route*/, const fastmcpp::Json& /*payload*/);
-
-    // Stream responses over WebSocket. Sends payload, then dispatches
-    // incoming text frames to the callback as parsed JSON if possible,
-    // otherwise as a text content wrapper {"content":[{"type":"text","text":...}]}.
-    void request_stream(const std::string& route, const fastmcpp::Json& payload,
-                        const std::function<void(const fastmcpp::Json&)>& on_event);
-
-  private:
-    std::string url_;
+    std::chrono::seconds timeout_;
+    std::unordered_map<std::string, std::string> headers_;
 };
 
 // Launches an MCP stdio server as a subprocess and performs JSON-RPC requests

@@ -382,6 +382,67 @@ void test_error_handling()
     server.stop();
 }
 
+void test_invalid_tool_maps_to_invalid_params_error_code()
+{
+    std::cout << "  test_invalid_tool_maps_to_invalid_params_error_code... " << std::flush;
+
+    const int port = 18357;
+    const std::string host = "127.0.0.1";
+
+    tools::ToolManager tool_mgr;
+    std::unordered_map<std::string, std::string> descriptions;
+    auto handler = mcp::make_mcp_handler("invalid_tool_error_code", "1.0.0", tool_mgr, descriptions);
+
+    server::StreamableHttpServerWrapper server(handler, host, port, "/mcp");
+    bool started = server.start();
+    assert(started && "Server failed to start");
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    try
+    {
+        httplib::Client cli(host, port);
+        cli.set_connection_timeout(5, 0);
+        cli.set_read_timeout(5, 0);
+
+        Json init_request = {{"jsonrpc", "2.0"},
+                             {"id", 1},
+                             {"method", "initialize"},
+                             {"params",
+                              {{"protocolVersion", "2024-11-05"},
+                               {"capabilities", Json::object()},
+                               {"clientInfo", {{"name", "test"}, {"version", "1.0"}}}}}};
+
+        auto init_res = cli.Post("/mcp", init_request.dump(), "application/json");
+        assert(init_res && init_res->status == 200);
+        std::string session_id = init_res->get_header_value("Mcp-Session-Id");
+        assert(!session_id.empty());
+
+        Json bad_call = {{"jsonrpc", "2.0"},
+                         {"id", 2},
+                         {"method", "tools/call"},
+                         {"params", {{"name", "missing_tool"}, {"arguments", Json::object()}}}};
+
+        httplib::Headers headers = {{"Mcp-Session-Id", session_id}};
+        auto bad_res = cli.Post("/mcp", headers, bad_call.dump(), "application/json");
+        assert(bad_res && bad_res->status == 200);
+
+        auto rpc_response = fastmcpp::util::json::parse(bad_res->body);
+        assert(rpc_response.contains("error"));
+        assert(rpc_response["error"]["code"].get<int>() == -32602);
+
+        std::cout << "PASSED\n";
+    }
+    catch (const std::exception& e)
+    {
+        std::cout << "FAILED: " << e.what() << "\n";
+        server.stop();
+        throw;
+    }
+
+    server.stop();
+}
+
 void test_default_timeout_allows_slow_tool()
 {
     std::cout << "  test_default_timeout_allows_slow_tool... " << std::flush;
@@ -536,6 +597,7 @@ int main()
         test_session_management();
         test_server_info();
         test_error_handling();
+        test_invalid_tool_maps_to_invalid_params_error_code();
         test_default_timeout_allows_slow_tool();
         test_notification_handling();
 

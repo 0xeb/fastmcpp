@@ -6,7 +6,6 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
-#include <easywsclient.hpp>
 #include <fstream>
 #include <httplib.h>
 #include <mutex>
@@ -171,13 +170,16 @@ fastmcpp::Json HttpTransport::request(const std::string& route, const fastmcpp::
 
     cli.set_connection_timeout(5, 0);
     cli.set_keep_alive(true);
-    cli.set_read_timeout(10, 0);
+    cli.set_read_timeout(static_cast<int>(timeout_.count()), 0);
 
     // Security: Disable redirects by default to prevent SSRF and TLS downgrade attacks
     cli.set_follow_location(false);
 
-    cli.set_default_headers({{"Accept", "text/event-stream, application/json"}});
-    auto res = cli.Post(("/" + route).c_str(), payload.dump(), "application/json");
+    httplib::Headers headers = {{"Accept", "text/event-stream, application/json"}};
+    for (const auto& [key, value] : headers_)
+        headers.emplace(key, value);
+
+    auto res = cli.Post(("/" + route).c_str(), headers, payload.dump(), "application/json");
     if (!res)
         throw fastmcpp::TransportError("HTTP request failed: no response");
     if (res->status < 200 || res->status >= 300)
@@ -196,10 +198,12 @@ void HttpTransport::request_stream(const std::string& route, const fastmcpp::Jso
 
     cli.set_connection_timeout(5, 0);
     cli.set_keep_alive(true);
-    cli.set_read_timeout(10, 0);
+    cli.set_read_timeout(static_cast<int>(timeout_.count()), 0);
 
     std::string path = "/" + route;
     httplib::Headers headers = {{"Accept", "text/event-stream, application/json"}};
+    for (const auto& [key, value] : headers_)
+        headers.emplace(key, value);
 
     std::string buffer;
     std::string last_emitted;
@@ -324,6 +328,11 @@ void HttpTransport::request_stream_post(const std::string& route, const fastmcpp
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
     headers = curl_slist_append(headers, "Accept: text/event-stream, application/json");
+    for (const auto& [key, value] : headers_)
+    {
+        std::string header = key + ": " + value;
+        headers = curl_slist_append(headers, header.c_str());
+    }
 
     std::string buffer;
     auto parse_and_emit = [&](bool flush_all = false)
@@ -413,7 +422,8 @@ void HttpTransport::request_stream_post(const std::string& route, const fastmcpp
         });
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L); // no overall timeout
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, static_cast<long>(timeout_.count()));
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L); // no overall timeout for streaming
 
     CURLcode code = curl_easy_perform(curl);
     long status = 0;
@@ -438,93 +448,6 @@ void HttpTransport::request_stream_post(const std::string& route, const fastmcpp
     throw fastmcpp::TransportError(
         "libcurl not available; POST streaming unsupported in this build");
 #endif
-}
-
-fastmcpp::Json WebSocketTransport::request(const std::string& route, const fastmcpp::Json& payload)
-{
-    using easywsclient::WebSocket;
-    std::string full = url_;
-    if (!full.empty() && full.back() != '/')
-        full.push_back('/');
-    full += route;
-    std::unique_ptr<WebSocket> ws(WebSocket::from_url(full));
-    if (!ws)
-        throw fastmcpp::TransportError("WS connect failed: " + full);
-    ws->send(payload.dump());
-    std::string resp;
-    bool got = false;
-    auto onmsg = [&](const std::string& msg)
-    {
-        resp = msg;
-        got = true;
-    };
-    // Wait up to ~2s
-    for (int i = 0; i < 40 && !got; ++i)
-    {
-        ws->poll(50);
-        ws->dispatch(onmsg);
-    }
-    ws->close();
-    if (!got)
-        throw fastmcpp::TransportError("WS no response");
-    return fastmcpp::util::json::parse(resp);
-}
-
-void WebSocketTransport::request_stream(const std::string& route, const fastmcpp::Json& payload,
-                                        const std::function<void(const fastmcpp::Json&)>& on_event)
-{
-    using easywsclient::WebSocket;
-    std::string full = url_;
-    if (!full.empty() && full.back() != '/')
-        full.push_back('/');
-    full += route;
-    std::unique_ptr<WebSocket> ws(WebSocket::from_url(full));
-    if (!ws)
-        throw fastmcpp::TransportError("WS connect failed: " + full);
-
-    // Send initial payload
-    ws->send(payload.dump());
-
-    // Pump loop: dispatch frames for a reasonable period or until closed
-    // Stop after a short idle timeout window to avoid hanging indefinitely
-    std::string frame;
-    auto onmsg = [&](const std::string& msg) { frame = msg; };
-
-    const int max_iters = 400; // ~20s total at 50ms per poll
-    int idle_iters = 0;
-    for (int i = 0; i < max_iters; ++i)
-    {
-        ws->poll(50);
-        frame.clear();
-        ws->dispatch(onmsg);
-        if (!frame.empty())
-        {
-            try
-            {
-                auto evt = fastmcpp::util::json::parse(frame);
-                if (on_event)
-                    on_event(evt);
-            }
-            catch (...)
-            {
-                fastmcpp::Json item = fastmcpp::Json{{"type", "text"}, {"text", frame}};
-                fastmcpp::Json evt = fastmcpp::Json{{"content", fastmcpp::Json::array({item})}};
-                if (on_event)
-                    on_event(evt);
-            }
-            idle_iters = 0; // reset idle counter on data
-        }
-        else
-        {
-            // No message arrived in this poll slice
-            if (++idle_iters > 60)
-            {
-                // ~3s idle without frames → assume stream done
-                break;
-            }
-        }
-    }
-    ws->close();
 }
 
 StdioTransport::StdioTransport(std::string command, std::vector<std::string> args,

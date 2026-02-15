@@ -17,10 +17,11 @@ Context::Context(const resources::ResourceManager& rm, const prompts::PromptMana
 
 Context::Context(const resources::ResourceManager& rm, const prompts::PromptManager& pm,
                  std::optional<fastmcpp::Json> request_meta, std::optional<std::string> request_id,
-                 std::optional<std::string> session_id, std::optional<TransportType> transport)
+                 std::optional<std::string> session_id, std::optional<TransportType> transport,
+                 SessionStatePtr session_state)
     : resource_mgr_(&rm), prompt_mgr_(&pm), request_meta_(std::move(request_meta)),
       request_id_(std::move(request_id)), session_id_(std::move(session_id)),
-      transport_(std::move(transport))
+      transport_(std::move(transport)), session_state_(std::move(session_state))
 {
 }
 

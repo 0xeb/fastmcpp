@@ -5,6 +5,8 @@
 #include "fastmcpp/proxy.hpp"
 #include "fastmcpp/server/sse_server.hpp"
 #include "fastmcpp/telemetry.hpp"
+#include "fastmcpp/util/pagination.hpp"
+#include "fastmcpp/version.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -26,6 +28,103 @@
 namespace fastmcpp::mcp
 {
 
+// MCP spec error codes (SEP-compliant)
+static constexpr int kJsonRpcMethodNotFound = -32601;
+static constexpr int kJsonRpcInvalidParams = -32602;
+static constexpr int kJsonRpcInternalError = -32603;
+static constexpr int kMcpMethodNotFound = -32001;    // MCP "Method not found"
+static constexpr int kMcpResourceNotFound = -32002;   // MCP "Resource not found"
+static constexpr int kMcpToolTimeout = -32000;
+static constexpr const char* kUiExtensionId = "io.modelcontextprotocol/ui";
+
+// Helper: create fastmcp metadata namespace (parity with Python fastmcp 53e220a9)
+static fastmcpp::Json make_fastmcp_meta()
+{
+    return fastmcpp::Json{
+        {"version", std::to_string(fastmcpp::VERSION_MAJOR) + "." +
+                    std::to_string(fastmcpp::VERSION_MINOR) + "." +
+                    std::to_string(fastmcpp::VERSION_PATCH)}};
+}
+
+static fastmcpp::Json merge_meta_with_ui(const std::optional<fastmcpp::Json>& meta,
+                                         const std::optional<fastmcpp::AppConfig>& app)
+{
+    fastmcpp::Json merged = meta && meta->is_object() ? *meta : fastmcpp::Json::object();
+    if (app && !app->empty())
+        merged["ui"] = *app;
+    return merged;
+}
+
+static void attach_meta_ui(fastmcpp::Json& entry, const std::optional<fastmcpp::AppConfig>& app,
+                           const std::optional<fastmcpp::Json>& meta = std::nullopt)
+{
+    fastmcpp::Json merged = merge_meta_with_ui(meta, app);
+    if (!merged.empty())
+        entry["_meta"] = std::move(merged);
+}
+
+static std::string normalize_resource_uri(std::string uri)
+{
+    while (uri.size() > 1 && !uri.empty() && uri.back() == '/')
+        uri.pop_back();
+    return uri;
+}
+
+static std::optional<fastmcpp::AppConfig> find_resource_app_config(const FastMCP& app,
+                                                                    const std::string& uri)
+{
+    const std::string normalized = normalize_resource_uri(uri);
+    for (const auto& resource : app.list_all_resources())
+    {
+        if (!resource.app || resource.app->empty())
+            continue;
+        if (normalize_resource_uri(resource.uri) == normalized)
+            return resource.app;
+    }
+
+    for (const auto& templ : app.list_all_templates())
+    {
+        if (!templ.app || templ.app->empty())
+            continue;
+        if (templ.match(normalized).has_value())
+            return templ.app;
+    }
+    return std::nullopt;
+}
+
+static void attach_resource_content_meta_ui(fastmcpp::Json& content_json, const FastMCP& app,
+                                            const std::string& request_uri)
+{
+    auto app_cfg = find_resource_app_config(app, request_uri);
+    if (!app_cfg)
+        return;
+    fastmcpp::Json meta =
+        content_json.contains("_meta") && content_json["_meta"].is_object()
+            ? content_json["_meta"]
+            : fastmcpp::Json::object();
+    meta["ui"] = *app_cfg;
+    if (!meta.empty())
+        content_json["_meta"] = std::move(meta);
+}
+
+static void advertise_ui_extension(fastmcpp::Json& capabilities)
+{
+    if (!capabilities.contains("extensions") || !capabilities["extensions"].is_object())
+        capabilities["extensions"] = fastmcpp::Json::object();
+    capabilities["extensions"][kUiExtensionId] = fastmcpp::Json::object();
+}
+
+static void inject_client_extensions_meta(fastmcpp::Json& args,
+                                          const fastmcpp::server::ServerSession& session)
+{
+    auto caps = session.capabilities();
+    if (!caps.contains("extensions") || !caps["extensions"].is_object())
+        return;
+    if (!args.contains("_meta") || !args["_meta"].is_object())
+        args["_meta"] = fastmcpp::Json::object();
+    args["_meta"]["client_extensions"] = caps["extensions"];
+}
+
 static fastmcpp::Json jsonrpc_error(const fastmcpp::Json& id, int code, const std::string& message)
 {
     return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -36,8 +135,29 @@ static fastmcpp::Json jsonrpc_error(const fastmcpp::Json& id, int code, const st
 static fastmcpp::Json jsonrpc_tool_error(const fastmcpp::Json& id, const std::exception& e)
 {
     if (dynamic_cast<const fastmcpp::ToolTimeoutError*>(&e))
-        return jsonrpc_error(id, -32000, e.what());
-    return jsonrpc_error(id, -32603, e.what());
+        return jsonrpc_error(id, kMcpToolTimeout, e.what());
+    if (dynamic_cast<const fastmcpp::NotFoundError*>(&e))
+        return jsonrpc_error(id, kJsonRpcInvalidParams, e.what());
+    return jsonrpc_error(id, kJsonRpcInternalError, e.what());
+}
+
+/// Apply pagination to a JSON array, returning a result object with the key and optional nextCursor
+static fastmcpp::Json apply_pagination(const fastmcpp::Json& items, const std::string& key,
+                                       const fastmcpp::Json& params, int page_size)
+{
+    fastmcpp::Json result_obj = {{key, items}};
+    if (page_size <= 0)
+        return result_obj;
+
+    std::string cursor_str = params.value("cursor", std::string{});
+    auto cursor = cursor_str.empty() ? std::nullopt : std::optional<std::string>{cursor_str};
+    std::vector<fastmcpp::Json> vec(items.begin(), items.end());
+    auto paginated = util::pagination::paginate_sequence(vec, cursor, page_size);
+
+    result_obj[key] = paginated.items;
+    if (paginated.next_cursor.has_value())
+        result_obj["nextCursor"] = *paginated.next_cursor;
+    return result_obj;
 }
 
 static bool schema_is_object(const fastmcpp::Json& schema)
@@ -99,7 +219,10 @@ make_tool_entry(const std::string& name, const std::string& description,
                 const std::optional<std::string>& title = std::nullopt,
                 const std::optional<std::vector<fastmcpp::Icon>>& icons = std::nullopt,
                 const fastmcpp::Json& output_schema = fastmcpp::Json(),
-                fastmcpp::TaskSupport task_support = fastmcpp::TaskSupport::Forbidden)
+                fastmcpp::TaskSupport task_support = fastmcpp::TaskSupport::Forbidden,
+                bool sequential = false,
+                const std::optional<fastmcpp::AppConfig>& app = std::nullopt,
+                const std::optional<fastmcpp::Json>& meta = std::nullopt)
 {
     fastmcpp::Json entry = {
         {"name", name},
@@ -115,8 +238,15 @@ make_tool_entry(const std::string& name, const std::string& description,
         entry["inputSchema"] = fastmcpp::Json::object();
     if (!output_schema.is_null() && !output_schema.empty())
         entry["outputSchema"] = normalize_output_schema_for_mcp(output_schema);
-    if (task_support != fastmcpp::TaskSupport::Forbidden)
-        entry["execution"] = fastmcpp::Json{{"taskSupport", fastmcpp::to_string(task_support)}};
+    if (task_support != fastmcpp::TaskSupport::Forbidden || sequential)
+    {
+        fastmcpp::Json execution = fastmcpp::Json::object();
+        if (task_support != fastmcpp::TaskSupport::Forbidden)
+            execution["taskSupport"] = fastmcpp::to_string(task_support);
+        if (sequential)
+            execution["concurrency"] = "sequential";
+        entry["execution"] = execution;
+    }
     // Add icons if present
     if (icons && !icons->empty())
     {
@@ -132,6 +262,8 @@ make_tool_entry(const std::string& name, const std::string& description,
         }
         entry["icons"] = icons_json;
     }
+    attach_meta_ui(entry, app, meta);
+    entry["fastmcp"] = make_fastmcp_meta();
     return entry;
 }
 
@@ -842,9 +974,10 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     else if (tool.description())
                         desc = *tool.description();
 
-                    tools_array.push_back(make_tool_entry(name, desc, schema, tool.title(),
-                                                          tool.icons(), tool.output_schema(),
-                                                          tool.task_support()));
+                    tools_array.push_back(
+                        make_tool_entry(name, desc, schema, tool.title(), tool.icons(),
+                                        tool.output_schema(), tool.task_support(),
+                                        tool.sequential(), tool.app()));
                 }
 
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -857,7 +990,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 std::string name = params.value("name", "");
                 fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
                 if (name.empty())
-                    return jsonrpc_error(id, -32602, "Missing tool name");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing tool name");
                 auto span = telemetry::server_span(
                     "tool " + name, "tools/call", server_name, "tool", name,
                     extract_request_meta(params),
@@ -922,12 +1055,12 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 // fall through to not found
             }
 
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), -32601,
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcMethodNotFound,
                                  std::string("Method '") + method + "' not found");
         }
         catch (const std::exception& e)
         {
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), -32603, e.what());
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError, e.what());
         }
     };
 }
@@ -1021,7 +1154,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
                 std::string name = params.value("name", "");
                 fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
                 if (name.empty())
-                    return jsonrpc_error(id, -32602, "Missing tool name");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing tool name");
                 auto span = telemetry::server_span(
                     "tool " + name, "tools/call", server.name(), "tool", name,
                     extract_request_meta(params),
@@ -1124,15 +1257,15 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
             }
             catch (const std::exception& e)
             {
-                return jsonrpc_error(id, -32603, e.what());
+                return jsonrpc_error(id, kJsonRpcInternalError, e.what());
             }
 
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), -32601,
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcMethodNotFound,
                                  std::string("Method '") + method + "' not found");
         }
         catch (const std::exception& e)
         {
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), -32603, e.what());
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError, e.what());
         }
     };
 }
@@ -1212,29 +1345,11 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 for (const auto& name : tools.list_names())
                 {
                     const auto& tool = tools.get(name);
-                    fastmcpp::Json tool_json = {{"name", name},
-                                                {"inputSchema", tool.input_schema()}};
-
-                    // Add optional fields from Tool
-                    if (tool.title())
-                        tool_json["title"] = *tool.title();
-                    if (tool.description())
-                        tool_json["description"] = *tool.description();
-                    if (tool.icons() && !tool.icons()->empty())
-                    {
-                        fastmcpp::Json icons_json = fastmcpp::Json::array();
-                        for (const auto& icon : *tool.icons())
-                        {
-                            fastmcpp::Json icon_obj = {{"src", icon.src}};
-                            if (icon.mime_type)
-                                icon_obj["mimeType"] = *icon.mime_type;
-                            if (icon.sizes)
-                                icon_obj["sizes"] = *icon.sizes;
-                            icons_json.push_back(icon_obj);
-                        }
-                        tool_json["icons"] = icons_json;
-                    }
-                    tools_array.push_back(tool_json);
+                    std::string desc = tool.description() ? *tool.description() : "";
+                    tools_array.push_back(
+                        make_tool_entry(name, desc, tool.input_schema(), tool.title(),
+                                        tool.icons(), tool.output_schema(), tool.task_support(),
+                                        tool.sequential(), tool.app()));
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
@@ -1246,7 +1361,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 std::string name = params.value("name", "");
                 fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
                 if (name.empty())
-                    return jsonrpc_error(id, -32602, "Missing tool name");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing tool name");
                 auto span = telemetry::server_span(
                     "tool " + name, "tools/call", server.name(), "tool", name,
                     extract_request_meta(params),
@@ -1338,11 +1453,11 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 }
             }
 
-            return jsonrpc_error(id, -32601, std::string("Method '") + method + "' not found");
+            return jsonrpc_error(id, kJsonRpcMethodNotFound, std::string("Method '") + method + "' not found");
         }
         catch (const std::exception& e)
         {
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), -32603, e.what());
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError, e.what());
         }
     };
 }
@@ -1412,7 +1527,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     std::string desc = tool.description() ? *tool.description() : "";
                     tools_array.push_back(
                         make_tool_entry(name, desc, tool.input_schema(), tool.title(), tool.icons(),
-                                        tool.output_schema(), tool.task_support()));
+                                        tool.output_schema(), tool.task_support(),
+                                        tool.sequential(), tool.app()));
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
@@ -1424,7 +1540,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 std::string name = params.value("name", "");
                 fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
                 if (name.empty())
-                    return jsonrpc_error(id, -32602, "Missing tool name");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing tool name");
                 auto span = telemetry::server_span(
                     "tool " + name, "tools/call", server.name(), "tool", name,
                     extract_request_meta(params),
@@ -1477,6 +1593,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                         }
                         res_json["icons"] = icons_json;
                     }
+                    attach_meta_ui(res_json, res.app);
+                    res_json["fastmcp"] = make_fastmcp_meta();
                     resources_array.push_back(res_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -1514,6 +1632,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                         }
                         templ_json["icons"] = icons_json;
                     }
+                    attach_meta_ui(templ_json, templ.app);
                     templ_json["parameters"] =
                         templ.parameters.is_null() ? fastmcpp::Json::object() : templ.parameters;
                     templates_array.push_back(templ_json);
@@ -1528,7 +1647,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
             {
                 std::string uri = params.value("uri", "");
                 if (uri.empty())
-                    return jsonrpc_error(id, -32602, "Missing resource URI");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing resource URI");
                 // Strip trailing slashes for compatibility with Python fastmcp
                 while (!uri.empty() && uri.back() == '/')
                     uri.pop_back();
@@ -1578,7 +1697,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 }
                 catch (const NotFoundError& e)
                 {
-                    return jsonrpc_error(id, -32602, e.what());
+                    return jsonrpc_error(id, kMcpResourceNotFound, e.what());
                 }
                 catch (const std::exception& e)
                 {
@@ -1608,6 +1727,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                         }
                         prompt_json["arguments"] = args_array;
                     }
+                    prompt_json["fastmcp"] = make_fastmcp_meta();
                     prompts_array.push_back(prompt_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -1619,7 +1739,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
             {
                 std::string name = params.value("name", "");
                 if (name.empty())
-                    return jsonrpc_error(id, -32602, "Missing prompt name");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing prompt name");
                 auto span = telemetry::server_span(
                     "prompt " + name, "prompts/get", server.name(), "prompt", name,
                     extract_request_meta(params),
@@ -1645,7 +1765,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, -32602, e.what());
+                    return jsonrpc_error(id, kMcpMethodNotFound, e.what());
                 }
                 catch (const std::exception& e)
                 {
@@ -1655,11 +1775,11 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 }
             }
 
-            return jsonrpc_error(id, -32601, std::string("Method '") + method + "' not found");
+            return jsonrpc_error(id, kJsonRpcMethodNotFound, std::string("Method '") + method + "' not found");
         }
         catch (const std::exception& e)
         {
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), -32603, e.what());
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError, e.what());
         }
     };
 }
@@ -1673,8 +1793,9 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Fast
 std::function<fastmcpp::Json(const fastmcpp::Json&)>
 make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
 {
-    auto tasks = std::make_shared<TaskRegistry>(std::move(session_accessor));
-    return [&app, tasks](const fastmcpp::Json& message) -> fastmcpp::Json
+    auto task_session_accessor = session_accessor;
+    auto tasks = std::make_shared<TaskRegistry>(std::move(task_session_accessor));
+    return [&app, tasks, session_accessor](const fastmcpp::Json& message) -> fastmcpp::Json
     {
         try
         {
@@ -1685,6 +1806,13 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
 
             if (method == "initialize")
             {
+                if (!session_id.empty() && session_accessor)
+                {
+                    auto session = session_accessor(session_id);
+                    if (session && params.contains("capabilities"))
+                        session->set_capabilities(params["capabilities"]);
+                }
+
                 fastmcpp::Json serverInfo = {{"name", app.name()}, {"version", app.version()}};
                 if (app.website_url())
                     serverInfo["websiteUrl"] = *app.website_url();
@@ -1708,6 +1836,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                     capabilities["resources"] = fastmcpp::Json::object();
                 if (!app.list_all_prompts().empty())
                     capabilities["prompts"] = fastmcpp::Json::object();
+                advertise_ui_extension(capabilities);
 
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
@@ -1753,11 +1882,12 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                         }
                         tool_json["icons"] = icons_json;
                     }
+                    attach_meta_ui(tool_json, tool_info.app, tool_info._meta);
                     tools_array.push_back(tool_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
-                                      {"result", fastmcpp::Json{{"tools", tools_array}}}};
+                                      {"result", apply_pagination(tools_array, "tools", params, app.list_page_size())}};
             }
 
             if (method == "tools/call")
@@ -1765,13 +1895,26 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 std::string name = params.value("name", "");
                 fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
                 if (name.empty())
-                    return jsonrpc_error(id, -32602, "Missing tool name");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing tool name");
                 auto span = telemetry::server_span(
                     "tool " + name, "tools/call", app.name(), "tool", name,
                     extract_request_meta(params),
                     session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
+                    if (!session_id.empty())
+                    {
+                        if (!args.contains("_meta") || !args["_meta"].is_object())
+                            args["_meta"] = fastmcpp::Json::object();
+                        args["_meta"]["session_id"] = session_id;
+                        if (session_accessor)
+                        {
+                            auto session = session_accessor(session_id);
+                            if (session)
+                                inject_client_extensions_meta(args, *session);
+                        }
+                    }
+
                     bool has_output_schema = false;
                     for (const auto& tool_info : app.list_all_tools_info())
                     {
@@ -1802,10 +1945,10 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                     if (support)
                     {
                         if (has_task_meta && *support == fastmcpp::TaskSupport::Forbidden)
-                            return jsonrpc_error(id, -32601,
+                            return jsonrpc_error(id, kJsonRpcMethodNotFound,
                                                  "Task execution forbidden for tool: " + name);
                         if (!has_task_meta && *support == fastmcpp::TaskSupport::Required)
-                            return jsonrpc_error(id, -32601,
+                            return jsonrpc_error(id, kJsonRpcMethodNotFound,
                                                  "Task execution required for tool: " + name);
                     }
 
@@ -1869,11 +2012,11 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
             {
                 std::string task_id = params.value("taskId", "");
                 if (task_id.empty())
-                    return jsonrpc_error(id, -32602, "Missing taskId");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing taskId");
 
                 auto info = tasks->get_task(task_id);
                 if (!info)
-                    return jsonrpc_error(id, -32602, "Invalid taskId");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Invalid taskId");
 
                 fastmcpp::Json status_json = {
                     {"taskId", info->task_id},
@@ -1899,18 +2042,18 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
             {
                 std::string task_id = params.value("taskId", "");
                 if (task_id.empty())
-                    return jsonrpc_error(id, -32602, "Missing taskId");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing taskId");
 
                 auto q = tasks->get_result(task_id);
                 if (q.state == TaskRegistry::ResultState::NotFound)
-                    return jsonrpc_error(id, -32602, "Invalid taskId");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Invalid taskId");
                 if (q.state == TaskRegistry::ResultState::NotReady)
-                    return jsonrpc_error(id, -32602, "Task not completed");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Task not completed");
                 if (q.state == TaskRegistry::ResultState::Cancelled)
                     return jsonrpc_error(
-                        id, -32603, q.error_message.empty() ? "Task cancelled" : q.error_message);
+                        id, kJsonRpcInternalError, q.error_message.empty() ? "Task cancelled" : q.error_message);
                 if (q.state == TaskRegistry::ResultState::Failed)
-                    return jsonrpc_error(id, -32603,
+                    return jsonrpc_error(id, kJsonRpcInternalError,
                                          q.error_message.empty() ? "Task failed" : q.error_message);
 
                 return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", q.payload}};
@@ -1946,14 +2089,14 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
             {
                 std::string task_id = params.value("taskId", "");
                 if (task_id.empty())
-                    return jsonrpc_error(id, -32602, "Missing taskId");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing taskId");
 
                 if (!tasks->cancel(task_id))
-                    return jsonrpc_error(id, -32602, "Invalid taskId");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Invalid taskId");
 
                 auto info = tasks->get_task(task_id);
                 if (!info)
-                    return jsonrpc_error(id, -32602, "Invalid taskId");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Invalid taskId");
 
                 fastmcpp::Json result = {
                     {"taskId", info->task_id},
@@ -2004,11 +2147,13 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                         }
                         res_json["icons"] = icons_json;
                     }
+                    attach_meta_ui(res_json, res.app);
+                    res_json["fastmcp"] = make_fastmcp_meta();
                     resources_array.push_back(res_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
-                                      {"result", fastmcpp::Json{{"resources", resources_array}}}};
+                                      {"result", apply_pagination(resources_array, "resources", params, app.list_page_size())}};
             }
 
             if (method == "resources/templates/list")
@@ -2040,6 +2185,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                         }
                         templ_json["icons"] = icons_json;
                     }
+                    attach_meta_ui(templ_json, templ.app);
                     templ_json["parameters"] =
                         templ.parameters.is_null() ? fastmcpp::Json::object() : templ.parameters;
                     templates_array.push_back(templ_json);
@@ -2047,14 +2193,14 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 return fastmcpp::Json{
                     {"jsonrpc", "2.0"},
                     {"id", id},
-                    {"result", fastmcpp::Json{{"resourceTemplates", templates_array}}}};
+                    {"result", apply_pagination(templates_array, "resourceTemplates", params, app.list_page_size())}};
             }
 
             if (method == "resources/read")
             {
                 std::string uri = params.value("uri", "");
                 if (uri.empty())
-                    return jsonrpc_error(id, -32602, "Missing resource URI");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing resource URI");
                 while (!uri.empty() && uri.back() == '/')
                     uri.pop_back();
                 auto span = telemetry::server_span(
@@ -2070,10 +2216,10 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                     if (support)
                     {
                         if (as_task && *support == fastmcpp::TaskSupport::Forbidden)
-                            return jsonrpc_error(id, -32601,
+                            return jsonrpc_error(id, kJsonRpcMethodNotFound,
                                                  "Task execution forbidden for resource: " + uri);
                         if (!as_task && *support == fastmcpp::TaskSupport::Required)
-                            return jsonrpc_error(id, -32601,
+                            return jsonrpc_error(id, kJsonRpcMethodNotFound,
                                                  "Task execution required for resource: " + uri);
                     }
 
@@ -2127,6 +2273,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                                     }
                                     content_json["blob"] = b64;
                                 }
+                                attach_resource_content_meta_ui(content_json, app, uri);
 
                                 return fastmcpp::Json{
                                     {"contents", fastmcpp::Json::array({content_json})}};
@@ -2183,6 +2330,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                         }
                         content_json["blob"] = b64;
                     }
+                    attach_resource_content_meta_ui(content_json, app, uri);
 
                     fastmcpp::Json result_payload =
                         fastmcpp::Json{{"contents", fastmcpp::Json::array({content_json})}};
@@ -2194,13 +2342,13 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, -32602, e.what());
+                    return jsonrpc_error(id, kMcpResourceNotFound, e.what());
                 }
                 catch (const std::exception& e)
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, -32603, e.what());
+                    return jsonrpc_tool_error(id, e);
                 }
             }
 
@@ -2229,18 +2377,19 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                             prompt_json["arguments"] = args_array;
                         }
                     }
+                    prompt_json["fastmcp"] = make_fastmcp_meta();
                     prompts_array.push_back(prompt_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
-                                      {"result", fastmcpp::Json{{"prompts", prompts_array}}}};
+                                      {"result", apply_pagination(prompts_array, "prompts", params, app.list_page_size())}};
             }
 
             if (method == "prompts/get")
             {
                 std::string name = params.value("name", "");
                 if (name.empty())
-                    return jsonrpc_error(id, -32602, "Missing prompt name");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing prompt name");
                 auto span = telemetry::server_span(
                     "prompt " + name, "prompts/get", app.name(), "prompt", name,
                     extract_request_meta(params),
@@ -2254,10 +2403,10 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                     if (support)
                     {
                         if (as_task && *support == fastmcpp::TaskSupport::Forbidden)
-                            return jsonrpc_error(id, -32601,
+                            return jsonrpc_error(id, kJsonRpcMethodNotFound,
                                                  "Task execution forbidden for prompt: " + name);
                         if (!as_task && *support == fastmcpp::TaskSupport::Required)
-                            return jsonrpc_error(id, -32601,
+                            return jsonrpc_error(id, kJsonRpcMethodNotFound,
                                                  "Task execution required for prompt: " + name);
                     }
 
@@ -2335,21 +2484,21 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, -32602, e.what());
+                    return jsonrpc_error(id, kMcpMethodNotFound, e.what());
                 }
                 catch (const std::exception& e)
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, -32603, e.what());
+                    return jsonrpc_tool_error(id, e);
                 }
             }
 
-            return jsonrpc_error(id, -32601, std::string("Method '") + method + "' not found");
+            return jsonrpc_error(id, kJsonRpcMethodNotFound, std::string("Method '") + method + "' not found");
         }
         catch (const std::exception& e)
         {
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), -32603, e.what());
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError, e.what());
         }
     };
 }
@@ -2376,6 +2525,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                     capabilities["resources"] = fastmcpp::Json::object();
                 if (!app.list_all_prompts().empty())
                     capabilities["prompts"] = fastmcpp::Json::object();
+                advertise_ui_extension(capabilities);
 
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
@@ -2418,6 +2568,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         }
                         tool_json["icons"] = icons_array;
                     }
+                    attach_meta_ui(tool_json, tool.app, tool._meta);
                     tools_array.push_back(tool_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -2430,7 +2581,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 std::string name = params.value("name", "");
                 fastmcpp::Json arguments = params.value("arguments", fastmcpp::Json::object());
                 if (name.empty())
-                    return jsonrpc_error(id, -32602, "Missing tool name");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing tool name");
                 auto span = telemetry::server_span(
                     "tool " + name, "tools/call", app.name(), "tool", name,
                     extract_request_meta(params),
@@ -2478,13 +2629,13 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 }
                 catch (const NotFoundError& e)
                 {
-                    return jsonrpc_error(id, -32602, e.what());
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, e.what());
                 }
                 catch (const std::exception& e)
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, -32603, e.what());
+                    return jsonrpc_error(id, kJsonRpcInternalError, e.what());
                 }
             }
 
@@ -2517,6 +2668,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         }
                         res_json["icons"] = icons_json;
                     }
+                    attach_meta_ui(res_json, res.app, res._meta);
+                    res_json["fastmcp"] = make_fastmcp_meta();
                     resources_array.push_back(res_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -2553,6 +2706,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         }
                         templ_json["icons"] = icons_json;
                     }
+                    attach_meta_ui(templ_json, templ.app, templ._meta);
                     if (templ.parameters)
                         templ_json["parameters"] = *templ.parameters;
                     else
@@ -2569,7 +2723,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
             {
                 std::string uri = params.value("uri", "");
                 if (uri.empty())
-                    return jsonrpc_error(id, -32602, "Missing resource URI");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing resource URI");
                 auto span = telemetry::server_span(
                     "resource " + uri, "resources/read", app.name(), "resource", uri,
                     extract_request_meta(params),
@@ -2587,6 +2741,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                             if (text_content->mimeType)
                                 content_json["mimeType"] = *text_content->mimeType;
                             content_json["text"] = text_content->text;
+                            if (text_content->_meta)
+                                content_json["_meta"] = *text_content->_meta;
                             contents_array.push_back(content_json);
                         }
                         else if (auto* blob_content =
@@ -2596,6 +2752,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                             if (blob_content->mimeType)
                                 content_json["mimeType"] = *blob_content->mimeType;
                             content_json["blob"] = blob_content->blob;
+                            if (blob_content->_meta)
+                                content_json["_meta"] = *blob_content->_meta;
                             contents_array.push_back(content_json);
                         }
                     }
@@ -2608,13 +2766,13 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, -32602, e.what());
+                    return jsonrpc_error(id, kMcpResourceNotFound, e.what());
                 }
                 catch (const std::exception& e)
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, -32603, e.what());
+                    return jsonrpc_error(id, kJsonRpcInternalError, e.what());
                 }
             }
 
@@ -2640,6 +2798,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         }
                         prompt_json["arguments"] = args_array;
                     }
+                    prompt_json["fastmcp"] = make_fastmcp_meta();
                     prompts_array.push_back(prompt_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -2651,7 +2810,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
             {
                 std::string name = params.value("name", "");
                 if (name.empty())
-                    return jsonrpc_error(id, -32602, "Missing prompt name");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing prompt name");
                 auto span = telemetry::server_span(
                     "prompt " + name, "prompts/get", app.name(), "prompt", name,
                     extract_request_meta(params),
@@ -2707,21 +2866,21 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, -32602, e.what());
+                    return jsonrpc_error(id, kMcpMethodNotFound, e.what());
                 }
                 catch (const std::exception& e)
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, -32603, e.what());
+                    return jsonrpc_error(id, kJsonRpcInternalError, e.what());
                 }
             }
 
-            return jsonrpc_error(id, -32601, std::string("Method '") + method + "' not found");
+            return jsonrpc_error(id, kJsonRpcMethodNotFound, std::string("Method '") + method + "' not found");
         }
         catch (const std::exception& e)
         {
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), -32603, e.what());
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError, e.what());
         }
     };
 }
@@ -2829,6 +2988,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                     capabilities["resources"] = fastmcpp::Json::object();
                 if (!app.list_all_prompts().empty())
                     capabilities["prompts"] = fastmcpp::Json::object();
+                advertise_ui_extension(capabilities);
 
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
@@ -2874,11 +3034,12 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                         }
                         tool_json["icons"] = icons_json;
                     }
+                    attach_meta_ui(tool_json, tool_info.app, tool_info._meta);
                     tools_array.push_back(tool_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
-                                      {"result", fastmcpp::Json{{"tools", tools_array}}}};
+                                      {"result", apply_pagination(tools_array, "tools", params, app.list_page_size())}};
             }
 
             if (method == "tools/call")
@@ -2886,7 +3047,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 std::string name = params.value("name", "");
                 fastmcpp::Json args = params.value("arguments", fastmcpp::Json::object());
                 if (name.empty())
-                    return jsonrpc_error(id, -32602, "Missing tool name");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing tool name");
                 auto span = telemetry::server_span(
                     "tool " + name, "tools/call", app.name(), "tool", name,
                     extract_request_meta(params),
@@ -2914,6 +3075,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                     {
                         // Store sampling context that tool can access
                         args["_meta"]["sampling_enabled"] = true;
+                        inject_client_extensions_meta(args, *session);
                     }
                 }
 
@@ -2929,7 +3091,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, -32603, e.what());
+                    return jsonrpc_error(id, kJsonRpcInternalError, e.what());
                 }
             }
 
@@ -2965,11 +3127,13 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                         }
                         res_json["icons"] = icons_json;
                     }
+                    attach_meta_ui(res_json, res.app);
+                    res_json["fastmcp"] = make_fastmcp_meta();
                     resources_array.push_back(res_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
-                                      {"result", fastmcpp::Json{{"resources", resources_array}}}};
+                                      {"result", apply_pagination(resources_array, "resources", params, app.list_page_size())}};
             }
 
             if (method == "resources/templates/list")
@@ -3001,6 +3165,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                         }
                         templ_json["icons"] = icons_json;
                     }
+                    attach_meta_ui(templ_json, templ.app);
                     templ_json["parameters"] =
                         templ.parameters.is_null() ? fastmcpp::Json::object() : templ.parameters;
                     templates_array.push_back(templ_json);
@@ -3008,14 +3173,14 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 return fastmcpp::Json{
                     {"jsonrpc", "2.0"},
                     {"id", id},
-                    {"result", fastmcpp::Json{{"resourceTemplates", templates_array}}}};
+                    {"result", apply_pagination(templates_array, "resourceTemplates", params, app.list_page_size())}};
             }
 
             if (method == "resources/read")
             {
                 std::string uri = params.value("uri", "");
                 if (uri.empty())
-                    return jsonrpc_error(id, -32602, "Missing resource URI");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing resource URI");
                 while (!uri.empty() && uri.back() == '/')
                     uri.pop_back();
                 auto span = telemetry::server_span(
@@ -3055,6 +3220,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                         }
                         content_json["blob"] = b64;
                     }
+                    attach_resource_content_meta_ui(content_json, app, uri);
 
                     return fastmcpp::Json{{"jsonrpc", "2.0"},
                                           {"id", id},
@@ -3064,13 +3230,13 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, -32602, e.what());
+                    return jsonrpc_error(id, kMcpResourceNotFound, e.what());
                 }
                 catch (const std::exception& e)
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, -32603, e.what());
+                    return jsonrpc_error(id, kJsonRpcInternalError, e.what());
                 }
             }
 
@@ -3096,18 +3262,19 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                         }
                         prompt_json["arguments"] = args_array;
                     }
+                    prompt_json["fastmcp"] = make_fastmcp_meta();
                     prompts_array.push_back(prompt_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
-                                      {"result", fastmcpp::Json{{"prompts", prompts_array}}}};
+                                      {"result", apply_pagination(prompts_array, "prompts", params, app.list_page_size())}};
             }
 
             if (method == "prompts/get")
             {
                 std::string prompt_name = params.value("name", "");
                 if (prompt_name.empty())
-                    return jsonrpc_error(id, -32602, "Missing prompt name");
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing prompt name");
                 auto span = telemetry::server_span(
                     "prompt " + prompt_name, "prompts/get", app.name(), "prompt", prompt_name,
                     extract_request_meta(params),
@@ -3142,21 +3309,21 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, -32602, e.what());
+                    return jsonrpc_error(id, kMcpMethodNotFound, e.what());
                 }
                 catch (const std::exception& e)
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, -32603, e.what());
+                    return jsonrpc_error(id, kJsonRpcInternalError, e.what());
                 }
             }
 
-            return jsonrpc_error(id, -32601, std::string("Method '") + method + "' not found");
+            return jsonrpc_error(id, kJsonRpcMethodNotFound, std::string("Method '") + method + "' not found");
         }
         catch (const std::exception& e)
         {
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), -32603, e.what());
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError, e.what());
         }
     };
 }

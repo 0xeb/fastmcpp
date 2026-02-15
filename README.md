@@ -11,7 +11,7 @@
 
 ---
 
-fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp) library, providing native performance for MCP servers and clients with support for tools, resources, prompts, and multiple transport layers (STDIO, HTTP/SSE, WebSocket).
+fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp) library, providing native performance for MCP servers and clients with support for tools, resources, prompts, and MCP-standard transport layers (STDIO, HTTP/SSE, Streamable HTTP).
 
 **Status:** Beta – core MCP features track the Python `fastmcp` reference.
 
@@ -20,7 +20,7 @@ fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp
 ## Features
 
 - Core MCP protocol implementation (JSON‑RPC).
-- Multiple transports: STDIO, HTTP (SSE), Streamable HTTP, WebSocket.
+- Multiple transports: STDIO, HTTP (SSE), Streamable HTTP.
 - Streamable HTTP transport (MCP spec 2025-03-26) with session management.
 - Tool management and invocation.
 - Resources and prompts support.
@@ -47,7 +47,6 @@ Optional:
 
 - libcurl (for HTTP POST streaming; can be fetched when `FASTMCPP_FETCH_CURL=ON`).
 - cpp‑httplib (HTTP server, fetched automatically).
-- easywsclient (WebSocket client, fetched automatically).
 
 ## Building
 
@@ -68,8 +67,7 @@ cmake -B build -S . \
   -DCMAKE_BUILD_TYPE=Release \
   -DFASTMCPP_ENABLE_POST_STREAMING=ON \
   -DFASTMCPP_FETCH_CURL=ON \
-  -DFASTMCPP_ENABLE_STREAMING_TESTS=ON \
-  -DFASTMCPP_ENABLE_WS_STREAMING_TESTS=ON
+  -DFASTMCPP_ENABLE_STREAMING_TESTS=ON
 ```
 
 Key options:
@@ -80,7 +78,6 @@ Key options:
 | `FASTMCPP_ENABLE_POST_STREAMING` | OFF     | Enable HTTP POST streaming (requires libcurl)   |
 | `FASTMCPP_FETCH_CURL`           | OFF     | Fetch and build curl (via FetchContent) if not found |
 | `FASTMCPP_ENABLE_STREAMING_TESTS` | OFF   | Enable SSE streaming tests                      |
-| `FASTMCPP_ENABLE_WS_STREAMING_TESTS` | OFF | Enable WebSocket streaming tests                |
 
 ### Platform notes
 
@@ -276,7 +273,6 @@ int main() {
 
 The `create_proxy()` factory function automatically detects the transport type from the URL:
 - `http://` or `https://` URLs use HTTP transport
-- `ws://` or `wss://` URLs use WebSocket transport
 
 Local tools, resources, and prompts take precedence over remote ones with the same name.
 

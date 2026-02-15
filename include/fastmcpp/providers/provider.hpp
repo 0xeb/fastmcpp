@@ -8,6 +8,7 @@
 #include "fastmcpp/resources/template.hpp"
 #include "fastmcpp/tools/tool.hpp"
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -56,7 +57,11 @@ class Provider
             auto next = chain;
             chain = [transform, next]() { return transform->list_tools(next); };
         }
-        return chain();
+        auto result = chain();
+        result.erase(std::remove_if(result.begin(), result.end(),
+                                    [](const tools::Tool& t) { return t.is_hidden(); }),
+                     result.end());
+        return result;
     }
 
     std::optional<tools::Tool> get_tool_transformed(const std::string& name) const

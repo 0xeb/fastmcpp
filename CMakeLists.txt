@@ -14,8 +14,6 @@ option(FASTMCPP_BUILD_EXAMPLES "Build examples" ON)
 option(FASTMCPP_ENABLE_POST_STREAMING "Enable POST streaming via libcurl (optional)" OFF)
 option(FASTMCPP_FETCH_CURL "Fetch and build libcurl statically for POST streaming" ON)
 option(FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS "Enable built-in OpenAI/Anthropic sampling handlers (requires libcurl)" OFF)
-option(FASTMCPP_ENABLE_WS_STREAMING_TESTS "Enable WebSocket streaming tests (requires external server)" OFF)
-option(FASTMCPP_ENABLE_LOCAL_WS_TEST "Enable local WebSocket server test (depends on httplib ws server support)" OFF)
 
 add_library(fastmcpp_core STATIC
     src/types.cpp
@@ -24,7 +22,12 @@ add_library(fastmcpp_core STATIC
     src/providers/transforms/namespace.cpp
     src/providers/transforms/tool_transform.cpp
     src/providers/transforms/visibility.cpp
+    src/providers/transforms/version_filter.cpp
+    src/providers/transforms/prompts_as_tools.cpp
+    src/providers/transforms/resources_as_tools.cpp
     src/providers/filesystem_provider.cpp
+    src/providers/skills_provider.cpp
+    src/providers/openapi_provider.cpp
     src/proxy.cpp
     src/mcp/handler.cpp
     src/mcp/tasks.cpp
@@ -40,6 +43,8 @@ add_library(fastmcpp_core STATIC
     src/server/context.cpp
     src/server/middleware.cpp
     src/server/security_middleware.cpp
+    src/server/response_limiting_middleware.cpp
+    src/server/ping_middleware.cpp
     src/server/sampling.cpp
     src/server/http_server.cpp
     src/server/stdio_server.cpp
@@ -91,19 +96,6 @@ if(NOT cpp_httplib_POPULATED)
   FetchContent_Populate(cpp_httplib)
 endif()
 target_include_directories(fastmcpp_core PUBLIC ${cpp_httplib_SOURCE_DIR})
-
-# Header-only WebSocket client (easywsclient)
-FetchContent_Declare(
-  easywsclient
-  GIT_REPOSITORY https://github.com/dhbaird/easywsclient.git
-  GIT_TAG master
-)
-FetchContent_GetProperties(easywsclient)
-if(NOT easywsclient_POPULATED)
-  FetchContent_Populate(easywsclient)
-endif()
-target_include_directories(fastmcpp_core PUBLIC ${easywsclient_SOURCE_DIR})
-target_sources(fastmcpp_core PRIVATE ${easywsclient_SOURCE_DIR}/easywsclient.cpp)
 
 # Optional: libcurl for POST streaming and sampling handlers (modular)
 if(FASTMCPP_ENABLE_POST_STREAMING OR FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS)
@@ -248,6 +240,9 @@ if(FASTMCPP_BUILD_TESTS)
   add_test(NAME fastmcpp_cli_tasks_demo COMMAND fastmcpp tasks demo)
   add_executable(fastmcpp_cli_tasks_ux tests/cli/tasks_cli.cpp)
   add_test(NAME fastmcpp_cli_tasks_ux COMMAND fastmcpp_cli_tasks_ux)
+  add_executable(fastmcpp_cli_generated_e2e tests/cli/generated_cli_e2e.cpp)
+  target_link_libraries(fastmcpp_cli_generated_e2e PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_cli_generated_e2e COMMAND fastmcpp_cli_generated_e2e)
 
   add_executable(fastmcpp_http_integration tests/server/http_integration.cpp)   
   target_link_libraries(fastmcpp_http_integration PRIVATE fastmcpp_core)        
@@ -272,6 +267,10 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_schema_build tests/schema/build.cpp)
   target_link_libraries(fastmcpp_schema_build PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_schema_build COMMAND fastmcpp_schema_build)
+
+  add_executable(fastmcpp_schema_dereference_toggle tests/schema/dereference_toggle.cpp)
+  target_link_libraries(fastmcpp_schema_dereference_toggle PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_schema_dereference_toggle COMMAND fastmcpp_schema_dereference_toggle)
 
   add_executable(fastmcpp_content tests/content.cpp)
   target_link_libraries(fastmcpp_content PRIVATE fastmcpp_core)
@@ -477,6 +476,11 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_app_ergonomics PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_app_ergonomics COMMAND fastmcpp_app_ergonomics)
 
+  # MCP Apps metadata parity tests
+  add_executable(fastmcpp_app_mcp_apps tests/app/mcp_apps.cpp)
+  target_link_libraries(fastmcpp_app_mcp_apps PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_app_mcp_apps COMMAND fastmcpp_app_mcp_apps)
+
   # Filesystem provider tests
   add_library(fastmcpp_fs_test_plugin SHARED tests/fs/test_plugin.cpp)
   target_compile_definitions(fastmcpp_fs_test_plugin PRIVATE FASTMCPP_PROVIDER_EXPORTS)
@@ -497,6 +501,18 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_provider_transforms PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_provider_transforms COMMAND fastmcpp_provider_transforms)
 
+  add_executable(fastmcpp_provider_version_filter tests/providers/version_filter.cpp)
+  target_link_libraries(fastmcpp_provider_version_filter PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_provider_version_filter COMMAND fastmcpp_provider_version_filter)
+
+  add_executable(fastmcpp_provider_skills tests/providers/skills_provider.cpp)
+  target_link_libraries(fastmcpp_provider_skills PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_provider_skills COMMAND fastmcpp_provider_skills)
+
+  add_executable(fastmcpp_provider_openapi tests/providers/openapi_provider.cpp)
+  target_link_libraries(fastmcpp_provider_openapi PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_provider_openapi COMMAND fastmcpp_provider_openapi)
+
   # Proxy tests
   add_executable(fastmcpp_proxy_basic tests/proxy/basic.cpp)
   target_link_libraries(fastmcpp_proxy_basic PRIVATE fastmcpp_core)
@@ -506,6 +522,31 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_main_header tests/main_header/compile_test.cpp)
   target_link_libraries(fastmcpp_main_header PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_main_header COMMAND fastmcpp_main_header)
+
+  # Sync-cycle tests (Phase 11)
+  add_executable(fastmcpp_mcp_error_codes tests/mcp/test_error_codes.cpp)
+  target_link_libraries(fastmcpp_mcp_error_codes PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_mcp_error_codes COMMAND fastmcpp_mcp_error_codes)
+
+  add_executable(fastmcpp_pagination tests/mcp/test_pagination.cpp)
+  target_link_libraries(fastmcpp_pagination PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_pagination COMMAND fastmcpp_pagination)
+
+  add_executable(fastmcpp_tools_transform_enabled tests/tools/test_tool_transform_enabled.cpp)
+  target_link_libraries(fastmcpp_tools_transform_enabled PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_tools_transform_enabled COMMAND fastmcpp_tools_transform_enabled)
+
+  add_executable(fastmcpp_tools_sequential tests/tools/test_tool_sequential.cpp)
+  target_link_libraries(fastmcpp_tools_sequential PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_tools_sequential COMMAND fastmcpp_tools_sequential)
+
+  add_executable(fastmcpp_session_state tests/server/test_session_state.cpp)
+  target_link_libraries(fastmcpp_session_state PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_session_state COMMAND fastmcpp_session_state)
+
+  add_executable(fastmcpp_response_limiting tests/server/test_response_limiting.cpp)
+  target_link_libraries(fastmcpp_response_limiting PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_response_limiting COMMAND fastmcpp_response_limiting)
 
   set_tests_properties(fastmcpp_stdio_client PROPERTIES
     LABELS "conformance"
@@ -525,20 +566,6 @@ if(FASTMCPP_BUILD_TESTS)
     add_test(NAME fastmcpp_streaming_sse COMMAND fastmcpp_streaming_sse)
     # Avoid port conflicts with other HTTP tests when running in parallel; currently unstable on some hosts
     set_tests_properties(fastmcpp_streaming_sse PROPERTIES RUN_SERIAL TRUE)
-  endif()
-
-  if(FASTMCPP_ENABLE_WS_STREAMING_TESTS)
-    add_executable(fastmcpp_ws_streaming tests/transports/ws_streaming.cpp)     
-    target_link_libraries(fastmcpp_ws_streaming PRIVATE fastmcpp_core)
-    add_test(NAME fastmcpp_ws_streaming COMMAND fastmcpp_ws_streaming)
-    # Test auto-skips if FASTMCPP_WS_URL is not set
-
-    if(FASTMCPP_ENABLE_LOCAL_WS_TEST)
-      add_executable(fastmcpp_ws_streaming_local tests/transports/ws_streaming_local.cpp)
-      target_link_libraries(fastmcpp_ws_streaming_local PRIVATE fastmcpp_core)  
-      add_test(NAME fastmcpp_ws_streaming_local COMMAND fastmcpp_ws_streaming_local)
-      set_tests_properties(fastmcpp_ws_streaming_local PROPERTIES RUN_SERIAL TRUE)
-    endif()
   endif()
 
   # POST streaming transport test (requires libcurl)
@@ -585,6 +612,18 @@ if(FASTMCPP_BUILD_EXAMPLES)
   add_executable(fastmcpp_example_tags_example examples/tags_example.cpp)
   target_link_libraries(fastmcpp_example_tags_example PRIVATE fastmcpp_core)
 
+  # MCP Apps example (FastMCP 3.x surface)
+  add_executable(fastmcpp_example_mcp_apps examples/mcp_apps.cpp)
+  target_link_libraries(fastmcpp_example_mcp_apps PRIVATE fastmcpp_core)
+
+  # Skills provider example
+  add_executable(fastmcpp_example_skills_provider examples/skills_provider.cpp)
+  target_link_libraries(fastmcpp_example_skills_provider PRIVATE fastmcpp_core)
+
+  # OpenAPI provider example
+  add_executable(fastmcpp_example_openapi_provider examples/openapi_provider.cpp)
+  target_link_libraries(fastmcpp_example_openapi_provider PRIVATE fastmcpp_core)
+
   # Context API example (v2.13.0+)
   add_executable(fastmcpp_example_context_introspection examples/context_introspection.cpp)
   target_link_libraries(fastmcpp_example_context_introspection PRIVATE fastmcpp_core)
@@ -604,6 +643,10 @@ if(FASTMCPP_BUILD_EXAMPLES)
   # Tool Injection Middleware example (v2.13.0+)
   add_executable(fastmcpp_example_tool_injection_middleware examples/tool_injection_middleware.cpp)
   target_link_libraries(fastmcpp_example_tool_injection_middleware PRIVATE fastmcpp_core)
+
+  # Response Limiting Middleware example
+  add_executable(fastmcpp_example_response_limiting_middleware examples/response_limiting_middleware.cpp)
+  target_link_libraries(fastmcpp_example_response_limiting_middleware PRIVATE fastmcpp_core)
 
   # Server Metadata example (v2.13.0+)
   add_executable(fastmcpp_example_server_metadata examples/server_metadata.cpp)

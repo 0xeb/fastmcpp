@@ -231,11 +231,15 @@ struct ToolTransformConfig
     std::optional<std::string> name;
     std::optional<std::string> description;
     std::unordered_map<std::string, ArgTransform> arguments;
+    std::optional<bool> enabled; // When false, tool is hidden from listings
 
     /// Apply this configuration to create a transformed tool
     Tool apply(const Tool& tool) const
     {
-        return create_transformed_tool(tool, name, description, arguments);
+        auto result = create_transformed_tool(tool, name, description, arguments);
+        if (enabled.has_value() && !*enabled)
+            result.set_hidden(true);
+        return result;
     }
 };
 
