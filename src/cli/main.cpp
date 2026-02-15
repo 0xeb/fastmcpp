@@ -5,8 +5,8 @@
 #include "fastmcpp/server/server.hpp"
 #include "fastmcpp/version.hpp"
 
-#include <chrono>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -55,7 +55,8 @@ static void print_connection_options()
     std::cout << "    --mcp-path <path>            Override MCP path for streamable HTTP\n";
     std::cout << "  --stdio <command>              Spawn an MCP stdio server\n";
     std::cout << "    --stdio-arg <arg>            Repeatable args for --stdio\n";
-    std::cout << "    --stdio-one-shot             Spawn a fresh process per request (disables keep-alive)\n";
+    std::cout << "    --stdio-one-shot             Spawn a fresh process per request (disables "
+                 "keep-alive)\n";
     std::cout << "  --header <KEY=VALUE>           Repeatable header for HTTP/streamable-http\n";
 }
 
@@ -67,10 +68,14 @@ static int usage(int exit_code = 1)
     std::cout << "  fastmcpp --help\n";
     std::cout << "  fastmcpp client sum <a> <b>\n";
     std::cout << "  fastmcpp discover [connection options] [--pretty]\n";
-    std::cout << "  fastmcpp list <tools|resources|resource-templates|prompts> [connection options] [--pretty]\n";
+    std::cout << "  fastmcpp list <tools|resources|resource-templates|prompts> [connection "
+                 "options] [--pretty]\n";
     std::cout << "  fastmcpp call <tool> [--args <json>] [connection options] [--pretty]\n";
-    std::cout << "  fastmcpp generate-cli <server_spec> [output] [--force] [--timeout <seconds>] [--auth <mode>] [--header <KEY=VALUE>] [--no-skill]\n";
-    std::cout << "  fastmcpp install <stdio|mcp-json|goose|cursor|claude-desktop|claude-code|gemini-cli> [server_spec]\n";
+    std::cout << "  fastmcpp generate-cli <server_spec> [output] [--force] [--timeout <seconds>] "
+                 "[--auth <mode>] [--header <KEY=VALUE>] [--no-skill]\n";
+    std::cout
+        << "  fastmcpp install <stdio|mcp-json|goose|cursor|claude-desktop|claude-code|gemini-cli> "
+           "[server_spec]\n";
     std::cout << "  fastmcpp tasks --help\n";
     std::cout << "\n";
     print_connection_options();
@@ -83,16 +88,19 @@ static int tasks_usage(int exit_code = 1)
     std::cout << "Usage:\n";
     std::cout << "  fastmcpp tasks --help\n";
     std::cout << "  fastmcpp tasks demo\n";
-    std::cout << "  fastmcpp tasks list    [connection options] [--cursor <c>] [--limit <n>] [--pretty]\n";
+    std::cout << "  fastmcpp tasks list    [connection options] [--cursor <c>] [--limit <n>] "
+                 "[--pretty]\n";
     std::cout << "  fastmcpp tasks get     <taskId> [connection options] [--pretty]\n";
     std::cout << "  fastmcpp tasks cancel  <taskId> [connection options] [--pretty]\n";
-    std::cout << "  fastmcpp tasks result  <taskId> [connection options] [--wait] [--timeout-ms <n>] [--pretty]\n";
+    std::cout << "  fastmcpp tasks result  <taskId> [connection options] [--wait] [--timeout-ms "
+                 "<n>] [--pretty]\n";
     std::cout << "\n";
     print_connection_options();
     std::cout << "\n";
     std::cout << "Notes:\n";
     std::cout << "  - Python fastmcp's `tasks` CLI is for Docket (distributed workers/Redis).\n";
-    std::cout << "  - fastmcpp provides MCP Tasks protocol client ops (SEP-1686 subset): list/get/cancel/result.\n";
+    std::cout << "  - fastmcpp provides MCP Tasks protocol client ops (SEP-1686 subset): "
+                 "list/get/cancel/result.\n";
     std::cout << "  - Use `fastmcpp tasks demo` for an in-process example (no network required).\n";
     return exit_code;
 }
@@ -101,7 +109,10 @@ static int install_usage(int exit_code = 1)
 {
     std::cout << "fastmcpp install\n";
     std::cout << "Usage:\n";
-    std::cout << "  fastmcpp install <target> <server_spec> [--name <server_name>] [--command <cmd>] [--arg <arg>] [--with <pkg>] [--with-editable <path>] [--python <ver>] [--with-requirements <file>] [--project <dir>] [--env KEY=VALUE] [--env-file <path>] [--workspace <dir>] [--copy]\n";
+    std::cout << "  fastmcpp install <target> <server_spec> [--name <server_name>] [--command "
+                 "<cmd>] [--arg <arg>] [--with <pkg>] [--with-editable <path>] [--python <ver>] "
+                 "[--with-requirements <file>] [--project <dir>] [--env KEY=VALUE] [--env-file "
+                 "<path>] [--workspace <dir>] [--copy]\n";
     std::cout << "Targets:\n";
     std::cout << "  stdio            Print stdio launch command\n";
     std::cout << "  mcp-json         Print MCP JSON entry (\"name\": {command,args,env})\n";
@@ -157,7 +168,7 @@ static bool consume_flag(std::vector<std::string>& args, const std::string& flag
 }
 
 static std::vector<std::string> consume_all_flag_values(std::vector<std::string>& args,
-                                                         const std::string& flag)
+                                                        const std::string& flag)
 {
     std::vector<std::string> values;
     while (true)
@@ -286,8 +297,8 @@ static fastmcpp::client::Client make_client_from_connection(const Connection& co
         return Client(std::make_unique<HttpTransport>(conn.url_or_command,
                                                       std::chrono::seconds(300), headers));
     case Connection::Kind::StreamableHttp:
-        return Client(std::make_unique<StreamableHttpTransport>(conn.url_or_command, conn.mcp_path,
-                                                                headers));
+        return Client(
+            std::make_unique<StreamableHttpTransport>(conn.url_or_command, conn.mcp_path, headers));
     case Connection::Kind::Stdio:
         return Client(std::make_unique<StdioTransport>(conn.url_or_command, conn.stdio_args,
                                                        std::nullopt, conn.stdio_keep_alive));
@@ -473,7 +484,8 @@ static int run_tasks_command(int argc, char** argv)
             if (sub == "cancel")
             {
                 auto client = make_client_from_connection(*conn);
-                fastmcpp::Json res = client.call("tasks/cancel", fastmcpp::Json{{"taskId", task_id}});
+                fastmcpp::Json res =
+                    client.call("tasks/cancel", fastmcpp::Json{{"taskId", task_id}});
                 dump_json(res, pretty);
                 return 0;
             }
@@ -484,7 +496,8 @@ static int run_tasks_command(int argc, char** argv)
                 auto start = std::chrono::steady_clock::now();
                 while (true)
                 {
-                    fastmcpp::Json status = client.call("tasks/get", fastmcpp::Json{{"taskId", task_id}});
+                    fastmcpp::Json status =
+                        client.call("tasks/get", fastmcpp::Json{{"taskId", task_id}});
                     std::string s = status.value("status", "");
                     if (s == "completed")
                         break;
@@ -493,8 +506,8 @@ static int run_tasks_command(int argc, char** argv)
                         dump_json(status, pretty);
                         return 3;
                     }
-                    if (timeout_ms > 0 &&
-                        std::chrono::steady_clock::now() - start >= std::chrono::milliseconds(timeout_ms))
+                    if (timeout_ms > 0 && std::chrono::steady_clock::now() - start >=
+                                              std::chrono::milliseconds(timeout_ms))
                     {
                         dump_json(status, pretty);
                         return 4;
@@ -582,7 +595,8 @@ static int run_list_command(int argc, char** argv)
     std::vector<std::string> args = collect_args(argc, argv, 2);
     if (consume_flag(args, "--help") || consume_flag(args, "-h") || args.empty())
     {
-        std::cout << "Usage: fastmcpp list <tools|resources|resource-templates|prompts> [connection options] [--pretty]\n";
+        std::cout << "Usage: fastmcpp list <tools|resources|resource-templates|prompts> "
+                     "[connection options] [--pretty]\n";
         return args.empty() ? 1 : 0;
     }
 
@@ -637,7 +651,8 @@ static int run_call_command(int argc, char** argv)
     std::vector<std::string> args = collect_args(argc, argv, 2);
     if (consume_flag(args, "--help") || consume_flag(args, "-h"))
     {
-        std::cout << "Usage: fastmcpp call <tool> [--args <json>] [connection options] [--pretty]\n";
+        std::cout
+            << "Usage: fastmcpp call <tool> [--args <json>] [connection options] [--pretty]\n";
         return 0;
     }
     if (args.empty())
@@ -685,8 +700,8 @@ static int run_call_command(int argc, char** argv)
     {
         auto client = make_client_from_connection(*conn);
         initialize_client(client);
-        fastmcpp::Json result =
-            client.call("tools/call", fastmcpp::Json{{"name", tool_name}, {"arguments", parsed_args}});
+        fastmcpp::Json result = client.call(
+            "tools/call", fastmcpp::Json{{"name", tool_name}, {"arguments", parsed_args}});
         dump_json(result, pretty);
         return 0;
     }
@@ -701,12 +716,10 @@ static std::string ps_quote(const std::string& s)
 {
     std::string out = "'";
     for (char c : s)
-    {
         if (c == '\'')
             out += "''";
         else
             out.push_back(c);
-    }
     out.push_back('\'');
     return out;
 }
@@ -728,13 +741,10 @@ static std::string sanitize_ps_function_name(const std::string& name)
     std::string out;
     out.reserve(name.size());
     for (char c : name)
-    {
-        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-            (c >= '0' && c <= '9') || c == '_')
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')
             out.push_back(c);
         else
             out.push_back('_');
-    }
     if (out.empty())
         out = "tool";
     if (out.front() >= '0' && out.front() <= '9')
@@ -749,9 +759,9 @@ static std::string url_encode(const std::string& value)
     out.reserve(value.size() * 3);
     for (unsigned char c : value)
     {
-        const bool unreserved =
-            (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-            c == '-' || c == '_' || c == '.' || c == '~';
+        const bool unreserved = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                                (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' ||
+                                c == '~';
         if (unreserved)
         {
             out.push_back(static_cast<char>(c));
@@ -766,8 +776,7 @@ static std::string url_encode(const std::string& value)
 
 static std::string base64_urlsafe_encode(const std::string& input)
 {
-    static const char* kB64 =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    static const char* kB64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     std::string out;
     out.reserve(((input.size() + 2) / 3) * 4);
@@ -786,12 +795,10 @@ static std::string base64_urlsafe_encode(const std::string& input)
     }
 
     for (char& c : out)
-    {
         if (c == '+')
             c = '-';
         else if (c == '/')
             c = '_';
-    }
 
     return out;
 }
@@ -816,34 +823,29 @@ static std::string shell_quote(const std::string& value)
 
     std::string out = "\"";
     for (char c : value)
-    {
         if (c == '"')
             out += "\\\"";
         else
             out.push_back(c);
-    }
     out.push_back('"');
     return out;
 }
 
 static bool starts_with(const std::string& value, const std::string& prefix)
 {
-    return value.size() >= prefix.size() &&
-           value.compare(0, prefix.size(), prefix) == 0;
+    return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0;
 }
 
 static std::string py_quote(const std::string& s)
 {
     std::string out = "'";
     for (char c : s)
-    {
         if (c == '\\')
             out += "\\\\";
         else if (c == '\'')
             out += "\\'";
         else
             out.push_back(c);
-    }
     out.push_back('\'');
     return out;
 }
@@ -885,8 +887,7 @@ static std::string derive_server_name(const std::string& server_spec)
     if (server_spec.size() >= 3)
     {
         auto pos = server_spec.find(':');
-        if (pos != std::string::npos && pos > 0 &&
-            server_spec.find('/') == std::string::npos &&
+        if (pos != std::string::npos && pos > 0 && server_spec.find('/') == std::string::npos &&
             server_spec.find('\\') == std::string::npos)
         {
             auto suffix = server_spec.substr(pos + 1);
@@ -952,17 +953,16 @@ static std::string build_tool_args_example(const fastmcpp::Json& tool)
 {
     fastmcpp::Json args = fastmcpp::Json::object();
     if (!(tool.contains("inputSchema") && tool["inputSchema"].is_object() &&
-          tool["inputSchema"].contains("properties") && tool["inputSchema"]["properties"].is_object()))
+          tool["inputSchema"].contains("properties") &&
+          tool["inputSchema"]["properties"].is_object()))
         return "{}";
 
     std::unordered_set<std::string> required;
     if (tool["inputSchema"].contains("required") && tool["inputSchema"]["required"].is_array())
     {
         for (const auto& entry : tool["inputSchema"]["required"])
-        {
             if (entry.is_string())
                 required.insert(entry.get<std::string>());
-        }
     }
 
     for (const auto& [prop_name, prop_schema] : tool["inputSchema"]["properties"].items())
@@ -991,8 +991,8 @@ static std::optional<Connection> connection_from_server_spec(const std::string& 
         if (std::regex_match(server_spec, m, re))
         {
             c.url_or_command = m[1].str();
-            c.mcp_path = (m.size() >= 3 && m[2].matched && !m[2].str().empty()) ? m[2].str()
-                                                                                  : "/mcp";
+            c.mcp_path =
+                (m.size() >= 3 && m[2].matched && !m[2].str().empty()) ? m[2].str() : "/mcp";
         }
         else
         {
@@ -1014,7 +1014,8 @@ static int run_generate_cli_command(int argc, char** argv)
     std::vector<std::string> args = collect_args(argc, argv, 2);
     if (consume_flag(args, "--help") || consume_flag(args, "-h"))
     {
-        std::cout << "Usage: fastmcpp generate-cli <server_spec> [output] [--force] [--timeout <seconds>] [--auth <mode>] [--header <KEY=VALUE>] [--no-skill]\n";
+        std::cout << "Usage: fastmcpp generate-cli <server_spec> [output] [--force] [--timeout "
+                     "<seconds>] [--auth <mode>] [--header <KEY=VALUE>] [--no-skill]\n";
         return 0;
     }
 
@@ -1076,7 +1077,8 @@ static int run_generate_cli_command(int argc, char** argv)
         }
         if (args.size() == 1)
         {
-            // Backward-compat: explicit connection flags may use the remaining positional as output.
+            // Backward-compat: explicit connection flags may use the remaining positional as
+            // output.
             if (output_path)
             {
                 std::cerr << "Output provided both positionally and via --output\n";
@@ -1090,7 +1092,8 @@ static int run_generate_cli_command(int argc, char** argv)
     {
         if (args.empty())
         {
-            std::cerr << "Missing server_spec. Usage: fastmcpp generate-cli <server_spec> [output]\n";
+            std::cerr
+                << "Missing server_spec. Usage: fastmcpp generate-cli <server_spec> [output]\n";
             return 2;
         }
         server_spec = args.front();
@@ -1128,8 +1131,8 @@ static int run_generate_cli_command(int argc, char** argv)
     }
     if (!no_skill && std::filesystem::exists(skill_file) && !force)
     {
-        std::cerr << "Skill file already exists. Use --force to overwrite: "
-                  << skill_file.string() << "\n";
+        std::cerr << "Skill file already exists. Use --force to overwrite: " << skill_file.string()
+                  << "\n";
         return 2;
     }
 
@@ -1146,10 +1149,8 @@ static int run_generate_cli_command(int argc, char** argv)
             if (tools_result.contains("tools") && tools_result["tools"].is_array())
             {
                 for (const auto& tool : tools_result["tools"])
-                {
                     if (tool.is_object() && tool.contains("name") && tool["name"].is_string())
                         discovered_tools.push_back(tool);
-                }
             }
         }
         catch (const std::exception& e)
@@ -1190,7 +1191,8 @@ static int run_generate_cli_command(int argc, char** argv)
     script << "def _run(sub_args):\n";
     script << "    cmd = [FASTMCPP] + sub_args + _connection_args()\n";
     script << "    try:\n";
-    script << "        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=DEFAULT_TIMEOUT)\n";
+    script << "        proc = subprocess.run(cmd, capture_output=True, text=True, "
+              "timeout=DEFAULT_TIMEOUT)\n";
     script << "    except subprocess.TimeoutExpired:\n";
     script << "        print(f'Command timed out after {DEFAULT_TIMEOUT}s', file=sys.stderr)\n";
     script << "        raise SystemExit(124)\n";
@@ -1272,10 +1274,8 @@ static int run_generate_cli_command(int argc, char** argv)
 
         skill << "## Utility Commands\n\n";
         skill << "```bash\n";
-        skill << "uv run --with fastmcp python " << out_file.filename().string()
-              << " discover\n";
-        skill << "uv run --with fastmcp python " << out_file.filename().string()
-              << " list-tools\n";
+        skill << "uv run --with fastmcp python " << out_file.filename().string() << " discover\n";
+        skill << "uv run --with fastmcp python " << out_file.filename().string() << " list-tools\n";
         skill << "uv run --with fastmcp python " << out_file.filename().string()
               << " list-resources\n";
         skill << "uv run --with fastmcp python " << out_file.filename().string()
@@ -1349,7 +1349,8 @@ static bool load_env_file_into(const std::filesystem::path& env_file, fastmcpp::
     return true;
 }
 
-static fastmcpp::Json build_stdio_install_config(const std::string& name, const std::string& command,
+static fastmcpp::Json build_stdio_install_config(const std::string& name,
+                                                 const std::string& command,
                                                  const std::vector<std::string>& command_args,
                                                  const fastmcpp::Json& env)
 {
@@ -1428,7 +1429,8 @@ struct InstallLaunchSpec
 static InstallLaunchSpec build_launch_from_server_spec(
     const std::string& server_spec, const std::vector<std::string>& with_packages,
     const std::vector<std::string>& with_editable, const std::optional<std::string>& python_version,
-    const std::optional<std::string>& requirements_file, const std::optional<std::string>& project_dir)
+    const std::optional<std::string>& requirements_file,
+    const std::optional<std::string>& project_dir)
 {
     InstallLaunchSpec spec;
     spec.command = "uv";
@@ -1563,9 +1565,7 @@ static int run_install_command(int argc, char** argv)
     fastmcpp::Json server_config = config["mcpServers"][server_name];
 
     if (target == "stdio")
-    {
         return emit_install_output(build_stdio_command_line(command, command_args), copy_mode);
-    }
 
     if (target == "mcp-json")
     {

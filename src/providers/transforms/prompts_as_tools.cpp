@@ -37,8 +37,8 @@ tools::Tool PromptsAsTools::make_list_prompts_tool() const
     };
 
     return tools::Tool("list_prompts", Json::object(), Json(), fn, std::nullopt,
-                        std::optional<std::string>("List available prompts and their arguments"),
-                        std::nullopt);
+                       std::optional<std::string>("List available prompts and their arguments"),
+                       std::nullopt);
 }
 
 tools::Tool PromptsAsTools::make_get_prompt_tool() const
@@ -60,27 +60,23 @@ tools::Tool PromptsAsTools::make_get_prompt_tool() const
         if (arguments.is_object())
         {
             for (auto it = arguments.begin(); it != arguments.end(); ++it)
-            {
                 if (it.value().is_string())
                     vars[it.key()] = it.value().get<std::string>();
                 else
                     vars[it.key()] = it.value().dump();
-            }
         }
 
         std::string rendered = prompt_opt->render(vars);
         return Json{{"type", "text"}, {"text", rendered}};
     };
 
-    Json schema = {
-        {"type", "object"},
-        {"properties", Json{{"name", Json{{"type", "string"}}},
-                            {"arguments", Json{{"type", "object"}}}}},
-        {"required", Json::array({"name"})}};
+    Json schema = {{"type", "object"},
+                   {"properties", Json{{"name", Json{{"type", "string"}}},
+                                       {"arguments", Json{{"type", "object"}}}}},
+                   {"required", Json::array({"name"})}};
 
     return tools::Tool("get_prompt", schema, Json(), fn, std::nullopt,
-                        std::optional<std::string>("Get a rendered prompt by name"),
-                        std::nullopt);
+                       std::optional<std::string>("Get a rendered prompt by name"), std::nullopt);
 }
 
 std::vector<tools::Tool> PromptsAsTools::list_tools(const ListToolsNext& call_next) const
@@ -92,7 +88,7 @@ std::vector<tools::Tool> PromptsAsTools::list_tools(const ListToolsNext& call_ne
 }
 
 std::optional<tools::Tool> PromptsAsTools::get_tool(const std::string& name,
-                                                     const GetToolNext& call_next) const
+                                                    const GetToolNext& call_next) const
 {
     if (name == "list_prompts")
         return make_list_prompts_tool();

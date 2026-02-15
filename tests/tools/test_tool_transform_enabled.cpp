@@ -64,8 +64,7 @@ void test_hidden_tool_filtered_by_provider()
     hide_config.enabled = false;
     std::unordered_map<std::string, ToolTransformConfig> transforms;
     transforms["tool_b"] = hide_config;
-    provider->add_transform(
-        std::make_shared<providers::transforms::ToolTransform>(transforms));
+    provider->add_transform(std::make_shared<providers::transforms::ToolTransform>(transforms));
 
     auto tools = provider->list_tools_transformed();
     assert(tools.size() == 1);

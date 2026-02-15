@@ -12,10 +12,8 @@ using namespace fastmcpp;
 
 void test_tool_sequential_flag()
 {
-    tools::Tool tool("test",
-                     Json{{"type", "object"}, {"properties", Json::object()}},
-                     Json::object(),
-                     [](const Json&) { return Json{{"ok", true}}; });
+    tools::Tool tool("test", Json{{"type", "object"}, {"properties", Json::object()}},
+                     Json::object(), [](const Json&) { return Json{{"ok", true}}; });
 
     // Default: not sequential
     assert(!tool.sequential());
@@ -34,11 +32,12 @@ void test_fastmcp_tool_registration_sequential()
     FastMCP::ToolOptions opts;
     opts.sequential = true;
 
-    app.tool("seq_tool",
-             Json{{"type", "object"},
-                  {"properties", {{"x", {{"type", "integer"}}}}},
-                  {"required", Json::array({"x"})}},
-             [](const Json& args) { return args.at("x"); }, opts);
+    app.tool(
+        "seq_tool",
+        Json{{"type", "object"},
+             {"properties", {{"x", {{"type", "integer"}}}}},
+             {"required", Json::array({"x"})}},
+        [](const Json& args) { return args.at("x"); }, opts);
 
     // Verify the tool info includes execution.concurrency
     auto tools_info = app.list_all_tools_info();

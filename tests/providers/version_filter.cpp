@@ -1,7 +1,8 @@
+#include "fastmcpp/providers/transforms/version_filter.hpp"
+
 #include "fastmcpp/app.hpp"
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/providers/local_provider.hpp"
-#include "fastmcpp/providers/transforms/version_filter.hpp"
 
 #include <cassert>
 #include <memory>
@@ -14,7 +15,8 @@ namespace
 {
 tools::Tool make_tool(const std::string& name, const std::string& version, int value)
 {
-    tools::Tool tool(name, Json::object(), Json::object(), [value](const Json&) { return Json(value); });
+    tools::Tool tool(name, Json::object(), Json::object(),
+                     [value](const Json&) { return Json(value); });
     if (!version.empty())
         tool.set_version(version);
     return tool;
@@ -80,8 +82,8 @@ int main()
     provider->add_template(make_template("res://v2/{id}", "2.0"));
     provider->add_prompt(make_prompt("legacy_prompt", "1.0"));
     provider->add_prompt(make_prompt("v2_prompt", "2.0"));
-    provider->add_transform(
-        std::make_shared<providers::transforms::VersionFilter>(std::string("2.0"), std::string("3.0")));
+    provider->add_transform(std::make_shared<providers::transforms::VersionFilter>(
+        std::string("2.0"), std::string("3.0")));
 
     FastMCP app("version_filter", "1.0.0");
     app.add_provider(provider);

@@ -69,9 +69,8 @@ void test_extension_capabilities()
     ServerSession session("sess_ext", nullptr);
     Json caps = {
         {"tools", Json::object()},
-        {"extensions",
-         Json{{"io.modelcontextprotocol/ui", Json::object()},
-              {"example.extension", Json{{"enabled", true}}}}},
+        {"extensions", Json{{"io.modelcontextprotocol/ui", Json::object()},
+                            {"example.extension", Json{{"enabled", true}}}}},
     };
     session.set_capabilities(caps);
 

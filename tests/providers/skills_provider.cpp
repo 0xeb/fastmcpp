@@ -1,5 +1,6 @@
-#include "fastmcpp/app.hpp"
 #include "fastmcpp/providers/skills_provider.hpp"
+
+#include "fastmcpp/app.hpp"
 
 #include <cassert>
 #include <filesystem>
@@ -39,16 +40,15 @@ int main()
 {
     const auto root = make_temp_dir("single");
     const auto skill = root / "pdf-processing";
-    write_text(skill / "SKILL.md",
-               "---\n"
-               "description: \"Frontmatter PDF skill\"\n"
-               "version: \"1.0.0\"\n"
-               "---\n\n"
-               "# PDF Processing\nRead PDF files.");
+    write_text(skill / "SKILL.md", "---\n"
+                                   "description: \"Frontmatter PDF skill\"\n"
+                                   "version: \"1.0.0\"\n"
+                                   "---\n\n"
+                                   "# PDF Processing\nRead PDF files.");
     write_text(skill / "notes" / "guide.txt", "guide");
 
-    auto provider =
-        std::make_shared<providers::SkillProvider>(skill, "SKILL.md", providers::SkillSupportingFiles::Template);
+    auto provider = std::make_shared<providers::SkillProvider>(
+        skill, "SKILL.md", providers::SkillSupportingFiles::Template);
     FastMCP app("skills", "1.0.0");
     app.add_provider(provider);
 

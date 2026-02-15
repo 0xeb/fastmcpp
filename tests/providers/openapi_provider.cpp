@@ -1,10 +1,10 @@
-#include "fastmcpp/app.hpp"
 #include "fastmcpp/providers/openapi_provider.hpp"
 
-#include <httplib.h>
+#include "fastmcpp/app.hpp"
 
 #include <cassert>
 #include <chrono>
+#include <httplib.h>
 #include <thread>
 
 using namespace fastmcpp;
@@ -13,20 +13,21 @@ int main()
 {
     httplib::Server server;
 
-    server.Get(R"(/api/users/([^/]+))", [](const httplib::Request& req, httplib::Response& res)
-               {
-                   Json body = {
-                       {"id", req.matches[1].str()},
-                       {"verbose", req.has_param("verbose") ? req.get_param_value("verbose") : "false"},
-                   };
-                   res.set_content(body.dump(), "application/json");
-               });
+    server.Get(
+        R"(/api/users/([^/]+))",
+        [](const httplib::Request& req, httplib::Response& res)
+        {
+            Json body = {
+                {"id", req.matches[1].str()},
+                {"verbose", req.has_param("verbose") ? req.get_param_value("verbose") : "false"},
+            };
+            res.set_content(body.dump(), "application/json");
+        });
 
     server.Post("/api/echo", [](const httplib::Request& req, httplib::Response& res)
                 { res.set_content(req.body, "application/json"); });
 
-    std::thread server_thread([&]()
-                              { server.listen("127.0.0.1", 18888); });
+    std::thread server_thread([&]() { server.listen("127.0.0.1", 18888); });
     std::this_thread::sleep_for(std::chrono::milliseconds(150));
 
     Json spec = Json::object();
@@ -44,26 +45,25 @@ int main()
 
     spec["paths"]["/api/users/{id}"]["get"] = Json{
         {"operationId", "getUser"},
-        {"parameters",
-         Json::array({
-             Json{{"name", "id"},
-                  {"in", "path"},
-                  {"required", true},
-                  {"schema", Json{{"type", "string"}}}},
-             Json{{"name", "verbose"},
-                  {"in", "query"},
-                  {"required", true},
-                  {"description", "operation-level verbose flag"},
-                  {"schema", Json{{"type", "boolean"}}}},
-         })},
+        {"parameters", Json::array({
+                           Json{{"name", "id"},
+                                {"in", "path"},
+                                {"required", true},
+                                {"schema", Json{{"type", "string"}}}},
+                           Json{{"name", "verbose"},
+                                {"in", "query"},
+                                {"required", true},
+                                {"description", "operation-level verbose flag"},
+                                {"schema", Json{{"type", "boolean"}}}},
+                       })},
         {"responses",
          Json{{"200",
                Json{{"description", "ok"},
                     {"content",
                      Json{{"application/json",
-                           Json{{"schema",
-                                 Json{{"type", "object"},
-                                      {"properties", Json{{"id", Json{{"type", "string"}}}}}}}}}}}}}}},
+                           Json{{"schema", Json{{"type", "object"},
+                                                {"properties",
+                                                 Json{{"id", Json{{"type", "string"}}}}}}}}}}}}}}},
     };
 
     spec["paths"]["/api/echo"]["post"] = Json{
@@ -74,17 +74,15 @@ int main()
                Json{{"application/json",
                      Json{{"schema",
                            Json{{"type", "object"},
-                                {"properties",
-                                 Json{{"message", Json{{"type", "string"}}}}}}}}}}}}},
+                                {"properties", Json{{"message", Json{{"type", "string"}}}}}}}}}}}}},
         {"responses",
-         Json{{"200",
-               Json{{"description", "ok"},
-                    {"content",
-                     Json{{"application/json",
-                           Json{{"schema",
-                                 Json{{"type", "object"},
-                                      {"properties",
-                                       Json{{"message", Json{{"type", "string"}}}}}}}}}}}}}}},
+         Json{{"200", Json{{"description", "ok"},
+                           {"content",
+                            Json{{"application/json",
+                                  Json{{"schema", Json{{"type", "object"},
+                                                       {"properties",
+                                                        Json{{"message",
+                                                              Json{{"type", "string"}}}}}}}}}}}}}}},
     };
 
     auto provider = std::make_shared<providers::OpenAPIProvider>(spec);

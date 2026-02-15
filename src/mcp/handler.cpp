@@ -32,18 +32,17 @@ namespace fastmcpp::mcp
 static constexpr int kJsonRpcMethodNotFound = -32601;
 static constexpr int kJsonRpcInvalidParams = -32602;
 static constexpr int kJsonRpcInternalError = -32603;
-static constexpr int kMcpMethodNotFound = -32001;    // MCP "Method not found"
-static constexpr int kMcpResourceNotFound = -32002;   // MCP "Resource not found"
+static constexpr int kMcpMethodNotFound = -32001;   // MCP "Method not found"
+static constexpr int kMcpResourceNotFound = -32002; // MCP "Resource not found"
 static constexpr int kMcpToolTimeout = -32000;
 static constexpr const char* kUiExtensionId = "io.modelcontextprotocol/ui";
 
 // Helper: create fastmcp metadata namespace (parity with Python fastmcp 53e220a9)
 static fastmcpp::Json make_fastmcp_meta()
 {
-    return fastmcpp::Json{
-        {"version", std::to_string(fastmcpp::VERSION_MAJOR) + "." +
-                    std::to_string(fastmcpp::VERSION_MINOR) + "." +
-                    std::to_string(fastmcpp::VERSION_PATCH)}};
+    return fastmcpp::Json{{"version", std::to_string(fastmcpp::VERSION_MAJOR) + "." +
+                                          std::to_string(fastmcpp::VERSION_MINOR) + "." +
+                                          std::to_string(fastmcpp::VERSION_PATCH)}};
 }
 
 static fastmcpp::Json merge_meta_with_ui(const std::optional<fastmcpp::Json>& meta,
@@ -71,7 +70,7 @@ static std::string normalize_resource_uri(std::string uri)
 }
 
 static std::optional<fastmcpp::AppConfig> find_resource_app_config(const FastMCP& app,
-                                                                    const std::string& uri)
+                                                                   const std::string& uri)
 {
     const std::string normalized = normalize_resource_uri(uri);
     for (const auto& resource : app.list_all_resources())
@@ -98,10 +97,9 @@ static void attach_resource_content_meta_ui(fastmcpp::Json& content_json, const 
     auto app_cfg = find_resource_app_config(app, request_uri);
     if (!app_cfg)
         return;
-    fastmcpp::Json meta =
-        content_json.contains("_meta") && content_json["_meta"].is_object()
-            ? content_json["_meta"]
-            : fastmcpp::Json::object();
+    fastmcpp::Json meta = content_json.contains("_meta") && content_json["_meta"].is_object()
+                              ? content_json["_meta"]
+                              : fastmcpp::Json::object();
     meta["ui"] = *app_cfg;
     if (!meta.empty())
         content_json["_meta"] = std::move(meta);
@@ -213,16 +211,14 @@ static fastmcpp::Json normalize_output_schema_for_mcp(const fastmcpp::Json& sche
     };
 }
 
-static fastmcpp::Json
-make_tool_entry(const std::string& name, const std::string& description,
-                const fastmcpp::Json& schema,
-                const std::optional<std::string>& title = std::nullopt,
-                const std::optional<std::vector<fastmcpp::Icon>>& icons = std::nullopt,
-                const fastmcpp::Json& output_schema = fastmcpp::Json(),
-                fastmcpp::TaskSupport task_support = fastmcpp::TaskSupport::Forbidden,
-                bool sequential = false,
-                const std::optional<fastmcpp::AppConfig>& app = std::nullopt,
-                const std::optional<fastmcpp::Json>& meta = std::nullopt)
+static fastmcpp::Json make_tool_entry(
+    const std::string& name, const std::string& description, const fastmcpp::Json& schema,
+    const std::optional<std::string>& title = std::nullopt,
+    const std::optional<std::vector<fastmcpp::Icon>>& icons = std::nullopt,
+    const fastmcpp::Json& output_schema = fastmcpp::Json(),
+    fastmcpp::TaskSupport task_support = fastmcpp::TaskSupport::Forbidden, bool sequential = false,
+    const std::optional<fastmcpp::AppConfig>& app = std::nullopt,
+    const std::optional<fastmcpp::Json>& meta = std::nullopt)
 {
     fastmcpp::Json entry = {
         {"name", name},
@@ -974,10 +970,9 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     else if (tool.description())
                         desc = *tool.description();
 
-                    tools_array.push_back(
-                        make_tool_entry(name, desc, schema, tool.title(), tool.icons(),
-                                        tool.output_schema(), tool.task_support(),
-                                        tool.sequential(), tool.app()));
+                    tools_array.push_back(make_tool_entry(
+                        name, desc, schema, tool.title(), tool.icons(), tool.output_schema(),
+                        tool.task_support(), tool.sequential(), tool.app()));
                 }
 
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -1060,7 +1055,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
         }
         catch (const std::exception& e)
         {
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError, e.what());
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError,
+                                 e.what());
         }
     };
 }
@@ -1265,7 +1261,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
         }
         catch (const std::exception& e)
         {
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError, e.what());
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError,
+                                 e.what());
         }
     };
 }
@@ -1346,10 +1343,9 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 {
                     const auto& tool = tools.get(name);
                     std::string desc = tool.description() ? *tool.description() : "";
-                    tools_array.push_back(
-                        make_tool_entry(name, desc, tool.input_schema(), tool.title(),
-                                        tool.icons(), tool.output_schema(), tool.task_support(),
-                                        tool.sequential(), tool.app()));
+                    tools_array.push_back(make_tool_entry(
+                        name, desc, tool.input_schema(), tool.title(), tool.icons(),
+                        tool.output_schema(), tool.task_support(), tool.sequential(), tool.app()));
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
@@ -1453,11 +1449,13 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 }
             }
 
-            return jsonrpc_error(id, kJsonRpcMethodNotFound, std::string("Method '") + method + "' not found");
+            return jsonrpc_error(id, kJsonRpcMethodNotFound,
+                                 std::string("Method '") + method + "' not found");
         }
         catch (const std::exception& e)
         {
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError, e.what());
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError,
+                                 e.what());
         }
     };
 }
@@ -1525,10 +1523,9 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 {
                     const auto& tool = tools.get(name);
                     std::string desc = tool.description() ? *tool.description() : "";
-                    tools_array.push_back(
-                        make_tool_entry(name, desc, tool.input_schema(), tool.title(), tool.icons(),
-                                        tool.output_schema(), tool.task_support(),
-                                        tool.sequential(), tool.app()));
+                    tools_array.push_back(make_tool_entry(
+                        name, desc, tool.input_schema(), tool.title(), tool.icons(),
+                        tool.output_schema(), tool.task_support(), tool.sequential(), tool.app()));
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
@@ -1775,11 +1772,13 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 }
             }
 
-            return jsonrpc_error(id, kJsonRpcMethodNotFound, std::string("Method '") + method + "' not found");
+            return jsonrpc_error(id, kJsonRpcMethodNotFound,
+                                 std::string("Method '") + method + "' not found");
         }
         catch (const std::exception& e)
         {
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError, e.what());
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError,
+                                 e.what());
         }
     };
 }
@@ -1887,7 +1886,8 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
-                                      {"result", apply_pagination(tools_array, "tools", params, app.list_page_size())}};
+                                      {"result", apply_pagination(tools_array, "tools", params,
+                                                                  app.list_page_size())}};
             }
 
             if (method == "tools/call")
@@ -2050,8 +2050,9 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 if (q.state == TaskRegistry::ResultState::NotReady)
                     return jsonrpc_error(id, kJsonRpcInvalidParams, "Task not completed");
                 if (q.state == TaskRegistry::ResultState::Cancelled)
-                    return jsonrpc_error(
-                        id, kJsonRpcInternalError, q.error_message.empty() ? "Task cancelled" : q.error_message);
+                    return jsonrpc_error(id, kJsonRpcInternalError,
+                                         q.error_message.empty() ? "Task cancelled"
+                                                                 : q.error_message);
                 if (q.state == TaskRegistry::ResultState::Failed)
                     return jsonrpc_error(id, kJsonRpcInternalError,
                                          q.error_message.empty() ? "Task failed" : q.error_message);
@@ -2153,7 +2154,8 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
-                                      {"result", apply_pagination(resources_array, "resources", params, app.list_page_size())}};
+                                      {"result", apply_pagination(resources_array, "resources",
+                                                                  params, app.list_page_size())}};
             }
 
             if (method == "resources/templates/list")
@@ -2193,7 +2195,8 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 return fastmcpp::Json{
                     {"jsonrpc", "2.0"},
                     {"id", id},
-                    {"result", apply_pagination(templates_array, "resourceTemplates", params, app.list_page_size())}};
+                    {"result", apply_pagination(templates_array, "resourceTemplates", params,
+                                                app.list_page_size())}};
             }
 
             if (method == "resources/read")
@@ -2382,7 +2385,8 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
-                                      {"result", apply_pagination(prompts_array, "prompts", params, app.list_page_size())}};
+                                      {"result", apply_pagination(prompts_array, "prompts", params,
+                                                                  app.list_page_size())}};
             }
 
             if (method == "prompts/get")
@@ -2494,11 +2498,13 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 }
             }
 
-            return jsonrpc_error(id, kJsonRpcMethodNotFound, std::string("Method '") + method + "' not found");
+            return jsonrpc_error(id, kJsonRpcMethodNotFound,
+                                 std::string("Method '") + method + "' not found");
         }
         catch (const std::exception& e)
         {
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError, e.what());
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError,
+                                 e.what());
         }
     };
 }
@@ -2876,11 +2882,13 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 }
             }
 
-            return jsonrpc_error(id, kJsonRpcMethodNotFound, std::string("Method '") + method + "' not found");
+            return jsonrpc_error(id, kJsonRpcMethodNotFound,
+                                 std::string("Method '") + method + "' not found");
         }
         catch (const std::exception& e)
         {
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError, e.what());
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError,
+                                 e.what());
         }
     };
 }
@@ -3039,7 +3047,8 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
-                                      {"result", apply_pagination(tools_array, "tools", params, app.list_page_size())}};
+                                      {"result", apply_pagination(tools_array, "tools", params,
+                                                                  app.list_page_size())}};
             }
 
             if (method == "tools/call")
@@ -3133,7 +3142,8 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
-                                      {"result", apply_pagination(resources_array, "resources", params, app.list_page_size())}};
+                                      {"result", apply_pagination(resources_array, "resources",
+                                                                  params, app.list_page_size())}};
             }
 
             if (method == "resources/templates/list")
@@ -3173,7 +3183,8 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 return fastmcpp::Json{
                     {"jsonrpc", "2.0"},
                     {"id", id},
-                    {"result", apply_pagination(templates_array, "resourceTemplates", params, app.list_page_size())}};
+                    {"result", apply_pagination(templates_array, "resourceTemplates", params,
+                                                app.list_page_size())}};
             }
 
             if (method == "resources/read")
@@ -3267,7 +3278,8 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
-                                      {"result", apply_pagination(prompts_array, "prompts", params, app.list_page_size())}};
+                                      {"result", apply_pagination(prompts_array, "prompts", params,
+                                                                  app.list_page_size())}};
             }
 
             if (method == "prompts/get")
@@ -3319,11 +3331,13 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 }
             }
 
-            return jsonrpc_error(id, kJsonRpcMethodNotFound, std::string("Method '") + method + "' not found");
+            return jsonrpc_error(id, kJsonRpcMethodNotFound,
+                                 std::string("Method '") + method + "' not found");
         }
         catch (const std::exception& e)
         {
-            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError, e.what());
+            return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError,
+                                 e.what());
         }
     };
 }

@@ -28,14 +28,15 @@ int main()
     resource_ui.prefers_border = true;
     resource_opts.app = resource_ui;
 
-    app.resource("ui://widgets/home.html", "Home Widget",
-                 [](const Json&)
-                 {
-                     return fastmcpp::resources::ResourceContent{
-                         "ui://widgets/home.html", std::nullopt,
-                         std::string{"<html><body><h1>Home</h1></body></html>"}};
-                 },
-                 resource_opts);
+    app.resource(
+        "ui://widgets/home.html", "Home Widget",
+        [](const Json&)
+        {
+            return fastmcpp::resources::ResourceContent{
+                "ui://widgets/home.html", std::nullopt,
+                std::string{"<html><body><h1>Home</h1></body></html>"}};
+        },
+        resource_opts);
 
     // UI resource template with per-template metadata
     FastMCP::ResourceTemplateOptions templ_opts;
@@ -43,15 +44,16 @@ int main()
     templ_ui.csp = Json{{"connectDomains", Json::array({"https://api.example.test"})}};
     templ_opts.app = templ_ui;
 
-    app.resource_template("ui://widgets/{name}.html", "Named Widget",
-                          [](const Json& params)
-                          {
-                              const std::string name = params.value("name", "unknown");
-                              return fastmcpp::resources::ResourceContent{
-                                  "ui://widgets/" + name + ".html", std::nullopt,
-                                  std::string{"<html><body><h1>" + name + "</h1></body></html>"}};
-                          },
-                          Json::object(), templ_opts);
+    app.resource_template(
+        "ui://widgets/{name}.html", "Named Widget",
+        [](const Json& params)
+        {
+            const std::string name = params.value("name", "unknown");
+            return fastmcpp::resources::ResourceContent{
+                "ui://widgets/" + name + ".html", std::nullopt,
+                std::string{"<html><body><h1>" + name + "</h1></body></html>"}};
+        },
+        Json::object(), templ_opts);
 
     auto handler = fastmcpp::mcp::make_mcp_handler(app);
     fastmcpp::server::StdioServerWrapper server(handler);

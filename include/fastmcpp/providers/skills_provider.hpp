@@ -54,15 +54,14 @@ class SkillProvider : public Provider
 class SkillsDirectoryProvider : public Provider
 {
   public:
-    explicit SkillsDirectoryProvider(std::filesystem::path root, bool reload = false,
-                                     std::string main_file_name = "SKILL.md",
-                                     SkillSupportingFiles supporting_files =
-                                         SkillSupportingFiles::Template);
+    explicit SkillsDirectoryProvider(
+        std::filesystem::path root, bool reload = false, std::string main_file_name = "SKILL.md",
+        SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
 
-    explicit SkillsDirectoryProvider(std::vector<std::filesystem::path> roots, bool reload = false,
-                                     std::string main_file_name = "SKILL.md",
-                                     SkillSupportingFiles supporting_files =
-                                         SkillSupportingFiles::Template);
+    explicit SkillsDirectoryProvider(
+        std::vector<std::filesystem::path> roots, bool reload = false,
+        std::string main_file_name = "SKILL.md",
+        SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
 
     std::vector<resources::Resource> list_resources() const override;
     std::optional<resources::Resource> get_resource(const std::string& uri) const override;
@@ -86,65 +85,65 @@ class SkillsDirectoryProvider : public Provider
 class ClaudeSkillsProvider : public SkillsDirectoryProvider
 {
   public:
-    explicit ClaudeSkillsProvider(bool reload = false,
-                                  std::string main_file_name = "SKILL.md",
-                                  SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
+    explicit ClaudeSkillsProvider(
+        bool reload = false, std::string main_file_name = "SKILL.md",
+        SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
 };
 
 class CursorSkillsProvider : public SkillsDirectoryProvider
 {
   public:
-    explicit CursorSkillsProvider(bool reload = false,
-                                  std::string main_file_name = "SKILL.md",
-                                  SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
+    explicit CursorSkillsProvider(
+        bool reload = false, std::string main_file_name = "SKILL.md",
+        SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
 };
 
 class VSCodeSkillsProvider : public SkillsDirectoryProvider
 {
   public:
-    explicit VSCodeSkillsProvider(bool reload = false,
-                                  std::string main_file_name = "SKILL.md",
-                                  SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
+    explicit VSCodeSkillsProvider(
+        bool reload = false, std::string main_file_name = "SKILL.md",
+        SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
 };
 
 class CodexSkillsProvider : public SkillsDirectoryProvider
 {
   public:
-    explicit CodexSkillsProvider(bool reload = false,
-                                 std::string main_file_name = "SKILL.md",
-                                 SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
+    explicit CodexSkillsProvider(
+        bool reload = false, std::string main_file_name = "SKILL.md",
+        SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
 };
 
 class GeminiSkillsProvider : public SkillsDirectoryProvider
 {
   public:
-    explicit GeminiSkillsProvider(bool reload = false,
-                                  std::string main_file_name = "SKILL.md",
-                                  SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
+    explicit GeminiSkillsProvider(
+        bool reload = false, std::string main_file_name = "SKILL.md",
+        SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
 };
 
 class GooseSkillsProvider : public SkillsDirectoryProvider
 {
   public:
-    explicit GooseSkillsProvider(bool reload = false,
-                                 std::string main_file_name = "SKILL.md",
-                                 SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
+    explicit GooseSkillsProvider(
+        bool reload = false, std::string main_file_name = "SKILL.md",
+        SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
 };
 
 class CopilotSkillsProvider : public SkillsDirectoryProvider
 {
   public:
-    explicit CopilotSkillsProvider(bool reload = false,
-                                   std::string main_file_name = "SKILL.md",
-                                   SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
+    explicit CopilotSkillsProvider(
+        bool reload = false, std::string main_file_name = "SKILL.md",
+        SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
 };
 
 class OpenCodeSkillsProvider : public SkillsDirectoryProvider
 {
   public:
-    explicit OpenCodeSkillsProvider(bool reload = false,
-                                    std::string main_file_name = "SKILL.md",
-                                    SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
+    explicit OpenCodeSkillsProvider(
+        bool reload = false, std::string main_file_name = "SKILL.md",
+        SkillSupportingFiles supporting_files = SkillSupportingFiles::Template);
 };
 
 using SkillsProvider = SkillsDirectoryProvider;

@@ -15,8 +15,8 @@ class ResponseLimitingMiddleware
 {
   public:
     explicit ResponseLimitingMiddleware(size_t max_size = 1'000'000,
-                                       std::string truncation_suffix = "... [truncated]",
-                                       std::vector<std::string> tool_filter = {});
+                                        std::string truncation_suffix = "... [truncated]",
+                                        std::vector<std::string> tool_filter = {});
 
     /// Returns an AfterHook that truncates tools/call responses
     AfterHook make_hook() const;

@@ -13,12 +13,11 @@ int main()
 {
     // Build a FastMCP app with one tool but no resources or prompts
     FastMCP app("test_error_codes", "1.0.0");
-    app.tool(
-        "echo",
-        Json{{"type", "object"},
-             {"properties", {{"msg", {{"type", "string"}}}}},
-             {"required", Json::array({"msg"})}},
-        [](const Json& args) { return Json{{"echo", args.at("msg")}}; });
+    app.tool("echo",
+             Json{{"type", "object"},
+                  {"properties", {{"msg", {{"type", "string"}}}}},
+                  {"required", Json::array({"msg"})}},
+             [](const Json& args) { return Json{{"echo", args.at("msg")}}; });
 
     auto handler = mcp::make_mcp_handler(app);
 

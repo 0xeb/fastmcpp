@@ -35,9 +35,10 @@ tools::Tool ResourcesAsTools::make_list_resources_tool() const
         return Json{{"type", "text"}, {"text", result.dump(2)}};
     };
 
-    return tools::Tool("list_resources", Json::object(), Json(), fn, std::nullopt,
-                        std::optional<std::string>("List available resources and resource templates"),
-                        std::nullopt);
+    return tools::Tool(
+        "list_resources", Json::object(), Json(), fn, std::nullopt,
+        std::optional<std::string>("List available resources and resource templates"),
+        std::nullopt);
 }
 
 tools::Tool ResourcesAsTools::make_read_resource_tool() const
@@ -57,7 +58,7 @@ tools::Tool ResourcesAsTools::make_read_resource_tool() const
         if (std::get_if<std::vector<uint8_t>>(&content.data))
             return Json{{"type", "text"},
                         {"text", std::string("[binary data: ") +
-                                 content.mime_type.value_or("application/octet-stream") + "]"}};
+                                     content.mime_type.value_or("application/octet-stream") + "]"}};
         return Json{{"type", "text"}, {"text", ""}};
     };
 
@@ -66,8 +67,7 @@ tools::Tool ResourcesAsTools::make_read_resource_tool() const
                    {"required", Json::array({"uri"})}};
 
     return tools::Tool("read_resource", schema, Json(), fn, std::nullopt,
-                        std::optional<std::string>("Read a resource by URI"),
-                        std::nullopt);
+                       std::optional<std::string>("Read a resource by URI"), std::nullopt);
 }
 
 std::vector<tools::Tool> ResourcesAsTools::list_tools(const ListToolsNext& call_next) const
@@ -79,7 +79,7 @@ std::vector<tools::Tool> ResourcesAsTools::list_tools(const ListToolsNext& call_
 }
 
 std::optional<tools::Tool> ResourcesAsTools::get_tool(const std::string& name,
-                                                       const GetToolNext& call_next) const
+                                                      const GetToolNext& call_next) const
 {
     if (name == "list_resources")
         return make_list_resources_tool();

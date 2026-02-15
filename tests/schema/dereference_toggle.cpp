@@ -12,12 +12,11 @@ Json make_tool_input_schema()
     return Json{
         {"type", "object"},
         {"$defs", Json{{"City", Json{{"type", "string"}, {"enum", Json::array({"sf", "nyc"})}}}}},
-        {"properties",
-         Json{{"city",
-               Json{
-                   {"$ref", "#/$defs/City"},
-                   {"description", "City name"},
-               }}}},
+        {"properties", Json{{"city",
+                             Json{
+                                 {"$ref", "#/$defs/City"},
+                                 {"description", "City name"},
+                             }}}},
         {"required", Json::array({"city"})},
     };
 }
@@ -66,19 +65,20 @@ void register_components(FastMCP& app)
 {
     FastMCP::ToolOptions opts;
     opts.output_schema = make_tool_output_schema();
-    app.tool("weather", make_tool_input_schema(),
-             [](const Json&)
-             { return Json{{"temperature", 70}}; }, opts);
+    app.tool(
+        "weather", make_tool_input_schema(), [](const Json&) { return Json{{"temperature", 70}}; },
+        opts);
 
-    app.resource_template("skill://demo/{path*}", "skill_files",
-                          [](const Json&)
-                          {
-                              resources::ResourceContent content;
-                              content.uri = "skill://demo/readme";
-                              content.data = std::string("ok");
-                              return content;
-                          },
-                          make_template_parameters_schema());
+    app.resource_template(
+        "skill://demo/{path*}", "skill_files",
+        [](const Json&)
+        {
+            resources::ResourceContent content;
+            content.uri = "skill://demo/readme";
+            content.data = std::string("ok");
+            return content;
+        },
+        make_template_parameters_schema());
 }
 
 void test_dereference_enabled_by_default()

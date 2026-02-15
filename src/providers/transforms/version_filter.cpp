@@ -87,10 +87,7 @@ VersionFilter::VersionFilter(std::optional<std::string> version_gte,
         throw ValidationError("At least one of version_gte/version_lt must be set");
 }
 
-VersionFilter::VersionFilter(std::string version_gte)
-    : version_gte_(std::move(version_gte))
-{
-}
+VersionFilter::VersionFilter(std::string version_gte) : version_gte_(std::move(version_gte)) {}
 
 bool VersionFilter::matches(const std::optional<std::string>& version) const
 {

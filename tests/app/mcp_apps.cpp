@@ -16,7 +16,7 @@ using namespace fastmcpp;
     {                                                                                              \
         if (!(cond))                                                                               \
         {                                                                                          \
-            std::cerr << "FAIL: " << msg << " (line " << __LINE__ << ")\n";                     \
+            std::cerr << "FAIL: " << msg << " (line " << __LINE__ << ")\n";                        \
             return 1;                                                                              \
         }                                                                                          \
     } while (0)
@@ -46,7 +46,8 @@ static int test_tool_meta_ui_emitted_and_parsed()
     CHECK_TRUE(init.contains("result"), "initialize should return result");
 
     auto list = handler(request(2, "tools/list"));
-    CHECK_TRUE(list.contains("result") && list["result"].contains("tools"), "tools/list missing tools");
+    CHECK_TRUE(list.contains("result") && list["result"].contains("tools"),
+               "tools/list missing tools");
     CHECK_TRUE(list["result"]["tools"].is_array() && list["result"]["tools"].size() == 1,
                "tools/list should return one tool");
 
@@ -57,14 +58,14 @@ static int test_tool_meta_ui_emitted_and_parsed()
 
     // Client parsing path: _meta.ui -> client::ToolInfo.app
     client::Client c(std::make_unique<client::InProcessMcpTransport>(handler));
-    c.call("initialize",
-           Json{{"protocolVersion", "2024-11-05"},
-                {"capabilities", Json::object()},
-                {"clientInfo", Json{{"name", "apps-test"}, {"version", "1.0.0"}}}});
+    c.call("initialize", Json{{"protocolVersion", "2024-11-05"},
+                              {"capabilities", Json::object()},
+                              {"clientInfo", Json{{"name", "apps-test"}, {"version", "1.0.0"}}}});
     auto tools = c.list_tools();
     CHECK_TRUE(tools.size() == 1, "client list_tools should return one tool");
     CHECK_TRUE(tools[0].app.has_value(), "client tool should parse app metadata");
-    CHECK_TRUE(tools[0].app->resource_uri.has_value(), "client tool app should include resource_uri");
+    CHECK_TRUE(tools[0].app->resource_uri.has_value(),
+               "client tool app should include resource_uri");
     CHECK_TRUE(*tools[0].app->resource_uri == "ui://widgets/echo.html",
                "client tool app resource_uri mismatch");
 
@@ -83,28 +84,29 @@ static int test_resource_template_ui_defaults_and_meta()
     res_app.prefers_border = true;
     res_opts.app = res_app;
 
-    app.resource("ui://widgets/home.html", "home",
-                 [](const Json&)
-                 {
-                     return resources::ResourceContent{"ui://widgets/home.html", std::nullopt,
-                                                       std::string{"<html>home</html>"}};
-                 },
-                 res_opts);
+    app.resource(
+        "ui://widgets/home.html", "home",
+        [](const Json&)
+        {
+            return resources::ResourceContent{"ui://widgets/home.html", std::nullopt,
+                                              std::string{"<html>home</html>"}};
+        },
+        res_opts);
 
     FastMCP::ResourceTemplateOptions templ_opts;
     AppConfig templ_app;
     templ_app.csp = Json{{"connectDomains", Json::array({"https://api.example.test"})}};
     templ_opts.app = templ_app;
 
-    app.resource_template("ui://widgets/{id}.html", "widget",
-                          [](const Json& params)
-                          {
-                              std::string id = params.value("id", "unknown");
-                              return resources::ResourceContent{"ui://widgets/" + id + ".html",
-                                                                std::nullopt,
-                                                                std::string{"<html>widget</html>"}};
-                          },
-                          Json::object(), templ_opts);
+    app.resource_template(
+        "ui://widgets/{id}.html", "widget",
+        [](const Json& params)
+        {
+            std::string id = params.value("id", "unknown");
+            return resources::ResourceContent{"ui://widgets/" + id + ".html", std::nullopt,
+                                              std::string{"<html>widget</html>"}};
+        },
+        Json::object(), templ_opts);
 
     auto handler = mcp::make_mcp_handler(app);
     handler(request(10, "initialize"));
@@ -162,21 +164,20 @@ static int test_template_read_inherits_ui_meta()
     templ_app.csp = Json{{"connectDomains", Json::array({"https://api.widgets.example.test"})}};
     templ_opts.app = templ_app;
 
-    app.resource_template("ui://widgets/{id}.html", "widget",
-                          [](const Json& params)
-                          {
-                              const std::string id = params.value("id", "unknown");
-                              return resources::ResourceContent{"ui://widgets/" + id + ".html",
-                                                                std::nullopt,
-                                                                std::string{"<html>widget</html>"}};
-                          },
-                          Json::object(), templ_opts);
+    app.resource_template(
+        "ui://widgets/{id}.html", "widget",
+        [](const Json& params)
+        {
+            const std::string id = params.value("id", "unknown");
+            return resources::ResourceContent{"ui://widgets/" + id + ".html", std::nullopt,
+                                              std::string{"<html>widget</html>"}};
+        },
+        Json::object(), templ_opts);
 
     auto handler = mcp::make_mcp_handler(app);
     handler(request(30, "initialize"));
 
-    auto read =
-        handler(request(31, "resources/read", Json{{"uri", "ui://widgets/abc.html"}}));
+    auto read = handler(request(31, "resources/read", Json{{"uri", "ui://widgets/abc.html"}}));
     CHECK_TRUE(read.contains("result") && read["result"].contains("contents"),
                "resources/read should return contents");
     CHECK_TRUE(read["result"]["contents"].is_array() && read["result"]["contents"].size() == 1,
@@ -186,7 +187,8 @@ static int test_template_read_inherits_ui_meta()
                "templated resource read should include _meta.ui");
     CHECK_TRUE(content["_meta"]["ui"].value("domain", "") == "https://widgets.example.test",
                "templated resource read should preserve app.domain");
-    CHECK_TRUE(content["_meta"]["ui"].contains("csp"), "templated resource read should include app.csp");
+    CHECK_TRUE(content["_meta"]["ui"].contains("csp"),
+               "templated resource read should include app.csp");
     CHECK_TRUE(content["_meta"]["ui"]["csp"].contains("connectDomains"),
                "templated resource read csp should include connectDomains");
 
@@ -210,8 +212,7 @@ static int test_initialize_advertises_ui_extension()
     CHECK_TRUE(init["result"].contains("capabilities"), "initialize missing capabilities");
     CHECK_TRUE(init["result"]["capabilities"].contains("extensions"),
                "initialize should include capabilities.extensions");
-    CHECK_TRUE(init["result"]["capabilities"]["extensions"].contains(
-                   "io.modelcontextprotocol/ui"),
+    CHECK_TRUE(init["result"]["capabilities"]["extensions"].contains("io.modelcontextprotocol/ui"),
                "initialize should advertise UI extension");
 
     // Extension should also be advertised even if app has no explicit UI-bound resources/tools.
@@ -222,9 +223,9 @@ static int test_initialize_advertises_ui_extension()
                "initialize (bare) should include capabilities");
     CHECK_TRUE(bare_init["result"]["capabilities"].contains("extensions"),
                "initialize (bare) should include capabilities.extensions");
-    CHECK_TRUE(bare_init["result"]["capabilities"]["extensions"].contains(
-                   "io.modelcontextprotocol/ui"),
-               "initialize (bare) should advertise UI extension");
+    CHECK_TRUE(
+        bare_init["result"]["capabilities"]["extensions"].contains("io.modelcontextprotocol/ui"),
+        "initialize (bare) should advertise UI extension");
 
     return 0;
 }
@@ -243,13 +244,14 @@ static int test_resource_app_validation_rules()
         invalid.resource_uri = "ui://invalid";
         opts.app = invalid;
 
-        app.resource("file://bad.txt", "bad",
-                     [](const Json&)
-                     {
-                         return resources::ResourceContent{"file://bad.txt", std::nullopt,
-                                                           std::string{"bad"}};
-                     },
-                     opts);
+        app.resource(
+            "file://bad.txt", "bad",
+            [](const Json&)
+            {
+                return resources::ResourceContent{"file://bad.txt", std::nullopt,
+                                                  std::string{"bad"}};
+            },
+            opts);
     }
     catch (const ValidationError&)
     {
@@ -265,13 +267,10 @@ static int test_resource_app_validation_rules()
         invalid.visibility = std::vector<std::string>{"tool_result"};
         opts.app = invalid;
 
-        app.resource_template("file://{id}", "bad_templ",
-                              [](const Json&)
-                              {
-                                  return resources::ResourceContent{"file://x", std::nullopt,
-                                                                    std::string{"bad"}};
-                              },
-                              Json::object(), opts);
+        app.resource_template(
+            "file://{id}", "bad_templ", [](const Json&)
+            { return resources::ResourceContent{"file://x", std::nullopt, std::string{"bad"}}; },
+            Json::object(), opts);
     }
     catch (const ValidationError&)
     {

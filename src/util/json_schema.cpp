@@ -177,7 +177,8 @@ Json dereference_refs(const Json& schema)
     std::vector<std::string> stack;
     Json dereferenced = dereference_node(schema, schema, stack);
 
-    if (dereferenced.is_object() && dereferenced.contains("$defs") && !contains_ref_impl(dereferenced))
+    if (dereferenced.is_object() && dereferenced.contains("$defs") &&
+        !contains_ref_impl(dereferenced))
         dereferenced.erase("$defs");
 
     return dereferenced;

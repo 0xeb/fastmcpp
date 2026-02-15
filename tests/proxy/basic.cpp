@@ -496,8 +496,8 @@ void test_proxy_resource_annotations()
                                  {"clientInfo", Json{{"name", "test"}, {"version", "1.0"}}}}}});
 
     // Test resources/list serialization
-    auto resources_response = handler(
-        Json{{"jsonrpc", "2.0"}, {"id", 2}, {"method", "resources/list"}, {"params", Json::object()}});
+    auto resources_response = handler(Json{
+        {"jsonrpc", "2.0"}, {"id", 2}, {"method", "resources/list"}, {"params", Json::object()}});
     assert(resources_response.contains("result"));
     assert(resources_response["result"].contains("resources"));
 

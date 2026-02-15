@@ -2,12 +2,11 @@
 
 #include "fastmcpp/exceptions.hpp"
 
-#include <httplib.h>
-
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <httplib.h>
 #include <memory>
 #include <regex>
 #include <sstream>
@@ -55,9 +54,9 @@ std::string url_encode_component(const std::string& value)
     out.reserve(value.size() * 3);
     for (unsigned char c : value)
     {
-        const bool unreserved =
-            (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-            c == '-' || c == '_' || c == '.' || c == '~';
+        const bool unreserved = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                                (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' ||
+                                c == '~';
         if (unreserved)
         {
             out.push_back(static_cast<char>(c));
@@ -123,8 +122,7 @@ OpenAPIProvider::OpenAPIProvider(Json openapi_spec, std::optional<std::string> b
 }
 
 OpenAPIProvider OpenAPIProvider::from_file(const std::string& file_path,
-                                           std::optional<std::string> base_url,
-                                           Options options)
+                                           std::optional<std::string> base_url, Options options)
 {
     std::ifstream in(std::filesystem::path(file_path), std::ios::binary);
     if (!in)
@@ -246,8 +244,9 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
                     return;
                 for (const auto& param : params)
                 {
-                    if (!param.is_object() || !param.contains("name") || !param["name"].is_string() ||
-                        !param.contains("in") || !param["in"].is_string())
+                    if (!param.is_object() || !param.contains("name") ||
+                        !param["name"].is_string() || !param.contains("in") ||
+                        !param["in"].is_string())
                         continue;
 
                     const std::string param_name = param["name"].get<std::string>();
@@ -351,8 +350,7 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
             }
 
             if (!options_.validate_output && !route.output_schema.is_null())
-                route.output_schema =
-                    Json{{"type", "object"}, {"additionalProperties", true}};
+                route.output_schema = Json{{"type", "object"}, {"additionalProperties", true}};
 
             routes.push_back(std::move(route));
         }

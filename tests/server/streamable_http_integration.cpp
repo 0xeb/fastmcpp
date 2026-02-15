@@ -391,7 +391,8 @@ void test_invalid_tool_maps_to_invalid_params_error_code()
 
     tools::ToolManager tool_mgr;
     std::unordered_map<std::string, std::string> descriptions;
-    auto handler = mcp::make_mcp_handler("invalid_tool_error_code", "1.0.0", tool_mgr, descriptions);
+    auto handler =
+        mcp::make_mcp_handler("invalid_tool_error_code", "1.0.0", tool_mgr, descriptions);
 
     server::StreamableHttpServerWrapper server(handler, host, port, "/mcp");
     bool started = server.start();

@@ -1,5 +1,6 @@
-#include "fastmcpp/app.hpp"
 #include "fastmcpp/providers/openapi_provider.hpp"
+
+#include "fastmcpp/app.hpp"
 
 #include <iostream>
 #include <memory>
@@ -16,14 +17,13 @@ int main()
     spec["paths"]["/status"]["get"] = Json{
         {"operationId", "getStatus"},
         {"responses",
-         Json{{"200",
-               Json{{"description", "ok"},
-                    {"content",
-                     Json{{"application/json",
-                           Json{{"schema",
-                                 Json{{"type", "object"},
-                                      {"properties",
-                                       Json{{"status", Json{{"type", "string"}}}}}}}}}}}}}}},
+         Json{{"200", Json{{"description", "ok"},
+                           {"content",
+                            Json{{"application/json",
+                                  Json{{"schema",
+                                        Json{{"type", "object"},
+                                             {"properties",
+                                              Json{{"status", Json{{"type", "string"}}}}}}}}}}}}}}},
     };
 
     FastMCP app("openapi-provider-example", "1.0.0");

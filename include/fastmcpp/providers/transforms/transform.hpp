@@ -48,8 +48,8 @@ class Transform
         return call_next();
     }
 
-    virtual std::optional<resources::Resource>
-    get_resource(const std::string& uri, const GetResourceNext& call_next) const
+    virtual std::optional<resources::Resource> get_resource(const std::string& uri,
+                                                            const GetResourceNext& call_next) const
     {
         return call_next(uri);
     }
@@ -61,8 +61,7 @@ class Transform
     }
 
     virtual std::optional<resources::ResourceTemplate>
-    get_resource_template(const std::string& uri,
-                          const GetResourceTemplateNext& call_next) const
+    get_resource_template(const std::string& uri, const GetResourceTemplateNext& call_next) const
     {
         return call_next(uri);
     }

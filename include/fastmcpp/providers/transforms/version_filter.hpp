@@ -19,7 +19,8 @@ class VersionFilter : public Transform
     std::optional<tools::Tool> get_tool(const std::string& name,
                                         const GetToolNext& call_next) const override;
 
-    std::vector<resources::Resource> list_resources(const ListResourcesNext& call_next) const override;
+    std::vector<resources::Resource>
+    list_resources(const ListResourcesNext& call_next) const override;
     std::optional<resources::Resource>
     get_resource(const std::string& uri, const GetResourceNext& call_next) const override;
 

@@ -16,8 +16,7 @@ void test_response_under_limit_unchanged()
     ResponseLimitingMiddleware mw(100);
     auto hook = mw.make_hook();
 
-    Json response = {
-        {"content", Json::array({{{"type", "text"}, {"text", "short response"}}})}};
+    Json response = {{"content", Json::array({{{"type", "text"}, {"text", "short response"}}})}};
     hook("tools/call", Json::object(), response);
 
     assert(response["content"][0]["text"] == "short response");
@@ -134,8 +133,8 @@ void test_server_after_hook_integration()
     server.route("tools/call",
                  [](const Json&)
                  {
-                     return Json{
-                         {"content", Json::array({{{"type", "text"}, {"text", std::string(80, 'F')}}})}};
+                     return Json{{"content", Json::array({{{"type", "text"},
+                                                           {"text", std::string(80, 'F')}}})}};
                  });
 
     Json response = server.handle("tools/call", Json{{"name", "long_tool"}});

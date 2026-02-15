@@ -1,5 +1,6 @@
-#include "fastmcpp/app.hpp"
 #include "fastmcpp/providers/skills_provider.hpp"
+
+#include "fastmcpp/app.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -11,8 +12,9 @@ int main()
     using namespace fastmcpp;
 
     FastMCP app("skills-provider-example", "1.0.0");
-    auto skills_root = std::filesystem::path(std::getenv("USERPROFILE") ? std::getenv("USERPROFILE") : "") /
-                       ".codex" / "skills";
+    auto skills_root =
+        std::filesystem::path(std::getenv("USERPROFILE") ? std::getenv("USERPROFILE") : "") /
+        ".codex" / "skills";
 
     try
     {

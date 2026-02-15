@@ -47,10 +47,8 @@ AfterHook ResponseLimitingMiddleware::make_hook() const
         // Concatenate all text content
         std::string combined;
         for (const auto& item : *content)
-        {
             if (item.value("type", "") == "text")
                 combined += item.value("text", "");
-        }
 
         if (combined.size() <= max_size)
             return;

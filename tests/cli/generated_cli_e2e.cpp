@@ -1,12 +1,11 @@
 #include "fastmcpp/types.hpp"
 #include "fastmcpp/util/json.hpp"
 
-#include <httplib.h>
-
 #include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <httplib.h>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -34,12 +33,10 @@ static std::string shell_quote(const std::string& value)
 
     std::string out = "\"";
     for (char c : value)
-    {
         if (c == '"')
             out += "\\\"";
         else
             out.push_back(c);
-    }
     out.push_back('"');
     return out;
 }
@@ -126,7 +123,8 @@ static std::string make_env_command(const std::string& var, const std::string& v
 int main(int argc, char** argv)
 {
     std::filesystem::path exe_dir =
-        std::filesystem::absolute(argc > 0 ? std::filesystem::path(argv[0]) : std::filesystem::path())
+        std::filesystem::absolute(argc > 0 ? std::filesystem::path(argv[0])
+                                           : std::filesystem::path())
             .parent_path();
     std::filesystem::current_path(exe_dir);
 
@@ -156,78 +154,78 @@ int main(int argc, char** argv)
 
     const std::filesystem::path stdio_script = "generated_cli_stdio_e2e.py";
     std::filesystem::remove(stdio_script, ec);
-    const std::string gen_stdio_cmd =
-        shell_quote(fastmcpp_exe.string()) + " generate-cli " + shell_quote(stdio_server_exe.string()) +
-        " " + shell_quote(stdio_script.string()) + " --no-skill --force --timeout 5 2>&1";
+    const std::string gen_stdio_cmd = shell_quote(fastmcpp_exe.string()) + " generate-cli " +
+                                      shell_quote(stdio_server_exe.string()) + " " +
+                                      shell_quote(stdio_script.string()) +
+                                      " --no-skill --force --timeout 5 2>&1";
     failures += assert_result("generate-cli stdio script", run_capture(gen_stdio_cmd), 0,
                               "Generated CLI script");
     failures += assert_result(
         "generated stdio list-tools",
         run_capture(python_cmd + " " + shell_quote(stdio_script.string()) + " list-tools 2>&1"), 0,
         "\"add\"");
-    failures += assert_result(
-        "generated stdio call-tool",
-        run_capture(python_cmd + " " + shell_quote(stdio_script.string()) +
-                    " call-tool counter 2>&1"),
-        0, "\"text\":\"1\"");
+    failures += assert_result("generated stdio call-tool",
+                              run_capture(python_cmd + " " + shell_quote(stdio_script.string()) +
+                                          " call-tool counter 2>&1"),
+                              0, "\"text\":\"1\"");
     std::filesystem::remove(stdio_script, ec);
 
     const int port = 18990;
     const std::string host = "127.0.0.1";
     std::atomic<int> list_delay_ms{2000};
     httplib::Server srv;
-    srv.Post("/mcp",
-             [&](const httplib::Request& req, httplib::Response& res)
-             {
-                 if (!req.has_header("Authorization") ||
-                     req.get_header_value("Authorization") != "Bearer secret-token")
-                 {
-                     res.status = 401;
-                     res.set_content("{\"error\":\"unauthorized\"}", "application/json");
-                     return;
-                 }
+    srv.Post(
+        "/mcp",
+        [&](const httplib::Request& req, httplib::Response& res)
+        {
+            if (!req.has_header("Authorization") ||
+                req.get_header_value("Authorization") != "Bearer secret-token")
+            {
+                res.status = 401;
+                res.set_content("{\"error\":\"unauthorized\"}", "application/json");
+                return;
+            }
 
-                 auto rpc = fastmcpp::util::json::parse(req.body);
-                 const auto method = rpc.value("method", std::string());
-                 const auto id = rpc.value("id", Json());
-                 if (method == "initialize")
-                 {
-                     Json response = {{"jsonrpc", "2.0"},
-                                      {"id", id},
-                                      {"result",
-                                       {{"protocolVersion", "2024-11-05"},
-                                        {"serverInfo", {{"name", "auth-test"}, {"version", "1.0.0"}}},
-                                        {"capabilities", Json::object()}}}};
-                     res.status = 200;
-                     res.set_header("Mcp-Session-Id", "auth-test-session");
-                     res.set_content(response.dump(), "application/json");
-                     return;
-                 }
-                 if (method == "tools/list")
-                 {
-                     std::this_thread::sleep_for(std::chrono::milliseconds(list_delay_ms.load()));
-                     Json response = {
-                         {"jsonrpc", "2.0"},
-                         {"id", id},
-                         {"result",
-                          {{"tools",
-                            Json::array({Json{{"name", "secured_tool"},
-                                              {"inputSchema",
-                                               Json{{"type", "object"},
-                                                    {"properties", Json::object()}}},
-                                              {"description", "secured"}}})}}}};
-                     res.status = 200;
-                     res.set_header("Mcp-Session-Id", "auth-test-session");
-                     res.set_content(response.dump(), "application/json");
-                     return;
-                 }
+            auto rpc = fastmcpp::util::json::parse(req.body);
+            const auto method = rpc.value("method", std::string());
+            const auto id = rpc.value("id", Json());
+            if (method == "initialize")
+            {
+                Json response = {{"jsonrpc", "2.0"},
+                                 {"id", id},
+                                 {"result",
+                                  {{"protocolVersion", "2024-11-05"},
+                                   {"serverInfo", {{"name", "auth-test"}, {"version", "1.0.0"}}},
+                                   {"capabilities", Json::object()}}}};
+                res.status = 200;
+                res.set_header("Mcp-Session-Id", "auth-test-session");
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
+            if (method == "tools/list")
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(list_delay_ms.load()));
+                Json response = {
+                    {"jsonrpc", "2.0"},
+                    {"id", id},
+                    {"result",
+                     {{"tools",
+                       Json::array({Json{{"name", "secured_tool"},
+                                         {"inputSchema",
+                                          Json{{"type", "object"}, {"properties", Json::object()}}},
+                                         {"description", "secured"}}})}}}};
+                res.status = 200;
+                res.set_header("Mcp-Session-Id", "auth-test-session");
+                res.set_content(response.dump(), "application/json");
+                return;
+            }
 
-                 Json response = {{"jsonrpc", "2.0"},
-                                  {"id", id},
-                                  {"error", {{"code", -32601}, {"message", "method not found"}}}};
-                 res.status = 200;
-                 res.set_content(response.dump(), "application/json");
-             });
+            Json response = {{"jsonrpc", "2.0"},
+                             {"id", id},
+                             {"error", {{"code", -32601}, {"message", "method not found"}}}};
+            res.status = 200;
+            res.set_content(response.dump(), "application/json");
+        });
 
     std::thread server_thread([&]() { srv.listen(host, port); });
     srv.wait_until_ready();
@@ -236,42 +234,40 @@ int main(int argc, char** argv)
     const std::filesystem::path auth_script_ok = "generated_cli_auth_ok.py";
     std::filesystem::remove(auth_script_ok, ec);
     const std::string base_url = "http://" + host + ":" + std::to_string(port) + "/mcp";
-    failures +=
-        assert_result("generate-cli auth script",
-                      run_capture(shell_quote(fastmcpp_exe.string()) + " generate-cli " +
-                                  shell_quote(base_url) + " " + shell_quote(auth_script_ok.string()) +
-                                  " --no-skill --force --auth bearer --timeout 3 2>&1"),
-                      0, "Generated CLI script");
+    failures += assert_result("generate-cli auth script",
+                              run_capture(shell_quote(fastmcpp_exe.string()) + " generate-cli " +
+                                          shell_quote(base_url) + " " +
+                                          shell_quote(auth_script_ok.string()) +
+                                          " --no-skill --force --auth bearer --timeout 3 2>&1"),
+                              0, "Generated CLI script");
 
-    failures +=
-        assert_result("generated auth requires env",
-                      run_capture(python_cmd + " " + shell_quote(auth_script_ok.string()) +
-                                  " list-tools 2>&1"),
-                      2, "Missing FASTMCPP_AUTH_TOKEN");
+    failures += assert_result(
+        "generated auth requires env",
+        run_capture(python_cmd + " " + shell_quote(auth_script_ok.string()) + " list-tools 2>&1"),
+        2, "Missing FASTMCPP_AUTH_TOKEN");
 
     failures += assert_result(
         "generated auth list-tools success",
-        run_capture(make_env_command(
-            "FASTMCPP_AUTH_TOKEN", "secret-token",
-            python_cmd + " " + shell_quote(auth_script_ok.string()) + " list-tools 2>&1")),
+        run_capture(make_env_command("FASTMCPP_AUTH_TOKEN", "secret-token",
+                                     python_cmd + " " + shell_quote(auth_script_ok.string()) +
+                                         " list-tools 2>&1")),
         0, "\"secured_tool\"");
     std::filesystem::remove(auth_script_ok, ec);
 
     const std::filesystem::path auth_script_timeout = "generated_cli_auth_timeout.py";
     std::filesystem::remove(auth_script_timeout, ec);
-    failures +=
-        assert_result("generate-cli timeout script",
-                      run_capture(shell_quote(fastmcpp_exe.string()) + " generate-cli " +
-                                  shell_quote(base_url) + " " +
-                                  shell_quote(auth_script_timeout.string()) +
-                                  " --no-skill --force --auth bearer --timeout 1 2>&1"),
-                      0, "Generated CLI script");
+    failures += assert_result("generate-cli timeout script",
+                              run_capture(shell_quote(fastmcpp_exe.string()) + " generate-cli " +
+                                          shell_quote(base_url) + " " +
+                                          shell_quote(auth_script_timeout.string()) +
+                                          " --no-skill --force --auth bearer --timeout 1 2>&1"),
+                              0, "Generated CLI script");
 
     failures += assert_result(
         "generated auth timeout enforced",
-        run_capture(make_env_command(
-            "FASTMCPP_AUTH_TOKEN", "secret-token",
-            python_cmd + " " + shell_quote(auth_script_timeout.string()) + " list-tools 2>&1")),
+        run_capture(make_env_command("FASTMCPP_AUTH_TOKEN", "secret-token",
+                                     python_cmd + " " + shell_quote(auth_script_timeout.string()) +
+                                         " list-tools 2>&1")),
         124, "timed out");
     std::filesystem::remove(auth_script_timeout, ec);
 

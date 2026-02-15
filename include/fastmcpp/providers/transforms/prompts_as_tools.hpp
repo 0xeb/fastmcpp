@@ -20,7 +20,7 @@ class PromptsAsTools : public Transform
 
     std::vector<tools::Tool> list_tools(const ListToolsNext& call_next) const override;
     std::optional<tools::Tool> get_tool(const std::string& name,
-                                         const GetToolNext& call_next) const override;
+                                        const GetToolNext& call_next) const override;
 
     void set_provider(const Provider* provider)
     {

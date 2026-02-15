@@ -138,7 +138,8 @@ int main(int argc, char** argv)
 
     {
         auto r = run_capture(base + " discover" + redir);
-        failures += assert_contains("discover requires connection", r, 2, "Missing connection options");
+        failures +=
+            assert_contains("discover requires connection", r, 2, "Missing connection options");
     }
 
     {
@@ -168,9 +169,10 @@ int main(int argc, char** argv)
     }
 
     {
-        auto r = run_capture(base +
-                             " install stdio --name demo --command demo_srv --arg --mode --arg stdio --env A=B" +
-                             redir);
+        auto r = run_capture(
+            base +
+            " install stdio --name demo --command demo_srv --arg --mode --arg stdio --env A=B" +
+            redir);
         failures += assert_contains("install stdio prints command", r, 0, "demo_srv");
         failures += assert_contains("install stdio includes args", r, 0, "--mode");
     }
@@ -187,7 +189,8 @@ int main(int argc, char** argv)
 
     {
         auto r = run_capture(base + " install cursor --name demo --command srv" + redir);
-        failures += assert_contains("install cursor prints deeplink", r, 0, "cursor://anysphere.cursor-deeplink");
+        failures += assert_contains("install cursor prints deeplink", r, 0,
+                                    "cursor://anysphere.cursor-deeplink");
     }
 
     {
@@ -209,41 +212,47 @@ int main(int argc, char** argv)
     }
 
     {
-        auto r = run_capture(base + " install claude-code --name demo --command srv --arg one" + redir);
+        auto r =
+            run_capture(base + " install claude-code --name demo --command srv --arg one" + redir);
         failures += assert_contains("install claude-code command", r, 0, "claude mcp add");
     }
 
     {
-        auto r = run_capture(base +
-                             " install mcp-json demo.server:app --name py_srv --with httpx --python 3.12" +
-                             redir);
-        failures += assert_contains("install mcp-json builds uv launcher", r, 0, "\"command\": \"uv\"");
+        auto r = run_capture(
+            base + " install mcp-json demo.server:app --name py_srv --with httpx --python 3.12" +
+            redir);
+        failures +=
+            assert_contains("install mcp-json builds uv launcher", r, 0, "\"command\": \"uv\"");
         failures += assert_contains("install mcp-json includes fastmcp run", r, 0, "\"fastmcp\"");
-        failures += assert_contains("install mcp-json includes server spec", r, 0, "\"demo.server:app\"");
+        failures +=
+            assert_contains("install mcp-json includes server spec", r, 0, "\"demo.server:app\"");
     }
 
     {
         auto r = run_capture(base +
-                             " install mcp-json demo.server:app --with httpx --with-editable ./pkg --project . --with-requirements req.txt" +
+                             " install mcp-json demo.server:app --with httpx --with-editable ./pkg "
+                             "--project . --with-requirements req.txt" +
                              redir);
         failures += assert_contains("install mcp-json includes --with", r, 0, "\"--with\"");
-        failures +=
-            assert_contains("install mcp-json includes --with-editable", r, 0, "\"--with-editable\"");
-        failures +=
-            assert_contains("install mcp-json includes --with-requirements", r, 0,
-                            "\"--with-requirements\"");
+        failures += assert_contains("install mcp-json includes --with-editable", r, 0,
+                                    "\"--with-editable\"");
+        failures += assert_contains("install mcp-json includes --with-requirements", r, 0,
+                                    "\"--with-requirements\"");
         failures += assert_contains("install mcp-json includes --project", r, 0, "\"--project\"");
     }
 
     {
-        auto r = run_capture(base + " install gemini-cli --name demo --command srv --arg one" + redir);
+        auto r =
+            run_capture(base + " install gemini-cli --name demo --command srv --arg one" + redir);
         failures += assert_contains("install gemini-cli command", r, 0, "gemini mcp add");
     }
 
     {
-        auto r = run_capture(base + " install claude-desktop demo.server:app --name desktop_srv" + redir);
+        auto r = run_capture(base + " install claude-desktop demo.server:app --name desktop_srv" +
+                             redir);
         failures += assert_contains("install claude-desktop config", r, 0, "\"mcpServers\"");
-        failures += assert_contains("install claude-desktop includes server", r, 0, "\"desktop_srv\"");
+        failures +=
+            assert_contains("install claude-desktop includes server", r, 0, "\"desktop_srv\"");
     }
 
     {
@@ -253,7 +262,8 @@ int main(int argc, char** argv)
 
     {
         auto r = run_capture(base + " install nope" + redir);
-        failures += assert_contains("install rejects unknown target", r, 2, "Unknown install target");
+        failures +=
+            assert_contains("install rejects unknown target", r, 2, "Unknown install target");
     }
 
     {
@@ -315,10 +325,10 @@ int main(int argc, char** argv)
         std::filesystem::remove(out_file, ec);
         std::filesystem::remove(skill_file, ec);
 
-        auto r = run_capture(base + " generate-cli demo_server.py " + out_file.string() + " --force" +
-                             redir);
-        failures += assert_contains("generate-cli accepts positional output", r, 0,
-                                    "Generated CLI script");
+        auto r = run_capture(base + " generate-cli demo_server.py " + out_file.string() +
+                             " --force" + redir);
+        failures +=
+            assert_contains("generate-cli accepts positional output", r, 0, "Generated CLI script");
         std::filesystem::remove(out_file, ec);
         std::filesystem::remove(skill_file, ec);
     }
@@ -344,27 +354,30 @@ int main(int argc, char** argv)
     }
 
     {
-        auto r = run_capture(base + " generate-cli demo_server.py --auth invalid --no-skill --force" +
-                             redir);
-        failures += assert_contains("generate-cli rejects invalid auth", r, 2,
-                                    "Unsupported --auth mode");
+        auto r = run_capture(
+            base + " generate-cli demo_server.py --auth invalid --no-skill --force" + redir);
+        failures +=
+            assert_contains("generate-cli rejects invalid auth", r, 2, "Unsupported --auth mode");
     }
 
     {
         auto out_file = std::filesystem::path("fastmcpp_cli_generated_auth.py");
         std::error_code ec;
         std::filesystem::remove(out_file, ec);
-        auto r = run_capture(base +
-                             " generate-cli demo_server.py --auth bearer --timeout 7 --no-skill --force --output " +
-                             out_file.string() + redir);
-        failures += assert_contains("generate-cli accepts auth+timeout", r, 0, "Generated CLI script");
+        auto r = run_capture(
+            base +
+            " generate-cli demo_server.py --auth bearer --timeout 7 --no-skill --force --output " +
+            out_file.string() + redir);
+        failures +=
+            assert_contains("generate-cli accepts auth+timeout", r, 0, "Generated CLI script");
         if (std::filesystem::exists(out_file))
         {
             std::ifstream in(out_file);
             std::stringstream content;
             content << in.rdbuf();
             const auto script = content.str();
-            if (!contains(script, "AUTH_MODE = 'bearer'") || !contains(script, "DEFAULT_TIMEOUT = 7"))
+            if (!contains(script, "AUTH_MODE = 'bearer'") ||
+                !contains(script, "DEFAULT_TIMEOUT = 7"))
             {
                 std::cerr << "[FAIL] generate-cli auth/timeout not rendered in script\n";
                 ++failures;

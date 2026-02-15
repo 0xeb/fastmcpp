@@ -15,8 +15,9 @@ std::pair<BeforeHook, AfterHook> PingMiddleware::make_hooks() const
     // Shared stop flag between before and after hooks
     auto stop_flag = std::make_shared<std::atomic<bool>>(false);
 
-    BeforeHook before = [stop_flag](const std::string& route,
-                                    const fastmcpp::Json& /*payload*/) -> std::optional<fastmcpp::Json>
+    BeforeHook before =
+        [stop_flag](const std::string& route,
+                    const fastmcpp::Json& /*payload*/) -> std::optional<fastmcpp::Json>
     {
         if (route == "tools/call")
             stop_flag->store(false);
@@ -24,7 +25,7 @@ std::pair<BeforeHook, AfterHook> PingMiddleware::make_hooks() const
     };
 
     AfterHook after = [stop_flag](const std::string& route, const fastmcpp::Json& /*payload*/,
-                                   fastmcpp::Json& /*response*/)
+                                  fastmcpp::Json& /*response*/)
     {
         if (route == "tools/call")
             stop_flag->store(true);

@@ -70,8 +70,8 @@ struct AppConfig
 
     bool empty() const
     {
-        return !resource_uri && !visibility && !csp && !permissions && !domain &&
-               !prefers_border && (extra.is_null() || extra.empty());
+        return !resource_uri && !visibility && !csp && !permissions && !domain && !prefers_border &&
+               (extra.is_null() || extra.empty());
     }
 };
 
@@ -148,8 +148,7 @@ inline void from_json(const Json& j, AppConfig& app)
     for (const auto& [k, v] : j.items())
     {
         if (k == "resource_uri" || k == "visibility" || k == "csp" || k == "permissions" ||
-            k == "domain" || k == "prefers_border" || k == "resourceUri" ||
-            k == "prefersBorder")
+            k == "domain" || k == "prefers_border" || k == "resourceUri" || k == "prefersBorder")
             continue;
         app.extra[k] = v;
     }

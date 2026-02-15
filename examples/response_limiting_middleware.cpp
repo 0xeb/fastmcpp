@@ -1,4 +1,5 @@
 #include "fastmcpp/server/response_limiting_middleware.hpp"
+
 #include "fastmcpp/server/server.hpp"
 
 #include <iostream>
@@ -23,10 +24,11 @@ int main()
     server::ResponseLimitingMiddleware limiter(48, "... [truncated]");
     srv.add_after(limiter.make_hook());
 
-    Json req = {{"name", "echo_large"},
-                {"arguments",
-                 {{"text",
-                   "This response is intentionally long so middleware truncation is easy to see."}}}};
+    Json req = {
+        {"name", "echo_large"},
+        {"arguments",
+         {{"text",
+           "This response is intentionally long so middleware truncation is easy to see."}}}};
 
     auto resp = srv.handle("tools/call", req);
     std::cout << resp.dump(2) << "\n";
