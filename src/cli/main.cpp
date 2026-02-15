@@ -1174,6 +1174,10 @@ static int run_generate_cli_command(int argc, char** argv)
     script << "DEFAULT_TIMEOUT = " << timeout_seconds << "\n";
     script << "AUTH_MODE = " << py_quote(auth_mode) << "\n";
     script << "AUTH_ENV = 'FASTMCPP_AUTH_TOKEN'\n\n";
+    script << "_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))\n";
+    script << "_EXE_NAME = 'fastmcpp.exe' if sys.platform == 'win32' else 'fastmcpp'\n";
+    script << "_LOCAL_EXE = os.path.join(_SCRIPT_DIR, _EXE_NAME)\n";
+    script << "FASTMCPP = _LOCAL_EXE if os.path.isfile(_LOCAL_EXE) else _EXE_NAME\n\n";
     script << "def _connection_args():\n";
     script << "    args = list(CONNECTION)\n";
     script << "    if AUTH_MODE == 'bearer':\n";
@@ -1184,7 +1188,7 @@ static int run_generate_cli_command(int argc, char** argv)
     script << "        args += ['--header', 'Authorization=Bearer ' + token]\n";
     script << "    return args\n\n";
     script << "def _run(sub_args):\n";
-    script << "    cmd = ['fastmcpp'] + sub_args + _connection_args()\n";
+    script << "    cmd = [FASTMCPP] + sub_args + _connection_args()\n";
     script << "    try:\n";
     script << "        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=DEFAULT_TIMEOUT)\n";
     script << "    except subprocess.TimeoutExpired:\n";
