@@ -1,11 +1,11 @@
 #include "fastmcpp/client/transports.hpp"
 
+#include "../internal/process.hpp"
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/util/json.hpp"
 
+#include <atomic>
 #include <chrono>
-#include <condition_variable>
-#include <deque>
 #include <fstream>
 #include <httplib.h>
 #include <mutex>
@@ -14,27 +14,22 @@
 #ifdef FASTMCPP_POST_STREAMING
 #include <curl/curl.h>
 #endif
-#ifdef TINY_PROCESS_LIB_AVAILABLE
-#include <process.hpp>
-#endif
 
 namespace fastmcpp::client
 {
 
 struct StdioTransport::State
 {
-#ifdef TINY_PROCESS_LIB_AVAILABLE
-    std::unique_ptr<TinyProcessLib::Process> process;
+    fastmcpp::process::Process process;
+    std::mutex request_mutex;
+    // Stderr background reader (keep-alive mode)
+    std::thread stderr_thread;
+    std::atomic<bool> stderr_running{false};
+    std::mutex stderr_mutex;
+    std::string stderr_data;
+    // Logging
     std::ofstream log_file_stream;
     std::ostream* stderr_target{nullptr};
-
-    std::mutex request_mutex;
-    std::mutex mutex;
-    std::condition_variable cv;
-    std::string stdout_partial;
-    std::deque<std::string> stdout_lines;
-    std::string stderr_data;
-#endif
 };
 
 namespace
@@ -466,18 +461,11 @@ StdioTransport::StdioTransport(std::string command, std::vector<std::string> arg
 
 fastmcpp::Json StdioTransport::request(const std::string& route, const fastmcpp::Json& payload)
 {
-    // Use TinyProcessLibrary (fetched via CMake) for cross-platform subprocess handling
-    // Build command line
-    std::ostringstream cmd;
-    cmd << command_;
-    for (const auto& a : args_)
-        cmd << " " << a;
-
-#ifdef TINY_PROCESS_LIB_AVAILABLE
-    using namespace TinyProcessLib;
+    namespace proc = fastmcpp::process;
 
     if (keep_alive_)
     {
+        // --- Keep-alive mode: spawn once, reuse across calls ---
         if (!state_)
         {
             state_ = std::make_unique<State>();
@@ -493,47 +481,62 @@ fastmcpp::Json StdioTransport::request(const std::string& route, const fastmcpp:
                 state_->stderr_target = log_stream_;
             }
 
-            auto stdout_callback = [st_ptr = state_.get()](const char* bytes, size_t n)
+            try
             {
-                std::lock_guard<std::mutex> lock(st_ptr->mutex);
-                st_ptr->stdout_partial.append(bytes, n);
-
-                for (;;)
-                {
-                    auto pos = st_ptr->stdout_partial.find('\n');
-                    if (pos == std::string::npos)
-                        break;
-
-                    std::string line = st_ptr->stdout_partial.substr(0, pos);
-                    if (!line.empty() && line.back() == '\r')
-                        line.pop_back();
-                    st_ptr->stdout_lines.push_back(std::move(line));
-                    st_ptr->stdout_partial.erase(0, pos + 1);
-                }
-
-                st_ptr->cv.notify_all();
-            };
-
-            auto stderr_callback = [st_ptr = state_.get()](const char* bytes, size_t n)
+                state_->process.spawn(command_, args_,
+                                      proc::ProcessOptions{/*working_directory=*/{},
+                                                           /*environment=*/{},
+                                                           /*inherit_environment=*/true,
+                                                           /*redirect_stdin=*/true,
+                                                           /*redirect_stdout=*/true,
+                                                           /*redirect_stderr=*/true,
+                                                           /*create_no_window=*/true});
+            }
+            catch (const proc::ProcessError& e)
             {
-                std::lock_guard<std::mutex> lock(st_ptr->mutex);
-                if (st_ptr->stderr_target != nullptr)
-                {
-                    st_ptr->stderr_target->write(bytes, n);
-                    st_ptr->stderr_target->flush();
-                }
-                st_ptr->stderr_data.append(bytes, n);
-            };
+                state_.reset();
+                throw fastmcpp::TransportError(std::string("StdioTransport: spawn failed: ") +
+                                               e.what());
+            }
 
-            state_->process = std::make_unique<Process>(cmd.str(), "", stdout_callback,
-                                                        stderr_callback, /*open_stdin*/ true);
+            // Background stderr reader to prevent pipe buffer deadlock
+            state_->stderr_running.store(true, std::memory_order_release);
+            state_->stderr_thread = std::thread(
+                [st = state_.get()]()
+                {
+                    char buf[1024];
+                    while (st->stderr_running.load(std::memory_order_acquire))
+                    {
+                        try
+                        {
+                            if (!st->process.stderr_pipe().is_open())
+                                break;
+                            if (!st->process.stderr_pipe().has_data(50))
+                                continue;
+                            size_t n = st->process.stderr_pipe().read(buf, sizeof(buf));
+                            if (n == 0)
+                                break;
+                            std::lock_guard<std::mutex> lock(st->stderr_mutex);
+                            if (st->stderr_target)
+                            {
+                                st->stderr_target->write(buf, static_cast<std::streamsize>(n));
+                                st->stderr_target->flush();
+                            }
+                            st->stderr_data.append(buf, n);
+                        }
+                        catch (...)
+                        {
+                            break;
+                        }
+                    }
+                });
         }
 
         auto* st = state_.get();
         std::lock_guard<std::mutex> request_lock(st->request_mutex);
 
         const int64_t id = next_id_++;
-        fastmcpp::Json request = {
+        fastmcpp::Json rpc_request = {
             {"jsonrpc", "2.0"},
             {"id", id},
             {"method", route},
@@ -541,73 +544,146 @@ fastmcpp::Json StdioTransport::request(const std::string& route, const fastmcpp:
         };
 
         {
-            std::lock_guard<std::mutex> lock(st->mutex);
+            std::lock_guard<std::mutex> lock(st->stderr_mutex);
             st->stderr_data.clear();
         }
 
-        if (!st->process->write(request.dump() + "\n"))
-            throw fastmcpp::TransportError("StdioTransport: failed to write request");
+        try
+        {
+            st->process.stdin_pipe().write(rpc_request.dump() + "\n");
+        }
+        catch (const proc::ProcessError& e)
+        {
+            throw fastmcpp::TransportError(std::string("StdioTransport: failed to write: ") +
+                                           e.what());
+        }
 
-        // Wait for a response matching this ID.
-        // Note: stdio servers may emit notifications or logs; ignore non-matching lines.
+        // Read lines from stdout until we get a JSON response matching our ID
         for (;;)
         {
-            int exit_status = 0;
-            if (st->process->try_get_exit_status(exit_status))
+            // Check if process exited
+            auto exit_code = st->process.try_wait();
+            if (exit_code.has_value())
             {
-                std::lock_guard<std::mutex> lock(st->mutex);
+                std::lock_guard<std::mutex> lock(st->stderr_mutex);
                 throw fastmcpp::TransportError(
-                    "StdioTransport process exited with code: " + std::to_string(exit_status) +
-                    (st->stderr_data.empty() ? std::string("") : ("; stderr: ") + st->stderr_data));
+                    "StdioTransport process exited with code: " + std::to_string(*exit_code) +
+                    (st->stderr_data.empty() ? std::string() : "; stderr: " + st->stderr_data));
             }
 
-            std::unique_lock<std::mutex> lock(st->mutex);
-            if (!st->cv.wait_for(lock, std::chrono::seconds(30),
-                                 [&]() { return !st->stdout_lines.empty(); }))
+            // Wait for data with timeout, checking process liveness periodically
+            bool have_data = false;
+            constexpr int total_timeout_ms = 30000;
+            constexpr int poll_ms = 200;
+            for (int elapsed = 0; elapsed < total_timeout_ms; elapsed += poll_ms)
             {
-                throw fastmcpp::TransportError("StdioTransport: timed out waiting for response");
-            }
-
-            while (!st->stdout_lines.empty())
-            {
-                auto line = std::move(st->stdout_lines.front());
-                st->stdout_lines.pop_front();
-                lock.unlock();
-
-                if (line.empty())
+                if (st->process.stdout_pipe().has_data(poll_ms))
                 {
-                    lock.lock();
-                    continue;
+                    have_data = true;
+                    break;
                 }
-
-                try
+                // Re-check process liveness during the wait
+                auto code = st->process.try_wait();
+                if (code.has_value())
                 {
-                    auto parsed = fastmcpp::util::json::parse(line);
-                    if (parsed.contains("id") && parsed["id"].is_number_integer() &&
-                        parsed["id"].get<int64_t>() == id)
+                    // Drain any remaining data from stdout before throwing
+                    if (st->process.stdout_pipe().has_data(0))
                     {
-                        return parsed;
+                        have_data = true;
+                        break;
                     }
+                    std::lock_guard<std::mutex> lock(st->stderr_mutex);
+                    throw fastmcpp::TransportError(
+                        "StdioTransport process exited with code: " + std::to_string(*code) +
+                        (st->stderr_data.empty() ? std::string() : "; stderr: " + st->stderr_data));
                 }
-                catch (...)
-                {
-                    // Ignore non-JSON stdout lines (e.g., server logs).
-                }
+            }
+            if (!have_data)
+                throw fastmcpp::TransportError("StdioTransport: timed out waiting for response");
 
-                lock.lock();
+            std::string line = st->process.stdout_pipe().read_line();
+            // Strip trailing \r\n
+            while (!line.empty() && (line.back() == '\n' || line.back() == '\r'))
+                line.pop_back();
+
+            if (line.empty())
+                continue;
+
+            try
+            {
+                auto parsed = fastmcpp::util::json::parse(line);
+                if (parsed.contains("id") && parsed["id"].is_number_integer() &&
+                    parsed["id"].get<int64_t>() == id)
+                {
+                    return parsed;
+                }
+            }
+            catch (...)
+            {
+                // Ignore non-JSON stdout lines (e.g., server logs)
             }
         }
     }
+
+    // --- One-shot mode: spawn per call ---
+    proc::Process process;
+    try
+    {
+        process.spawn(command_, args_,
+                      proc::ProcessOptions{/*working_directory=*/{},
+                                           /*environment=*/{},
+                                           /*inherit_environment=*/true,
+                                           /*redirect_stdin=*/true,
+                                           /*redirect_stdout=*/true,
+                                           /*redirect_stderr=*/true,
+                                           /*create_no_window=*/true});
+    }
+    catch (const proc::ProcessError& e)
+    {
+        throw fastmcpp::TransportError(std::string("StdioTransport: spawn failed: ") + e.what());
+    }
+
+    // Write request then close stdin
+    fastmcpp::Json rpc_request = {
+        {"jsonrpc", "2.0"},
+        {"id", 1},
+        {"method", route},
+        {"params", payload},
+    };
+    process.stdin_pipe().write(rpc_request.dump() + "\n");
+    process.stdin_pipe().close();
+
+    // Read all stdout synchronously
     std::string stdout_data;
+    {
+        char buf[4096];
+        for (;;)
+        {
+            size_t n = process.stdout_pipe().read(buf, sizeof(buf));
+            if (n == 0)
+                break;
+            stdout_data.append(buf, n);
+        }
+    }
+
+    // Read all stderr synchronously
     std::string stderr_data;
+    {
+        char buf[4096];
+        for (;;)
+        {
+            size_t n = process.stderr_pipe().read(buf, sizeof(buf));
+            if (n == 0)
+                break;
+            stderr_data.append(buf, n);
+        }
+    }
 
-    // Open log file if path was provided (RAII - closes automatically)
-    std::ofstream log_file_stream;
+    // Log stderr if configured
     std::ostream* stderr_target = nullptr;
-
+    std::ofstream log_file_stream;
     if (log_file_.has_value())
     {
-        // Open file in append mode
         log_file_stream.open(log_file_.value(), std::ios::app);
         if (log_file_stream.is_open())
             stderr_target = &log_file_stream;
@@ -616,49 +692,29 @@ fastmcpp::Json StdioTransport::request(const std::string& route, const fastmcpp:
     {
         stderr_target = log_stream_;
     }
-
-    // Stderr callback: write to log file/stream if configured, otherwise capture
-    auto stderr_callback = [&](const char* bytes, size_t n)
+    if (stderr_target && !stderr_data.empty())
     {
-        if (stderr_target != nullptr)
-        {
-            stderr_target->write(bytes, n);
-            stderr_target->flush();
-        }
-        // Always capture for error messages (in case of process failure)
-        stderr_data.append(bytes, n);
-    };
+        stderr_target->write(stderr_data.data(), static_cast<std::streamsize>(stderr_data.size()));
+        stderr_target->flush();
+    }
 
-    Process process(
-        cmd.str(), "", [&](const char* bytes, size_t n) { stdout_data.append(bytes, n); },
-        stderr_callback, true);
-
-    // Write single-line JSON-RPC request
-    fastmcpp::Json request = {
-        {"jsonrpc", "2.0"},
-        {"id", 1},
-        {"method", route},
-        {"params", payload},
-    };
-    const std::string line = request.dump() + "\n";
-    process.write(line);
-    process.close_stdin();
-    int exit_code = process.get_exit_status();
+    int exit_code = process.wait();
     if (exit_code != 0)
     {
         throw fastmcpp::TransportError(
             "StdioTransport process exit code: " + std::to_string(exit_code) +
-            (stderr_data.empty() ? std::string("") : ("; stderr: ") + stderr_data));
+            (stderr_data.empty() ? std::string() : "; stderr: " + stderr_data));
     }
-    // Read first line from stdout_data
+
+    // Parse first JSON line from stdout
     auto pos = stdout_data.find('\n');
     std::string first_line = pos == std::string::npos ? stdout_data : stdout_data.substr(0, pos);
+    // Strip trailing \r
+    if (!first_line.empty() && first_line.back() == '\r')
+        first_line.pop_back();
     if (first_line.empty())
         throw fastmcpp::TransportError("StdioTransport: no response");
     return fastmcpp::util::json::parse(first_line);
-#else
-    throw fastmcpp::TransportError("TinyProcessLib is not integrated; cannot run StdioTransport");
-#endif
 }
 
 StdioTransport::StdioTransport(StdioTransport&&) noexcept = default;
@@ -666,22 +722,46 @@ StdioTransport& StdioTransport::operator=(StdioTransport&&) noexcept = default;
 
 StdioTransport::~StdioTransport()
 {
-#ifdef TINY_PROCESS_LIB_AVAILABLE
-    if (state_ && state_->process)
+    if (state_)
     {
-        state_->process->close_stdin();
+        // Stop stderr reader thread
+        state_->stderr_running.store(false, std::memory_order_release);
 
-        int exit_status = 0;
+        // Close stdin to signal the server to exit
+        try
+        {
+            state_->process.stdin_pipe().close();
+        }
+        catch (...)
+        {
+        }
+
+        // Poll for graceful exit
         for (int i = 0; i < 10; i++)
         {
-            if (state_->process->try_get_exit_status(exit_status))
+            auto code = state_->process.try_wait();
+            if (code.has_value())
+            {
+                if (state_->stderr_thread.joinable())
+                    state_->stderr_thread.join();
                 return;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
 
-        state_->process->kill(false);
+        // Force kill if still running
+        try
+        {
+            state_->process.kill();
+            state_->process.wait();
+        }
+        catch (...)
+        {
+        }
+
+        if (state_->stderr_thread.joinable())
+            state_->stderr_thread.join();
     }
-#endif
 }
 
 // =============================================================================

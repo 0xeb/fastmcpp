@@ -15,16 +15,17 @@ class OpenAPIProvider : public Provider
   public:
     struct Options
     {
-        bool validate_output{true};
+        bool validate_output = true;
         std::map<std::string, std::string> mcp_names; // operationId -> component name
     };
 
-    explicit OpenAPIProvider(Json openapi_spec, std::optional<std::string> base_url = std::nullopt,
-                             Options options = {});
+    explicit OpenAPIProvider(Json openapi_spec, std::optional<std::string> base_url = std::nullopt);
+    OpenAPIProvider(Json openapi_spec, std::optional<std::string> base_url, Options options);
 
     static OpenAPIProvider from_file(const std::string& file_path,
-                                     std::optional<std::string> base_url = std::nullopt,
-                                     Options options = {});
+                                     std::optional<std::string> base_url = std::nullopt);
+    static OpenAPIProvider from_file(const std::string& file_path,
+                                     std::optional<std::string> base_url, Options options);
 
     std::vector<tools::Tool> list_tools() const override;
     std::optional<tools::Tool> get_tool(const std::string& name) const override;

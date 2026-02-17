@@ -85,6 +85,11 @@ std::string to_string_value(const Json& value)
 }
 } // namespace
 
+OpenAPIProvider::OpenAPIProvider(Json openapi_spec, std::optional<std::string> base_url)
+    : OpenAPIProvider(std::move(openapi_spec), std::move(base_url), Options{})
+{
+}
+
 OpenAPIProvider::OpenAPIProvider(Json openapi_spec, std::optional<std::string> base_url,
                                  Options options)
     : openapi_spec_(std::move(openapi_spec)), options_(std::move(options))
@@ -119,6 +124,12 @@ OpenAPIProvider::OpenAPIProvider(Json openapi_spec, std::optional<std::string> b
             tool.set_version(*spec_version_);
         tools_.push_back(std::move(tool));
     }
+}
+
+OpenAPIProvider OpenAPIProvider::from_file(const std::string& file_path,
+                                           std::optional<std::string> base_url)
+{
+    return from_file(file_path, std::move(base_url), Options{});
 }
 
 OpenAPIProvider OpenAPIProvider::from_file(const std::string& file_path,

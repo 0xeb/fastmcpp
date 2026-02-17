@@ -132,10 +132,10 @@ class SseClientTransport : public ITransport,
     bool is_connected() const;
 
     /// Get the current MCP session ID (from the SSE "endpoint" event).
-    std::string session_id() const;
+    std::string session_id() const override;
 
     /// Check if a session ID has been set.
-    bool has_session() const;
+    bool has_session() const override;
 
     void set_server_request_handler(ServerRequestHandler handler) override;
 
@@ -195,10 +195,10 @@ class StreamableHttpTransport : public ITransport,
     fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload) override;
 
     /// Get the session ID (set after successful initialize)
-    std::string session_id() const;
+    std::string session_id() const override;
 
     /// Check if a session ID has been set
-    bool has_session() const;
+    bool has_session() const override;
 
     /// Set callback for handling server-initiated notifications during streaming responses
     void set_notification_callback(std::function<void(const fastmcpp::Json&)> callback);

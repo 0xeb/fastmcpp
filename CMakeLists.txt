@@ -169,24 +169,8 @@ if(FASTMCPP_ENABLE_POST_STREAMING OR FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS)
   endif()
 endif()
 
-# TinyProcessLib for cross-platform subprocess (header-only)
-FetchContent_Declare(
-  tiny_process_lib
-  GIT_REPOSITORY https://github.com/eidheim/tiny-process-library.git
-  GIT_TAG master
-)
-FetchContent_GetProperties(tiny_process_lib)
-if(NOT tiny_process_lib_POPULATED)
-  FetchContent_Populate(tiny_process_lib)
-endif()
-target_include_directories(fastmcpp_core PUBLIC ${tiny_process_lib_SOURCE_DIR})
-target_compile_definitions(fastmcpp_core PUBLIC TINY_PROCESS_LIB_AVAILABLE)
-target_sources(fastmcpp_core PRIVATE ${tiny_process_lib_SOURCE_DIR}/process.cpp)
-if(UNIX)
-  target_sources(fastmcpp_core PRIVATE ${tiny_process_lib_SOURCE_DIR}/process_unix.cpp)
-elseif(WIN32)
-  target_sources(fastmcpp_core PRIVATE ${tiny_process_lib_SOURCE_DIR}/process_win.cpp)
-endif()
+# Cross-platform subprocess management (replaces tiny-process-library)
+target_sources(fastmcpp_core PRIVATE src/internal/process.cpp)
 find_package(Threads REQUIRED)
 target_link_libraries(fastmcpp_core PRIVATE Threads::Threads)
 
@@ -465,6 +449,26 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_stdio_failure tests/transports/stdio_failure.cpp)
   target_link_libraries(fastmcpp_stdio_failure PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_stdio_failure COMMAND fastmcpp_stdio_failure)
+
+  add_executable(fastmcpp_stdio_lifecycle tests/transports/stdio_lifecycle.cpp)
+  target_link_libraries(fastmcpp_stdio_lifecycle PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_stdio_lifecycle COMMAND fastmcpp_stdio_lifecycle)
+  set_tests_properties(fastmcpp_stdio_lifecycle PROPERTIES
+    WORKING_DIRECTORY "$<TARGET_FILE_DIR:fastmcpp_stdio_lifecycle>"
+  )
+
+  add_executable(fastmcpp_stdio_stderr tests/transports/stdio_stderr.cpp)
+  target_link_libraries(fastmcpp_stdio_stderr PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_stdio_stderr COMMAND fastmcpp_stdio_stderr)
+  set_tests_properties(fastmcpp_stdio_stderr PROPERTIES
+    WORKING_DIRECTORY "$<TARGET_FILE_DIR:fastmcpp_stdio_stderr>"
+  )
+
+  add_executable(fastmcpp_stdio_timeout tests/transports/stdio_timeout.cpp)
+  target_link_libraries(fastmcpp_stdio_timeout PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_stdio_timeout COMMAND fastmcpp_stdio_timeout)
+  # Timeout test can take up to ~35 seconds
+  set_tests_properties(fastmcpp_stdio_timeout PROPERTIES TIMEOUT 60)
 
   # App mounting tests
   add_executable(fastmcpp_app_mounting tests/app/mounting.cpp)
