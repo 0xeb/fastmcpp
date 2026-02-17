@@ -241,7 +241,7 @@ std::filesystem::path home_dir()
 
 SkillProvider::SkillProvider(std::filesystem::path skill_path, std::string main_file_name,
                              SkillSupportingFiles supporting_files)
-    : skill_path_(std::filesystem::absolute(std::move(skill_path)).lexically_normal()),
+    : skill_path_(std::filesystem::weakly_canonical(std::filesystem::absolute(std::move(skill_path)))),
       skill_name_(skill_path_.filename().string()), main_file_name_(std::move(main_file_name)),
       supporting_files_(supporting_files)
 {
