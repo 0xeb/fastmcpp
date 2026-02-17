@@ -513,6 +513,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_provider_skills PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_provider_skills COMMAND fastmcpp_provider_skills)
 
+  add_executable(fastmcpp_provider_skills_paths tests/providers/skills_path_resolution.cpp)
+  target_link_libraries(fastmcpp_provider_skills_paths PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_provider_skills_paths COMMAND fastmcpp_provider_skills_paths)
+
   add_executable(fastmcpp_provider_openapi tests/providers/openapi_provider.cpp)
   target_link_libraries(fastmcpp_provider_openapi PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_provider_openapi COMMAND fastmcpp_provider_openapi)
