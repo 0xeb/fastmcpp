@@ -107,6 +107,7 @@ class ServerSession
         supports_sampling_tools_ = false;
         supports_elicitation_ = false;
         supports_roots_ = false;
+        supported_extensions_.clear();
         if (capabilities.contains("sampling") && capabilities["sampling"].is_object())
         {
             supports_sampling_ = true;
@@ -118,6 +119,9 @@ class ServerSession
             supports_elicitation_ = true;
         if (capabilities.contains("roots") && capabilities["roots"].is_object())
             supports_roots_ = true;
+        if (capabilities.contains("extensions") && capabilities["extensions"].is_object())
+            for (const auto& [extension_id, _] : capabilities["extensions"].items())
+                supported_extensions_.insert(extension_id);
     }
 
     /// Check if client supports sampling
@@ -146,6 +150,13 @@ class ServerSession
     {
         std::lock_guard lock(cap_mutex_);
         return supports_roots_;
+    }
+
+    /// Check if client supports an extension declared under capabilities.extensions
+    bool supports_extension(const std::string& extension_id) const
+    {
+        std::lock_guard lock(cap_mutex_);
+        return supported_extensions_.find(extension_id) != supported_extensions_.end();
     }
 
     /// Get raw capabilities JSON
@@ -364,6 +375,7 @@ class ServerSession
     bool supports_elicitation_{false};
     bool supports_roots_{false};
     bool supports_sampling_tools_{false};
+    std::unordered_set<std::string> supported_extensions_;
 
     // Pending requests
     std::mutex pending_mutex_;

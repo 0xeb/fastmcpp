@@ -396,17 +396,15 @@ void test_create_proxy_url_detection()
         assert(false);
     }
 
-    // WebSocket URL - should create WebSocketTransport
+    // WebSocket URL - unsupported (fastmcpp follows Python transport surface)
     try
     {
-        auto proxy = create_proxy(std::string("ws://localhost:9999/mcp"), "WsProxy");
-        assert(proxy.name() == "WsProxy");
-        std::cout << "  WS URL: OK" << std::endl;
+        (void)create_proxy(std::string("ws://localhost:9999/mcp"), "WsProxy");
+        assert(false); // Should have thrown
     }
-    catch (const std::exception& e)
+    catch (const std::invalid_argument&)
     {
-        std::cerr << "  WS URL failed unexpectedly: " << e.what() << std::endl;
-        assert(false);
+        std::cout << "  WS URL: correctly rejected" << std::endl;
     }
 
     // Invalid URL scheme - should throw
@@ -498,8 +496,8 @@ void test_proxy_resource_annotations()
                                  {"clientInfo", Json{{"name", "test"}, {"version", "1.0"}}}}}});
 
     // Test resources/list serialization
-    auto resources_response = handler(
-        Json{{"jsonrpc", "2.0"}, {"id", 2}, {"method", "resources/list"}, {"params", Json::object()}});
+    auto resources_response = handler(Json{
+        {"jsonrpc", "2.0"}, {"id", 2}, {"method", "resources/list"}, {"params", Json::object()}});
     assert(resources_response.contains("result"));
     assert(resources_response["result"].contains("resources"));
 

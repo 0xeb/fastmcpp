@@ -30,6 +30,8 @@ client::ToolInfo ProxyApp::tool_to_info(const tools::Tool& tool)
         info.execution = fastmcpp::Json{{"taskSupport", to_string(tool.task_support())}};
     info.title = tool.title();
     info.icons = tool.icons();
+    if (tool.app() && !tool.app()->empty())
+        info.app = *tool.app();
     return info;
 }
 
@@ -43,6 +45,8 @@ client::ResourceInfo ProxyApp::resource_to_info(const resources::Resource& res)
     info.title = res.title;
     info.annotations = res.annotations;
     info.icons = res.icons;
+    if (res.app && !res.app->empty())
+        info.app = *res.app;
     return info;
 }
 
@@ -56,6 +60,8 @@ client::ResourceTemplate ProxyApp::template_to_info(const resources::ResourceTem
     info.title = templ.title;
     info.annotations = templ.annotations;
     info.icons = templ.icons;
+    if (templ.app && !templ.app->empty())
+        info.app = *templ.app;
     return info;
 }
 
@@ -374,8 +380,7 @@ namespace
 {
 bool is_supported_url_scheme(const std::string& url)
 {
-    return url.rfind("ws://", 0) == 0 || url.rfind("wss://", 0) == 0 ||
-           url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0;
+    return url.rfind("http://", 0) == 0 || url.rfind("https://", 0) == 0;
 }
 
 // Helper to create client factory from URL
@@ -384,20 +389,13 @@ ProxyApp::ClientFactory make_url_factory(std::string url)
     return [url = std::move(url)]() -> client::Client
     {
         // Detect transport type from URL
-        if (url.find("ws://") == 0 || url.find("wss://") == 0)
-        {
-            return client::Client(std::make_unique<client::WebSocketTransport>(url));
-        }
-        else if (url.find("http://") == 0 || url.find("https://") == 0)
+        if (url.find("http://") == 0 || url.find("https://") == 0)
         {
             // Default to HTTP transport for regular HTTP URLs
             // For SSE, user should create HttpSseTransport explicitly
             return client::Client(std::make_unique<client::HttpTransport>(url));
         }
-        else
-        {
-            throw std::invalid_argument("Unsupported URL scheme: " + url);
-        }
+        throw std::invalid_argument("Unsupported URL scheme: " + url);
     };
 }
 } // anonymous namespace

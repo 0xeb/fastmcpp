@@ -62,6 +62,25 @@ void test_set_capabilities()
     std::cout << "PASSED\n";
 }
 
+void test_extension_capabilities()
+{
+    std::cout << "  test_extension_capabilities... " << std::flush;
+
+    ServerSession session("sess_ext", nullptr);
+    Json caps = {
+        {"tools", Json::object()},
+        {"extensions", Json{{"io.modelcontextprotocol/ui", Json::object()},
+                            {"example.extension", Json{{"enabled", true}}}}},
+    };
+    session.set_capabilities(caps);
+
+    assert(session.supports_extension("io.modelcontextprotocol/ui"));
+    assert(session.supports_extension("example.extension"));
+    assert(!session.supports_extension("missing.extension"));
+
+    std::cout << "PASSED\n";
+}
+
 void test_is_response_request_notification()
 {
     std::cout << "  test_is_response_request_notification... " << std::flush;
@@ -395,6 +414,7 @@ int main()
     {
         test_session_creation();
         test_set_capabilities();
+        test_extension_capabilities();
         test_is_response_request_notification();
         test_send_request_and_response();
         test_request_timeout();

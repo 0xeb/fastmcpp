@@ -56,6 +56,25 @@ struct Icon
         sizes; ///< Optional dimensions (e.g., ["48x48", "96x96"])
 };
 
+/// MCP Apps configuration metadata (FastMCP 3.x parity subset).
+/// This is serialized under `_meta.ui`.
+struct AppConfig
+{
+    std::optional<std::string> resource_uri;
+    std::optional<std::vector<std::string>> visibility;
+    std::optional<Json> csp;
+    std::optional<Json> permissions;
+    std::optional<std::string> domain;
+    std::optional<bool> prefers_border;
+    Json extra = Json::object(); // Forward-compatible unknown fields
+
+    bool empty() const
+    {
+        return !resource_uri && !visibility && !csp && !permissions && !domain && !prefers_border &&
+               (extra.is_null() || extra.empty());
+    }
+};
+
 // nlohmann::json adapters
 inline void to_json(Json& j, const Id& id)
 {
@@ -82,6 +101,57 @@ inline void from_json(const Json& j, Icon& icon)
         icon.mime_type = j["mimeType"].get<std::string>();
     if (j.contains("sizes"))
         icon.sizes = j["sizes"].get<std::vector<std::string>>();
+}
+
+inline void to_json(Json& j, const AppConfig& app)
+{
+    j = Json::object();
+    if (app.resource_uri)
+        j["resourceUri"] = *app.resource_uri;
+    if (app.visibility)
+        j["visibility"] = *app.visibility;
+    if (app.csp)
+        j["csp"] = *app.csp;
+    if (app.permissions)
+        j["permissions"] = *app.permissions;
+    if (app.domain)
+        j["domain"] = *app.domain;
+    if (app.prefers_border.has_value())
+        j["prefersBorder"] = *app.prefers_border;
+
+    if (app.extra.is_object())
+        for (const auto& [k, v] : app.extra.items())
+            if (!j.contains(k))
+                j[k] = v;
+}
+
+inline void from_json(const Json& j, AppConfig& app)
+{
+    if (j.contains("resourceUri"))
+        app.resource_uri = j["resourceUri"].get<std::string>();
+    else if (j.contains("resource_uri"))
+        app.resource_uri = j["resource_uri"].get<std::string>();
+    if (j.contains("visibility"))
+        app.visibility = j["visibility"].get<std::vector<std::string>>();
+    if (j.contains("csp"))
+        app.csp = j["csp"];
+    if (j.contains("permissions"))
+        app.permissions = j["permissions"];
+    if (j.contains("domain"))
+        app.domain = j["domain"].get<std::string>();
+    if (j.contains("prefersBorder"))
+        app.prefers_border = j["prefersBorder"].get<bool>();
+    else if (j.contains("prefers_border"))
+        app.prefers_border = j["prefers_border"].get<bool>();
+
+    app.extra = Json::object();
+    for (const auto& [k, v] : j.items())
+    {
+        if (k == "resource_uri" || k == "visibility" || k == "csp" || k == "permissions" ||
+            k == "domain" || k == "prefers_border" || k == "resourceUri" || k == "prefersBorder")
+            continue;
+        app.extra[k] = v;
+    }
 }
 
 } // namespace fastmcpp

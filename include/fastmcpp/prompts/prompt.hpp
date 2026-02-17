@@ -37,6 +37,7 @@ struct PromptResult
 struct Prompt
 {
     std::string name;
+    std::optional<std::string> version;
     std::optional<std::string> description;
     std::optional<fastmcpp::Json>
         meta; // Optional prompt metadata (returned as _meta in prompts/get)

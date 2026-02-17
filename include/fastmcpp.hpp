@@ -42,6 +42,11 @@
 // Tools, Resources, Prompts
 #include "fastmcpp/prompts/manager.hpp"
 #include "fastmcpp/prompts/prompt.hpp"
+#include "fastmcpp/providers/filesystem_provider.hpp"
+#include "fastmcpp/providers/local_provider.hpp"
+#include "fastmcpp/providers/openapi_provider.hpp"
+#include "fastmcpp/providers/skills_provider.hpp"
+#include "fastmcpp/providers/transforms/version_filter.hpp"
 #include "fastmcpp/resources/manager.hpp"
 #include "fastmcpp/resources/resource.hpp"
 #include "fastmcpp/tools/manager.hpp"

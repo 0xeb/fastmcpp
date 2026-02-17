@@ -26,10 +26,13 @@ class Tool
     // Original constructor (backward compatible)
     Tool(std::string name, fastmcpp::Json input_schema, fastmcpp::Json output_schema, Fn fn,
          std::vector<std::string> exclude_args = {},
-         fastmcpp::TaskSupport task_support = fastmcpp::TaskSupport::Forbidden)
+         fastmcpp::TaskSupport task_support = fastmcpp::TaskSupport::Forbidden,
+         std::optional<fastmcpp::AppConfig> app = std::nullopt,
+         std::optional<std::string> version = std::nullopt)
         : name_(std::move(name)), input_schema_(std::move(input_schema)),
           output_schema_(std::move(output_schema)), fn_(std::move(fn)),
-          exclude_args_(std::move(exclude_args)), task_support_(task_support)
+          exclude_args_(std::move(exclude_args)), task_support_(task_support), app_(std::move(app)),
+          version_(std::move(version))
     {
     }
 
@@ -38,11 +41,13 @@ class Tool
          std::optional<std::string> title, std::optional<std::string> description,
          std::optional<std::vector<fastmcpp::Icon>> icons,
          std::vector<std::string> exclude_args = {},
-         fastmcpp::TaskSupport task_support = fastmcpp::TaskSupport::Forbidden)
+         fastmcpp::TaskSupport task_support = fastmcpp::TaskSupport::Forbidden,
+         std::optional<fastmcpp::AppConfig> app = std::nullopt,
+         std::optional<std::string> version = std::nullopt)
         : name_(std::move(name)), title_(std::move(title)), description_(std::move(description)),
           input_schema_(std::move(input_schema)), output_schema_(std::move(output_schema)),
           icons_(std::move(icons)), fn_(std::move(fn)), exclude_args_(std::move(exclude_args)),
-          task_support_(task_support)
+          task_support_(task_support), app_(std::move(app)), version_(std::move(version))
     {
     }
 
@@ -117,6 +122,14 @@ class Tool
     {
         return task_support_;
     }
+    const std::optional<fastmcpp::AppConfig>& app() const
+    {
+        return app_;
+    }
+    const std::optional<std::string>& version() const
+    {
+        return version_;
+    }
 
     // Setters for optional fields (builder pattern)
     Tool& set_title(std::string title)
@@ -139,6 +152,16 @@ class Tool
         task_support_ = support;
         return *this;
     }
+    Tool& set_app(fastmcpp::AppConfig app)
+    {
+        app_ = std::move(app);
+        return *this;
+    }
+    Tool& set_version(std::string version)
+    {
+        version_ = std::move(version);
+        return *this;
+    }
     Tool& set_timeout(std::optional<std::chrono::milliseconds> timeout)
     {
         timeout_ = timeout;
@@ -147,6 +170,24 @@ class Tool
     const std::optional<std::chrono::milliseconds>& timeout() const
     {
         return timeout_;
+    }
+    bool is_hidden() const
+    {
+        return hidden_;
+    }
+    Tool& set_hidden(bool hidden)
+    {
+        hidden_ = hidden;
+        return *this;
+    }
+    bool sequential() const
+    {
+        return sequential_;
+    }
+    Tool& set_sequential(bool seq)
+    {
+        sequential_ = seq;
+        return *this;
     }
 
   private:
@@ -207,6 +248,10 @@ class Tool
     std::vector<std::string> exclude_args_;
     fastmcpp::TaskSupport task_support_{fastmcpp::TaskSupport::Forbidden};
     std::optional<std::chrono::milliseconds> timeout_;
+    bool hidden_{false};
+    bool sequential_{false};
+    std::optional<fastmcpp::AppConfig> app_;
+    std::optional<std::string> version_;
 };
 
 } // namespace fastmcpp::tools

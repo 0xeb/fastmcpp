@@ -7,6 +7,8 @@
 
 #include <any>
 #include <functional>
+#include <memory>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -168,6 +170,9 @@ inline std::string to_string(TransportType transport)
     }
 }
 
+using SessionState = std::unordered_map<std::string, std::any>;
+using SessionStatePtr = std::shared_ptr<SessionState>;
+
 using LogCallback = std::function<void(LogLevel, const std::string&, const std::string&)>;
 using ProgressCallback =
     std::function<void(const std::string&, double, double, const std::string&)>;
@@ -181,7 +186,8 @@ class Context
             std::optional<fastmcpp::Json> request_meta,
             std::optional<std::string> request_id = std::nullopt,
             std::optional<std::string> session_id = std::nullopt,
-            std::optional<TransportType> transport = std::nullopt);
+            std::optional<TransportType> transport = std::nullopt,
+            SessionStatePtr session_state = nullptr);
 
     std::vector<resources::Resource> list_resources() const;
     std::vector<prompts::Prompt> list_prompts() const;
@@ -209,6 +215,19 @@ class Context
     std::optional<TransportType> transport_type() const
     {
         return transport_;
+    }
+
+    /// Check whether the connected client advertised a capability extension.
+    /// Expects extensions under request meta key "client_extensions".
+    bool client_supports_extension(const std::string& extension_id) const
+    {
+        if (!request_meta_ || !request_meta_->is_object() || extension_id.empty())
+            return false;
+        if (!request_meta_->contains("client_extensions") ||
+            !(*request_meta_)["client_extensions"].is_object())
+            return false;
+        const auto& extensions = (*request_meta_)["client_extensions"];
+        return extensions.contains(extension_id);
     }
 
     std::optional<std::string> client_id() const
@@ -273,6 +292,48 @@ class Context
         for (const auto& [key, _] : state_)
             keys.push_back(key);
         return keys;
+    }
+
+    // Session-scoped state (shared across all contexts in the same session)
+    template <typename T>
+    void set_session_state(const std::string& key, T&& value)
+    {
+        if (!session_state_)
+            throw std::runtime_error("Session state not available");
+        (*session_state_)[key] = std::forward<T>(value);
+    }
+
+    std::any get_session_state(const std::string& key) const
+    {
+        if (!session_state_)
+            return {};
+        auto it = session_state_->find(key);
+        return it != session_state_->end() ? it->second : std::any{};
+    }
+
+    bool has_session_state(const std::string& key) const
+    {
+        return session_state_ && session_state_->count(key) > 0;
+    }
+
+    template <typename T>
+    T get_session_state_or(const std::string& key, T default_value) const
+    {
+        if (!session_state_)
+            return default_value;
+        auto it = session_state_->find(key);
+        if (it != session_state_->end())
+        {
+            try
+            {
+                return std::any_cast<T>(it->second);
+            }
+            catch (const std::bad_any_cast&)
+            {
+                return default_value;
+            }
+        }
+        return default_value;
     }
 
     void set_log_callback(LogCallback callback)
@@ -433,6 +494,7 @@ class Context
     std::optional<std::string> session_id_;
     std::optional<TransportType> transport_;
     mutable std::unordered_map<std::string, std::any> state_;
+    SessionStatePtr session_state_;
     LogCallback log_callback_;
     ProgressCallback progress_callback_;
     NotificationCallback notification_callback_;

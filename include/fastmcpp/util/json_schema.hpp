@@ -15,5 +15,7 @@ namespace fastmcpp::util::schema
 // - properties: { name: { type: ... } }
 
 void validate(const Json& schema, const Json& instance);
+bool contains_ref(const Json& schema);
+Json dereference_refs(const Json& schema);
 
 } // namespace fastmcpp::util::schema

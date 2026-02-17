@@ -1175,8 +1175,14 @@ class Client
                 result.capabilities.prompts = caps["prompts"];
             if (caps.contains("resources"))
                 result.capabilities.resources = caps["resources"];
+            if (caps.contains("sampling"))
+                result.capabilities.sampling = caps["sampling"];
+            if (caps.contains("tasks"))
+                result.capabilities.tasks = caps["tasks"];
             if (caps.contains("tools"))
                 result.capabilities.tools = caps["tools"];
+            if (caps.contains("extensions"))
+                result.capabilities.extensions = caps["extensions"];
         }
 
         if (response.contains("serverInfo"))

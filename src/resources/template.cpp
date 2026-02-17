@@ -311,6 +311,7 @@ ResourceTemplate::create_resource(const std::string& uri,
     resource.name = name;
     resource.description = description;
     resource.mime_type = mime_type;
+    resource.app = app;
 
     // Create a provider that captures the extracted params and delegates to the template provider
     if (provider)

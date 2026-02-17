@@ -183,7 +183,7 @@ void test_get_nonexistent_throws()
     {
         tm.get("nonexistent");
     }
-    catch (const std::out_of_range&)
+    catch (const NotFoundError&)
     {
         threw = true;
     }
@@ -289,7 +289,7 @@ void test_input_schema_for_nonexistent_throws()
     {
         tm.input_schema_for("nonexistent");
     }
-    catch (const std::out_of_range&)
+    catch (const NotFoundError&)
     {
         threw = true;
     }

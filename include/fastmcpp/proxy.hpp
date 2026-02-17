@@ -160,7 +160,7 @@ class ProxyApp
 ///
 /// The target can be:
 /// - A client::Client instance
-/// - A URL string (HTTP/SSE/WebSocket)
+/// - A URL string (HTTP/SSE)
 ///
 /// Note: To proxy to another FastMCP server instance, use FastMCP::mount() instead.
 /// For transports, create a Client first then pass it to create_proxy().

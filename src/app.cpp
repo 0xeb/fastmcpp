@@ -6,6 +6,7 @@
 #include "fastmcpp/mcp/handler.hpp"
 #include "fastmcpp/providers/provider.hpp"
 #include "fastmcpp/resources/template.hpp"
+#include "fastmcpp/util/json_schema.hpp"
 #include "fastmcpp/util/schema_build.hpp"
 
 #include <unordered_set>
@@ -16,10 +17,14 @@ namespace fastmcpp
 
 FastMCP::FastMCP(std::string name, std::string version, std::optional<std::string> website_url,
                  std::optional<std::vector<Icon>> icons,
-                 std::vector<std::shared_ptr<providers::Provider>> providers)
+                 std::vector<std::shared_ptr<providers::Provider>> providers, int list_page_size,
+                 bool dereference_schemas)
     : server_(std::move(name), std::move(version), std::move(website_url), std::move(icons)),
-      providers_(std::move(providers))
+      providers_(std::move(providers)), list_page_size_(list_page_size),
+      dereference_schemas_(dereference_schemas)
 {
+    if (list_page_size < 0)
+        throw ValidationError("list_page_size must be >= 0");
     for (const auto& provider : providers_)
         if (!provider)
             throw ValidationError("provider cannot be null");
@@ -54,6 +59,33 @@ fastmcpp::Json build_resource_template_parameters_schema(const std::string& uri_
         {"required", required},
     };
 }
+
+bool has_ui_scheme(const std::string& uri)
+{
+    return uri.rfind("ui://", 0) == 0;
+}
+
+std::optional<std::string> normalize_ui_mime(const std::string& uri,
+                                             const std::optional<std::string>& mime_type)
+{
+    if (mime_type)
+        return mime_type;
+    if (has_ui_scheme(uri))
+        return std::string("text/html;profile=mcp-app");
+    return mime_type;
+}
+
+void validate_resource_app_config(const std::optional<fastmcpp::AppConfig>& app)
+{
+    if (!app)
+        return;
+    if (app->resource_uri)
+        throw fastmcpp::ValidationError(
+            "AppConfig.resource_uri is not applicable for resources/resource templates");
+    if (app->visibility)
+        throw fastmcpp::ValidationError(
+            "AppConfig.visibility is not applicable for resources/resource templates");
+}
 } // namespace
 
 FastMCP& FastMCP::tool(std::string name, const Json& input_schema_or_simple, tools::Tool::Fn fn,
@@ -69,9 +101,13 @@ FastMCP& FastMCP::tool(std::string name, const Json& input_schema_or_simple, too
                   std::move(options.description),
                   std::move(options.icons),
                   std::move(options.exclude_args),
-                  options.task_support};
+                  options.task_support,
+                  std::move(options.app),
+                  std::move(options.version)};
     if (options.timeout)
         t.set_timeout(*options.timeout);
+    if (options.sequential)
+        t.set_sequential(true);
 
     tools_.register_tool(t);
     return *this;
@@ -88,6 +124,7 @@ FastMCP& FastMCP::prompt(std::string name,
 {
     prompts::Prompt p;
     p.name = std::move(name);
+    p.version = std::move(options.version);
     p.description = std::move(options.description);
     p.meta = std::move(options.meta);
     p.arguments = std::move(options.arguments);
@@ -102,6 +139,7 @@ FastMCP& FastMCP::prompt_template(std::string name, std::string template_string,
 {
     prompts::Prompt p{std::move(template_string)};
     p.name = std::move(name);
+    p.version = std::move(options.version);
     p.description = std::move(options.description);
     p.meta = std::move(options.meta);
     p.arguments = std::move(options.arguments);
@@ -117,11 +155,14 @@ FastMCP& FastMCP::resource(std::string uri, std::string name,
     resources::Resource r;
     r.uri = std::move(uri);
     r.name = std::move(name);
+    r.version = std::move(options.version);
     r.description = std::move(options.description);
-    r.mime_type = std::move(options.mime_type);
+    r.mime_type = normalize_ui_mime(r.uri, options.mime_type);
     r.title = std::move(options.title);
     r.annotations = std::move(options.annotations);
     r.icons = std::move(options.icons);
+    validate_resource_app_config(options.app);
+    r.app = std::move(options.app);
     r.provider = std::move(provider);
     r.task_support = options.task_support;
     resources_.register_resource(r);
@@ -136,11 +177,14 @@ FastMCP::resource_template(std::string uri_template, std::string name,
     resources::ResourceTemplate templ;
     templ.uri_template = std::move(uri_template);
     templ.name = std::move(name);
+    templ.version = std::move(options.version);
     templ.description = std::move(options.description);
-    templ.mime_type = std::move(options.mime_type);
+    templ.mime_type = normalize_ui_mime(templ.uri_template, options.mime_type);
     templ.title = std::move(options.title);
     templ.annotations = std::move(options.annotations);
     templ.icons = std::move(options.icons);
+    validate_resource_app_config(options.app);
+    templ.app = std::move(options.app);
     templ.task_support = options.task_support;
     templ.provider = std::move(provider);
 
@@ -386,6 +430,20 @@ std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
 {
     std::vector<client::ToolInfo> result;
     std::unordered_set<std::string> seen;
+    auto maybe_dereference_schema = [this](const Json& schema) -> Json
+    {
+        if (!dereference_schemas_)
+            return schema;
+        if (!util::schema::contains_ref(schema))
+            return schema;
+        return util::schema::dereference_refs(schema);
+    };
+    auto normalize_tool_info_schemas = [&](client::ToolInfo& info)
+    {
+        info.inputSchema = maybe_dereference_schema(info.inputSchema);
+        if (info.outputSchema && !info.outputSchema->is_null())
+            *info.outputSchema = maybe_dereference_schema(*info.outputSchema);
+    };
 
     auto append_tool_info = [&](const tools::Tool& tool, const std::string& name)
     {
@@ -393,15 +451,28 @@ std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
             return;
         client::ToolInfo info;
         info.name = name;
-        info.inputSchema = tool.input_schema();
+        info.inputSchema = maybe_dereference_schema(tool.input_schema());
         info.title = tool.title();
         info.description = tool.description();
         auto out_schema = tool.output_schema();
         if (!out_schema.is_null())
-            info.outputSchema = out_schema;
-        if (tool.task_support() != TaskSupport::Forbidden)
-            info.execution = Json{{"taskSupport", to_string(tool.task_support())}};
+            info.outputSchema = maybe_dereference_schema(out_schema);
+        if (tool.task_support() != TaskSupport::Forbidden || tool.sequential())
+        {
+            Json execution = Json::object();
+            if (tool.task_support() != TaskSupport::Forbidden)
+                execution["taskSupport"] = to_string(tool.task_support());
+            if (tool.sequential())
+                execution["concurrency"] = "sequential";
+            info.execution = execution;
+        }
         info.icons = tool.icons();
+        if (tool.app() && !tool.app()->empty())
+        {
+            info.app = *tool.app();
+            info._meta = Json{{"ui", *tool.app()}};
+        }
+        normalize_tool_info_schemas(info);
         result.push_back(info);
     };
 
@@ -437,6 +508,7 @@ std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
             {
                 tool_info.name = add_prefix(tool_info.name, mounted.prefix);
             }
+            normalize_tool_info_schemas(tool_info);
             if (seen.insert(tool_info.name).second)
                 result.push_back(tool_info);
         }
@@ -462,6 +534,7 @@ std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
             {
                 tool_info.name = add_prefix(tool_info.name, proxy_mount.prefix);
             }
+            normalize_tool_info_schemas(tool_info);
             if (seen.insert(tool_info.name).second)
                 result.push_back(tool_info);
         }
@@ -521,6 +594,11 @@ std::vector<resources::Resource> FastMCP::list_all_resources() const
                 res.description = *res_info.description;
             if (res_info.mimeType)
                 res.mime_type = *res_info.mimeType;
+            if (res_info.app && !res_info.app->empty())
+                res.app = *res_info.app;
+            else if (res_info._meta && res_info._meta->contains("ui") &&
+                     (*res_info._meta)["ui"].is_object())
+                res.app = (*res_info._meta)["ui"].get<fastmcpp::AppConfig>();
             // Note: provider is not set - reading goes through invoke_tool routing
             add_resource(res);
         }
@@ -533,11 +611,22 @@ std::vector<resources::ResourceTemplate> FastMCP::list_all_templates() const
 {
     std::vector<resources::ResourceTemplate> result;
     std::unordered_set<std::string> seen;
+    auto maybe_dereference_schema = [this](const Json& schema) -> Json
+    {
+        if (!dereference_schemas_)
+            return schema;
+        if (!util::schema::contains_ref(schema))
+            return schema;
+        return util::schema::dereference_refs(schema);
+    };
 
     auto add_template = [&](const resources::ResourceTemplate& templ)
     {
-        if (seen.insert(templ.uri_template).second)
-            result.push_back(templ);
+        resources::ResourceTemplate normalized = templ;
+        if (!normalized.parameters.is_null())
+            normalized.parameters = maybe_dereference_schema(normalized.parameters);
+        if (seen.insert(normalized.uri_template).second)
+            result.push_back(std::move(normalized));
     };
 
     // Add local templates first
@@ -580,6 +669,19 @@ std::vector<resources::ResourceTemplate> FastMCP::list_all_templates() const
                 templ.description = *templ_info.description;
             if (templ_info.mimeType)
                 templ.mime_type = *templ_info.mimeType;
+            if (templ_info.title)
+                templ.title = *templ_info.title;
+            if (templ_info.parameters)
+                templ.parameters = *templ_info.parameters;
+            if (templ_info.annotations)
+                templ.annotations = *templ_info.annotations;
+            if (templ_info.icons)
+                templ.icons = *templ_info.icons;
+            if (templ_info.app && !templ_info.app->empty())
+                templ.app = *templ_info.app;
+            else if (templ_info._meta && templ_info._meta->contains("ui") &&
+                     (*templ_info._meta)["ui"].is_object())
+                templ.app = (*templ_info._meta)["ui"].get<fastmcpp::AppConfig>();
             add_template(templ);
         }
     }

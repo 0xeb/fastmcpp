@@ -17,7 +17,10 @@ class ToolManager
     }
     const Tool& get(const std::string& name) const
     {
-        return tools_.at(name);
+        auto it = tools_.find(name);
+        if (it == tools_.end())
+            throw fastmcpp::NotFoundError("tool not found: " + name);
+        return it->second;
     }
     bool has(const std::string& name) const
     {

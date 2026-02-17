@@ -65,6 +65,7 @@ class FastMCP
   public:
     struct ToolOptions
     {
+        std::optional<std::string> version;
         std::optional<std::string> title;
         std::optional<std::string> description;
         std::optional<std::vector<Icon>> icons;
@@ -72,10 +73,13 @@ class FastMCP
         TaskSupport task_support{TaskSupport::Forbidden};
         Json output_schema{Json::object()};
         std::optional<std::chrono::milliseconds> timeout;
+        bool sequential{false};
+        std::optional<AppConfig> app;
     };
 
     struct PromptOptions
     {
+        std::optional<std::string> version;
         std::optional<std::string> description;
         std::optional<Json> meta;
         std::vector<prompts::PromptArgument> arguments;
@@ -84,29 +88,34 @@ class FastMCP
 
     struct ResourceOptions
     {
+        std::optional<std::string> version;
         std::optional<std::string> description;
         std::optional<std::string> mime_type;
         std::optional<std::string> title;
         std::optional<Json> annotations;
         std::optional<std::vector<Icon>> icons;
         TaskSupport task_support{TaskSupport::Forbidden};
+        std::optional<AppConfig> app;
     };
 
     struct ResourceTemplateOptions
     {
+        std::optional<std::string> version;
         std::optional<std::string> description;
         std::optional<std::string> mime_type;
         std::optional<std::string> title;
         std::optional<Json> annotations;
         std::optional<std::vector<Icon>> icons;
         TaskSupport task_support{TaskSupport::Forbidden};
+        std::optional<AppConfig> app;
     };
 
     /// Construct app with metadata
     explicit FastMCP(std::string name = "fastmcpp_app", std::string version = "1.0.0",
                      std::optional<std::string> website_url = std::nullopt,
                      std::optional<std::vector<Icon>> icons = std::nullopt,
-                     std::vector<std::shared_ptr<providers::Provider>> providers = {});
+                     std::vector<std::shared_ptr<providers::Provider>> providers = {},
+                     int list_page_size = 0, bool dereference_schemas = true);
 
     // Metadata accessors
     const std::string& name() const
@@ -124,6 +133,14 @@ class FastMCP
     const std::optional<std::vector<Icon>>& icons() const
     {
         return server_.icons();
+    }
+    int list_page_size() const
+    {
+        return list_page_size_;
+    }
+    bool dereference_schemas() const
+    {
+        return dereference_schemas_;
     }
 
     // Manager accessors
@@ -293,6 +310,8 @@ class FastMCP
     std::vector<ProxyMountedApp> proxy_mounted_;
     mutable std::vector<tools::Tool> provider_tools_cache_;
     mutable std::vector<prompts::Prompt> provider_prompts_cache_;
+    int list_page_size_{0};
+    bool dereference_schemas_{true};
 
     // Prefix utilities
     static std::string add_prefix(const std::string& name, const std::string& prefix);
