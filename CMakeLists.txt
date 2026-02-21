@@ -268,6 +268,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_mcp_handler PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_mcp_handler COMMAND fastmcpp_mcp_handler)
 
+  add_executable(fastmcpp_mcp_instructions tests/mcp/test_instructions.cpp)
+  target_link_libraries(fastmcpp_mcp_instructions PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_mcp_instructions COMMAND fastmcpp_mcp_instructions)
+
   add_executable(fastmcpp_mcp_server_handler tests/mcp/server_handler.cpp)
   target_link_libraries(fastmcpp_mcp_server_handler PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_mcp_server_handler COMMAND fastmcpp_mcp_server_handler)
@@ -446,6 +450,13 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_stdio_client PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_stdio_client COMMAND fastmcpp_stdio_client)
 
+  add_executable(fastmcpp_stdio_instructions_e2e tests/transports/stdio_instructions_e2e.cpp)
+  target_link_libraries(fastmcpp_stdio_instructions_e2e PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_stdio_instructions_e2e COMMAND fastmcpp_stdio_instructions_e2e)
+  set_tests_properties(fastmcpp_stdio_instructions_e2e PROPERTIES
+    WORKING_DIRECTORY "$<TARGET_FILE_DIR:fastmcpp_stdio_instructions_e2e>"
+  )
+
   add_executable(fastmcpp_stdio_failure tests/transports/stdio_failure.cpp)
   target_link_libraries(fastmcpp_stdio_failure PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_stdio_failure COMMAND fastmcpp_stdio_failure)
@@ -567,6 +578,12 @@ if(FASTMCPP_BUILD_TESTS)
     target_link_libraries(fastmcpp_example_stdio_mcp_server PRIVATE fastmcpp_core)
   endif()
 
+  # Stdio server with instructions for E2E test
+  if(NOT TARGET fastmcpp_example_stdio_instructions_server)
+    add_executable(fastmcpp_example_stdio_instructions_server examples/stdio_instructions_server.cpp)
+    target_link_libraries(fastmcpp_example_stdio_instructions_server PRIVATE fastmcpp_core)
+  endif()
+
   option(FASTMCPP_ENABLE_STREAMING_TESTS "Enable streaming SSE tests (experimental)" OFF)
   if(FASTMCPP_ENABLE_STREAMING_TESTS)
     add_executable(fastmcpp_streaming_sse tests/server/streaming_sse.cpp)
@@ -623,6 +640,10 @@ if(FASTMCPP_BUILD_EXAMPLES)
   # MCP Apps example (FastMCP 3.x surface)
   add_executable(fastmcpp_example_mcp_apps examples/mcp_apps.cpp)
   target_link_libraries(fastmcpp_example_mcp_apps PRIVATE fastmcpp_core)
+
+  # Instructions HTTP server (E2E test target)
+  add_executable(fastmcpp_example_instructions_server examples/instructions_server.cpp)
+  target_link_libraries(fastmcpp_example_instructions_server PRIVATE fastmcpp_core)
 
   # Skills provider example
   add_executable(fastmcpp_example_skills_provider examples/skills_provider.cpp)

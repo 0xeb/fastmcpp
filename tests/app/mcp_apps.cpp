@@ -281,6 +281,72 @@ static int test_resource_app_validation_rules()
     return 0;
 }
 
+static int test_instructions_in_initialize_response()
+{
+    std::cout << "test_instructions_in_initialize_response...\n";
+
+    // Test 1: instructions set via constructor
+    FastMCP app("instructions_test", "1.0.0", std::nullopt, std::nullopt,
+                std::string("Use the echo tool to repeat input."));
+    app.tool("echo", [](const Json& in) { return in; });
+
+    auto handler = mcp::make_mcp_handler(app);
+    auto init = handler(request(1, "initialize"));
+    CHECK_TRUE(init.contains("result"), "initialize should return result");
+    CHECK_TRUE(init["result"].contains("instructions"), "initialize should include instructions");
+    CHECK_TRUE(init["result"]["instructions"] == "Use the echo tool to repeat input.",
+               "instructions value mismatch");
+
+    // Test 2: instructions absent when not set
+    FastMCP bare("bare_test", "1.0.0");
+    auto bare_handler = mcp::make_mcp_handler(bare);
+    auto bare_init = bare_handler(request(2, "initialize"));
+    CHECK_TRUE(bare_init.contains("result"), "initialize (bare) should return result");
+    CHECK_TRUE(!bare_init["result"].contains("instructions"),
+               "initialize (bare) should NOT include instructions when not set");
+
+    // Test 3: instructions set via setter
+    FastMCP setter_app("setter_test", "1.0.0");
+    setter_app.set_instructions("Updated instructions.");
+    auto setter_handler = mcp::make_mcp_handler(setter_app);
+    auto setter_init = setter_handler(request(3, "initialize"));
+    CHECK_TRUE(setter_init["result"].contains("instructions"),
+               "initialize should include instructions set via setter");
+    CHECK_TRUE(setter_init["result"]["instructions"] == "Updated instructions.",
+               "setter instructions value mismatch");
+
+    // Test 4: instructions cleared via setter
+    setter_app.set_instructions(std::nullopt);
+    auto cleared_handler = mcp::make_mcp_handler(setter_app);
+    auto cleared_init = cleared_handler(request(4, "initialize"));
+    CHECK_TRUE(!cleared_init["result"].contains("instructions"),
+               "initialize should NOT include instructions after clearing");
+
+    return 0;
+}
+
+static int test_instructions_parsed_by_client()
+{
+    std::cout << "test_instructions_parsed_by_client...\n";
+
+    FastMCP app("instructions_client_test", "1.0.0", std::nullopt, std::nullopt,
+                std::string("This server provides weather data."));
+    app.tool("get_weather", [](const Json&) { return Json{{"temp", 72}}; });
+
+    auto handler = mcp::make_mcp_handler(app);
+    client::Client c(std::make_unique<client::InProcessMcpTransport>(handler));
+    auto init_result = c.call(
+        "initialize", Json{{"protocolVersion", "2024-11-05"},
+                           {"capabilities", Json::object()},
+                           {"clientInfo", Json{{"name", "instructions-test"}, {"version", "1.0.0"}}}});
+    CHECK_TRUE(init_result.contains("instructions"),
+               "client init result should contain instructions");
+    CHECK_TRUE(init_result["instructions"] == "This server provides weather data.",
+               "client init instructions mismatch");
+
+    return 0;
+}
+
 int main()
 {
     int rc = 0;
@@ -302,6 +368,14 @@ int main()
         return rc;
 
     rc = test_initialize_advertises_ui_extension();
+    if (rc != 0)
+        return rc;
+
+    rc = test_instructions_in_initialize_response();
+    if (rc != 0)
+        return rc;
+
+    rc = test_instructions_parsed_by_client();
     if (rc != 0)
         return rc;
 

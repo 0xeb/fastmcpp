@@ -8,6 +8,7 @@
 #include "fastmcpp/tools/manager.hpp"
 
 #include <chrono>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <string>
@@ -114,8 +115,19 @@ class FastMCP
     explicit FastMCP(std::string name = "fastmcpp_app", std::string version = "1.0.0",
                      std::optional<std::string> website_url = std::nullopt,
                      std::optional<std::vector<Icon>> icons = std::nullopt,
+                     std::optional<std::string> instructions = std::nullopt,
                      std::vector<std::shared_ptr<providers::Provider>> providers = {},
                      int list_page_size = 0, bool dereference_schemas = true);
+    /// Backward-compatible constructor overload (legacy parameter order).
+    FastMCP(std::string name, std::string version, std::optional<std::string> website_url,
+            std::optional<std::vector<Icon>> icons,
+            std::vector<std::shared_ptr<providers::Provider>> providers,
+            int list_page_size = 0, bool dereference_schemas = true);
+    /// Backward-compatible constructor overload for `{}` provider arguments.
+    FastMCP(std::string name, std::string version, std::optional<std::string> website_url,
+            std::optional<std::vector<Icon>> icons,
+            std::initializer_list<std::shared_ptr<providers::Provider>> providers,
+            int list_page_size = 0, bool dereference_schemas = true);
 
     // Metadata accessors
     const std::string& name() const
@@ -133,6 +145,14 @@ class FastMCP
     const std::optional<std::vector<Icon>>& icons() const
     {
         return server_.icons();
+    }
+    const std::optional<std::string>& instructions() const
+    {
+        return server_.instructions();
+    }
+    void set_instructions(std::optional<std::string> val)
+    {
+        server_.set_instructions(std::move(val));
     }
     int list_page_size() const
     {

@@ -8,9 +8,10 @@
 namespace fastmcpp
 {
 
-ProxyApp::ProxyApp(ClientFactory client_factory, std::string name, std::string version)
+ProxyApp::ProxyApp(ClientFactory client_factory, std::string name, std::string version,
+                   std::optional<std::string> instructions)
     : client_factory_(std::move(client_factory)), name_(std::move(name)),
-      version_(std::move(version))
+      version_(std::move(version)), instructions_(std::move(instructions))
 {
 }
 

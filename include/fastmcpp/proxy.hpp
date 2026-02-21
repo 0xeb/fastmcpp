@@ -44,7 +44,8 @@ class ProxyApp
 
     /// Construct proxy with client factory
     explicit ProxyApp(ClientFactory client_factory, std::string name = "proxy_app",
-                      std::string version = "1.0.0");
+                      std::string version = "1.0.0",
+                      std::optional<std::string> instructions = std::nullopt);
 
     // Metadata accessors
     const std::string& name() const
@@ -54,6 +55,14 @@ class ProxyApp
     const std::string& version() const
     {
         return version_;
+    }
+    const std::optional<std::string>& instructions() const
+    {
+        return instructions_;
+    }
+    void set_instructions(std::optional<std::string> val)
+    {
+        instructions_ = std::move(val);
     }
 
     // Local manager accessors (for adding local-only items)
@@ -132,6 +141,7 @@ class ProxyApp
     ClientFactory client_factory_;
     std::string name_;
     std::string version_;
+    std::optional<std::string> instructions_;
     tools::ToolManager local_tools_;
     resources::ResourceManager local_resources_;
     prompts::PromptManager local_prompts_;

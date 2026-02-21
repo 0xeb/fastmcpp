@@ -47,8 +47,9 @@ int main()
 
     std::cout << "2. Creating server with full metadata...\n";
 
-    // Server constructor signature (v2.13.0+):
-    //   Server(name, version, website_url, icons, strict_input_validation)
+    // Server constructor signatures:
+    //   Preferred: Server(name, version, website_url, icons, instructions, strict_input_validation)
+    //   Legacy-compatible: Server(name, version, website_url, icons, strict_input_validation)
     auto server = std::make_shared<server::Server>("example_server",      // name (required)
                                                    "1.2.3",               // version (required)
                                                    "https://example.com", // website_url (optional)
