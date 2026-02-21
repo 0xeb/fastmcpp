@@ -32,6 +32,25 @@ FastMCP::FastMCP(std::string name, std::string version, std::optional<std::strin
             throw ValidationError("provider cannot be null");
 }
 
+FastMCP::FastMCP(std::string name, std::string version, std::optional<std::string> website_url,
+                 std::optional<std::vector<Icon>> icons,
+                 std::vector<std::shared_ptr<providers::Provider>> providers, int list_page_size,
+                 bool dereference_schemas)
+    : FastMCP(std::move(name), std::move(version), std::move(website_url), std::move(icons),
+              std::nullopt, std::move(providers), list_page_size, dereference_schemas)
+{
+}
+
+FastMCP::FastMCP(std::string name, std::string version, std::optional<std::string> website_url,
+                 std::optional<std::vector<Icon>> icons,
+                 std::initializer_list<std::shared_ptr<providers::Provider>> providers,
+                 int list_page_size, bool dereference_schemas)
+    : FastMCP(std::move(name), std::move(version), std::move(website_url), std::move(icons),
+              std::nullopt, std::vector<std::shared_ptr<providers::Provider>>(providers),
+              list_page_size, dereference_schemas)
+{
+}
+
 namespace
 {
 fastmcpp::Json schema_from_schema_or_simple(const fastmcpp::Json& schema_or_simple)

@@ -256,6 +256,34 @@ static void test_server_accessors()
     std::cout << "  PASS\n";
 }
 
+// ============================================================================
+// 11. Backward-compatible constructor parameter order
+// ============================================================================
+static void test_legacy_constructor_compatibility()
+{
+    std::cout << "test_legacy_constructor_compatibility...\n";
+
+    std::vector<std::shared_ptr<providers::Provider>> providers;
+    FastMCP app_with_vector("legacy_app_vector", "1.0.0", std::nullopt, std::nullopt, providers, 3,
+                            false);
+    assert(!app_with_vector.instructions().has_value());
+    assert(app_with_vector.list_page_size() == 3);
+    assert(!app_with_vector.dereference_schemas());
+
+    FastMCP app_with_braces("legacy_app_braces", "1.0.0", std::nullopt, std::nullopt, {}, 0,
+                            false);
+    assert(!app_with_braces.instructions().has_value());
+    assert(app_with_braces.list_page_size() == 0);
+    assert(!app_with_braces.dereference_schemas());
+
+    server::Server legacy_srv("legacy_srv", "1.0.0", std::nullopt, std::nullopt, true);
+    assert(!legacy_srv.instructions().has_value());
+    assert(legacy_srv.strict_input_validation().has_value());
+    assert(*legacy_srv.strict_input_validation());
+
+    std::cout << "  PASS\n";
+}
+
 int main()
 {
     test_bare_handler_with_instructions();
@@ -268,6 +296,7 @@ int main()
     test_proxy_instructions();
     test_proxy_set_instructions();
     test_server_accessors();
+    test_legacy_constructor_compatibility();
 
     std::cout << "All instructions tests passed\n";
     return 0;

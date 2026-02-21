@@ -18,6 +18,7 @@ namespace fastmcpp::server
 /// - version: Server version (optional)
 /// - website_url: Optional URL to server website
 /// - icons: Optional list of icons for UI display
+/// - instructions: Optional instructions shown during initialize
 /// - strict_input_validation: Flag for input validation behavior (optional)
 class Server
 {
@@ -34,6 +35,13 @@ class Server
           website_url_(std::move(website_url)), icons_(std::move(icons)),
           instructions_(std::move(instructions)),
           strict_input_validation_(std::move(strict_input_validation))
+    {
+    }
+    /// Backward-compatible constructor overload (legacy parameter order).
+    Server(std::string name, std::string version, std::optional<std::string> website_url,
+           std::optional<std::vector<fastmcpp::Icon>> icons, bool strict_input_validation)
+        : Server(std::move(name), std::move(version), std::move(website_url), std::move(icons),
+                 std::nullopt, strict_input_validation)
     {
     }
 
