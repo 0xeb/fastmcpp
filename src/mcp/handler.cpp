@@ -904,10 +904,11 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)>
 make_mcp_handler(const std::string& server_name, const std::string& version,
                  const tools::ToolManager& tools,
                  const std::unordered_map<std::string, std::string>& descriptions,
-                 const std::unordered_map<std::string, fastmcpp::Json>& input_schemas_override)
+                 const std::unordered_map<std::string, fastmcpp::Json>& input_schemas_override,
+                 const std::optional<std::string>& instructions)
 {
-    return [server_name, version, &tools, descriptions,
-            input_schemas_override](const fastmcpp::Json& message) -> fastmcpp::Json
+    return [server_name, version, &tools, descriptions, input_schemas_override,
+            instructions](const fastmcpp::Json& message) -> fastmcpp::Json
     {
         try
         {
@@ -918,16 +919,16 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
 
             if (method == "initialize")
             {
+                fastmcpp::Json result_obj = {
+                    {"protocolVersion", "2024-11-05"},
+                    {"capabilities", fastmcpp::Json{{"tools", fastmcpp::Json::object()}}},
+                    {"serverInfo",
+                     fastmcpp::Json{{"name", server_name}, {"version", version}}},
+                };
+                if (instructions.has_value())
+                    result_obj["instructions"] = *instructions;
                 return fastmcpp::Json{
-                    {"jsonrpc", "2.0"},
-                    {"id", id},
-                    {"result",
-                     {
-                         {"protocolVersion", "2024-11-05"},
-                         {"capabilities", fastmcpp::Json{{"tools", fastmcpp::Json::object()}}},
-                         {"serverInfo",
-                          fastmcpp::Json{{"name", server_name}, {"version", version}}},
-                     }}};
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", result_obj}};
             }
 
             if (method == "ping")
@@ -1096,13 +1097,14 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
                     serverInfo["icons"] = icons_array;
                 }
 
+                fastmcpp::Json result_obj = {
+                    {"protocolVersion", "2024-11-05"},
+                    {"capabilities", fastmcpp::Json{{"tools", fastmcpp::Json::object()}}},
+                    {"serverInfo", serverInfo}};
+                if (server.instructions().has_value())
+                    result_obj["instructions"] = *server.instructions();
                 return fastmcpp::Json{
-                    {"jsonrpc", "2.0"},
-                    {"id", id},
-                    {"result",
-                     {{"protocolVersion", "2024-11-05"},
-                      {"capabilities", fastmcpp::Json{{"tools", fastmcpp::Json::object()}}},
-                      {"serverInfo", serverInfo}}}};
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", result_obj}};
             }
 
             if (method == "ping")
@@ -1321,13 +1323,14 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     }
                     serverInfo["icons"] = icons_array;
                 }
+                fastmcpp::Json result_obj = {
+                    {"protocolVersion", "2024-11-05"},
+                    {"capabilities", fastmcpp::Json{{"tools", fastmcpp::Json::object()}}},
+                    {"serverInfo", serverInfo}};
+                if (server.instructions().has_value())
+                    result_obj["instructions"] = *server.instructions();
                 return fastmcpp::Json{
-                    {"jsonrpc", "2.0"},
-                    {"id", id},
-                    {"result",
-                     {{"protocolVersion", "2024-11-05"},
-                      {"capabilities", fastmcpp::Json{{"tools", fastmcpp::Json::object()}}},
-                      {"serverInfo", serverInfo}}}};
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", result_obj}};
             }
 
             if (method == "ping")
@@ -1502,12 +1505,13 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 if (!prompts.list().empty())
                     capabilities["prompts"] = fastmcpp::Json::object();
 
-                return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                      {"id", id},
-                                      {"result",
-                                       {{"protocolVersion", "2024-11-05"},
-                                        {"capabilities", capabilities},
-                                        {"serverInfo", serverInfo}}}};
+                fastmcpp::Json result_obj = {{"protocolVersion", "2024-11-05"},
+                                             {"capabilities", capabilities},
+                                             {"serverInfo", serverInfo}};
+                if (server.instructions().has_value())
+                    result_obj["instructions"] = *server.instructions();
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", result_obj}};
             }
 
             if (method == "ping")
@@ -1837,12 +1841,13 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                     capabilities["prompts"] = fastmcpp::Json::object();
                 advertise_ui_extension(capabilities);
 
-                return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                      {"id", id},
-                                      {"result",
-                                       {{"protocolVersion", "2024-11-05"},
-                                        {"capabilities", capabilities},
-                                        {"serverInfo", serverInfo}}}};
+                fastmcpp::Json result_obj = {{"protocolVersion", "2024-11-05"},
+                                             {"capabilities", capabilities},
+                                             {"serverInfo", serverInfo}};
+                if (app.instructions().has_value())
+                    result_obj["instructions"] = *app.instructions();
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", result_obj}};
             }
 
             if (method == "ping")
@@ -2533,12 +2538,13 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                     capabilities["prompts"] = fastmcpp::Json::object();
                 advertise_ui_extension(capabilities);
 
-                return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                      {"id", id},
-                                      {"result",
-                                       {{"protocolVersion", "2024-11-05"},
-                                        {"capabilities", capabilities},
-                                        {"serverInfo", serverInfo}}}};
+                fastmcpp::Json result_obj = {{"protocolVersion", "2024-11-05"},
+                                             {"capabilities", capabilities},
+                                             {"serverInfo", serverInfo}};
+                if (app.instructions().has_value())
+                    result_obj["instructions"] = *app.instructions();
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", result_obj}};
             }
 
             if (method == "ping")
@@ -2998,12 +3004,13 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                     capabilities["prompts"] = fastmcpp::Json::object();
                 advertise_ui_extension(capabilities);
 
-                return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                      {"id", id},
-                                      {"result",
-                                       {{"protocolVersion", "2024-11-05"},
-                                        {"capabilities", capabilities},
-                                        {"serverInfo", serverInfo}}}};
+                fastmcpp::Json result_obj = {{"protocolVersion", "2024-11-05"},
+                                             {"capabilities", capabilities},
+                                             {"serverInfo", serverInfo}};
+                if (app.instructions().has_value())
+                    result_obj["instructions"] = *app.instructions();
+                return fastmcpp::Json{
+                    {"jsonrpc", "2.0"}, {"id", id}, {"result", result_obj}};
             }
 
             if (method == "ping")

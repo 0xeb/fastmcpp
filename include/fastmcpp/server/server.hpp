@@ -28,9 +28,11 @@ class Server
     explicit Server(std::string name = "fastmcpp_server", std::string version = "1.0.0",
                     std::optional<std::string> website_url = std::nullopt,
                     std::optional<std::vector<fastmcpp::Icon>> icons = std::nullopt,
+                    std::optional<std::string> instructions = std::nullopt,
                     std::optional<bool> strict_input_validation = std::nullopt)
         : name_(std::move(name)), version_(std::move(version)),
           website_url_(std::move(website_url)), icons_(std::move(icons)),
+          instructions_(std::move(instructions)),
           strict_input_validation_(std::move(strict_input_validation))
     {
     }
@@ -69,6 +71,14 @@ class Server
     {
         return icons_;
     }
+    const std::optional<std::string>& instructions() const
+    {
+        return instructions_;
+    }
+    void set_instructions(std::optional<std::string> val)
+    {
+        instructions_ = std::move(val);
+    }
     const std::optional<bool>& strict_input_validation() const
     {
         return strict_input_validation_;
@@ -80,6 +90,7 @@ class Server
     std::string version_;
     std::optional<std::string> website_url_;
     std::optional<std::vector<fastmcpp::Icon>> icons_;
+    std::optional<std::string> instructions_;
     std::optional<bool> strict_input_validation_;
 
     // Routing and middleware

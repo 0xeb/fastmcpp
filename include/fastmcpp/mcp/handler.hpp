@@ -38,7 +38,8 @@ using SessionAccessor = std::function<std::shared_ptr<server::ServerSession>(con
 std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
     const std::string& server_name, const std::string& version, const tools::ToolManager& tools,
     const std::unordered_map<std::string, std::string>& descriptions = {},
-    const std::unordered_map<std::string, fastmcpp::Json>& input_schemas_override = {});
+    const std::unordered_map<std::string, fastmcpp::Json>& input_schemas_override = {},
+    const std::optional<std::string>& instructions = std::nullopt);
 
 // Overload: build a handler from a generic Server plus explicit tool metadata.
 // tools_meta: vector of (tool_name, description, inputSchema)
