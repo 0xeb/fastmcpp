@@ -1,4 +1,5 @@
-﻿#include "fastmcpp/client/transports.hpp"
+#include "fastmcpp/client/transports.hpp"
+#include "fastmcpp/client/client.hpp"
 
 #include <cassert>
 #include <filesystem>
@@ -30,6 +31,7 @@ static std::string find_stdio_server_binary()
 int main()
 {
     using fastmcpp::Json;
+    using fastmcpp::client::Client;
     using fastmcpp::client::StdioTransport;
 
     // Spawn the demo stdio MCP server executable (built alongside tests)
@@ -63,6 +65,25 @@ int main()
         std::string text = content.at(0).value("text", std::string());
         assert(text.find("7") != std::string::npos);
         std::cout << "[PASS] tools/call add returned 7" << std::endl;
+    }
+
+    // Client API should also parse wrapped JSON-RPC envelopes over stdio transport.
+    {
+        Client c(std::make_unique<StdioTransport>(find_stdio_server_binary()));
+        auto init = c.initialize();
+        assert(init.serverInfo.name == "demo_stdio");
+        assert(init.serverInfo.version == "0.1.0");
+
+        auto tools = c.list_tools();
+        bool found_add = false;
+        for (const auto& t : tools)
+            if (t.name == "add")
+                found_add = true;
+        assert(found_add);
+
+        auto result = c.call_tool("add", Json{{"a", 8}, {"b", 34}});
+        assert(result.text().find("42") != std::string::npos);
+        std::cout << "[PASS] Client API works over stdio with wrapped envelopes" << std::endl;
     }
 
     auto call_counter = [](StdioTransport& transport) -> int

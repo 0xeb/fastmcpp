@@ -3,6 +3,34 @@
 
 #include "test_helpers.hpp"
 
+class WrappedLoopbackTransport : public client::ITransport
+{
+  public:
+    explicit WrappedLoopbackTransport(std::shared_ptr<server::Server> server)
+        : server_(std::move(server))
+    {
+    }
+
+    fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload) override
+    {
+        return Json{{"jsonrpc", "2.0"}, {"id", 1}, {"result", server_->handle(route, payload)}};
+    }
+
+  private:
+    std::shared_ptr<server::Server> server_;
+};
+
+class ErrorEnvelopeTransport : public client::ITransport
+{
+  public:
+    fastmcpp::Json request(const std::string&, const fastmcpp::Json&) override
+    {
+        return Json{{"jsonrpc", "2.0"},
+                    {"id", 1},
+                    {"error", Json{{"code", -32601}, {"message", "Method not found"}}}};
+    }
+};
+
 void test_is_connected()
 {
     std::cout << "Test 10: is_connected()...\n";
@@ -398,6 +426,126 @@ void test_callbacks_invoked()
     std::cout << "  [PASS] callbacks invoked and responses returned\n";
 }
 
+void test_jsonrpc_envelope_normalization()
+{
+    std::cout << "Test 19: wrapped JSON-RPC responses normalize across client APIs...\n";
+
+    // tools/list + tools/call
+    {
+        auto srv = create_tool_server();
+        client::Client c(std::make_unique<WrappedLoopbackTransport>(srv));
+        auto tools = c.list_tools();
+        assert(!tools.empty());
+        auto call = c.call_tool("add", Json{{"a", 2}, {"b", 5}});
+        assert(call.text().find("7") != std::string::npos);
+    }
+
+    // resources/list + read + templates/list
+    {
+        auto srv = create_resource_server();
+        client::Client c(std::make_unique<WrappedLoopbackTransport>(srv));
+        auto resources = c.list_resources();
+        assert(!resources.empty());
+        auto read = c.read_resource("file:///readme.txt");
+        assert(!read.empty());
+        auto templates = c.list_resource_templates();
+        assert(templates.size() == 3);
+    }
+
+    // prompts/list + prompts/get
+    {
+        auto srv = create_prompt_server();
+        client::Client c(std::make_unique<WrappedLoopbackTransport>(srv));
+        auto prompts = c.list_prompts();
+        assert(!prompts.empty());
+        auto prompt = c.get_prompt("summarize");
+        assert(prompt.description.has_value());
+        assert(!prompt.messages.empty());
+    }
+
+    // initialize + complete + task methods + notifications/poll
+    {
+        ProtocolState state;
+        auto srv = create_protocol_server(state);
+        srv->route("tasks/get",
+                   [](const Json& in)
+                   {
+                       return Json{{"taskId", in.value("taskId", "")},
+                                   {"status", "completed"},
+                                   {"createdAt", "t0"},
+                                   {"lastUpdatedAt", "t1"},
+                                   {"pollInterval", 10}};
+                   });
+        srv->route("tasks/cancel",
+                   [](const Json& in)
+                   {
+                       return Json{{"taskId", in.value("taskId", "")},
+                                   {"status", "cancelled"},
+                                   {"createdAt", "t0"},
+                                   {"lastUpdatedAt", "t1"},
+                                   {"pollInterval", 10}};
+                   });
+        srv->route("tasks/list", [](const Json&) { return Json{{"tasks", Json::array()}}; });
+
+        client::Client c(std::make_unique<WrappedLoopbackTransport>(srv));
+        auto init = c.initialize();
+        assert(init.serverInfo.name == "proto");
+        assert(init.serverInfo.version == "1.0.0");
+
+        Json ref = {{"type", "prompt"}, {"name", "anything"}};
+        std::map<std::string, std::string> args = {{"key", "value"}};
+        auto comp = c.complete_mcp(ref, args);
+        assert(comp.completion.values.size() == 2);
+
+        auto status = c.get_task_status("task-1");
+        assert(status.status == "completed");
+        auto cancelled = c.cancel_task("task-1");
+        assert(cancelled.status == "cancelled");
+        auto listed = c.list_tasks_raw();
+        assert(listed.contains("tasks"));
+
+        bool sampling_called = false;
+        bool elicitation_called = false;
+        bool roots_called = false;
+        c.set_sampling_callback(
+            [&](const Json&) {
+                sampling_called = true;
+                return Json::object();
+            });
+        c.set_elicitation_callback(
+            [&](const Json&) {
+                elicitation_called = true;
+                return Json::object();
+            });
+        c.set_roots_callback(
+            [&]() {
+                roots_called = true;
+                return Json::array({"root1"});
+            });
+        c.poll_notifications();
+        assert(sampling_called);
+        assert(elicitation_called);
+        assert(roots_called);
+    }
+
+    // Error envelope should throw fastmcpp::Error from parser entry points
+    {
+        client::Client c(std::make_unique<ErrorEnvelopeTransport>());
+        bool threw = false;
+        try
+        {
+            (void)c.list_tools();
+        }
+        catch (const fastmcpp::Error&)
+        {
+            threw = true;
+        }
+        assert(threw);
+    }
+
+    std::cout << "  [PASS] wrapped envelopes parse correctly across operations\n";
+}
+
 int main()
 {
     std::cout << "Running advanced Client API tests...\n\n";
@@ -418,7 +566,8 @@ int main()
         test_initialize_ping_cancel_progress_roots_clone();
         test_transport_failure();
         test_callbacks_invoked();
-        std::cout << "\n[OK] All advanced client API tests passed! (15 tests)\n";
+        test_jsonrpc_envelope_normalization();
+        std::cout << "\n[OK] All advanced client API tests passed! (16 tests)\n";
         return 0;
     }
     catch (const std::exception& e)
