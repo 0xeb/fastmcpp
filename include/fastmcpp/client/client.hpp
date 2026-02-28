@@ -937,8 +937,8 @@ class Client
                 if (error.contains("code") && error["code"].is_number_integer())
                 {
                     throw fastmcpp::Error("JSON-RPC error (" +
-                                          std::to_string(error["code"].get<int>()) + "): " +
-                                          message);
+                                          std::to_string(error["code"].get<int>()) +
+                                          "): " + message);
                 }
                 throw fastmcpp::Error("JSON-RPC error: " + message);
             }

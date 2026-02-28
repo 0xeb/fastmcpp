@@ -1,5 +1,5 @@
-#include "fastmcpp/client/transports.hpp"
 #include "fastmcpp/client/client.hpp"
+#include "fastmcpp/client/transports.hpp"
 
 #include <cassert>
 #include <filesystem>

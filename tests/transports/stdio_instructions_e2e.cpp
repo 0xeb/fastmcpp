@@ -43,10 +43,10 @@ int main()
 
     // Test 1: Initialize and check instructions
     {
-        auto resp = tx.request("initialize",
-                               Json{{"protocolVersion", "2024-11-05"},
-                                    {"capabilities", Json::object()},
-                                    {"clientInfo", Json{{"name", "e2e-test"}, {"version", "1.0"}}}});
+        auto resp = tx.request(
+            "initialize", Json{{"protocolVersion", "2024-11-05"},
+                               {"capabilities", Json::object()},
+                               {"clientInfo", Json{{"name", "e2e-test"}, {"version", "1.0"}}}});
 
         assert(resp.contains("result"));
         auto& result = resp["result"];

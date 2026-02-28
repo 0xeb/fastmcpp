@@ -198,8 +198,7 @@ static void test_proxy_instructions()
     auto client_factory = [backend_handler]()
     { return client::Client(std::make_unique<client::InProcessMcpTransport>(backend_handler)); };
 
-    ProxyApp proxy(client_factory, "proxy_srv", "1.0.0",
-                   std::string("Proxy instructions."));
+    ProxyApp proxy(client_factory, "proxy_srv", "1.0.0", std::string("Proxy instructions."));
 
     auto handler = mcp::make_mcp_handler(proxy);
     auto resp = handler(request(1, "initialize"));
@@ -242,8 +241,7 @@ static void test_server_accessors()
 {
     std::cout << "test_server_accessors...\n";
 
-    server::Server srv("acc_srv", "1.0", std::nullopt, std::nullopt,
-                       std::string("Initial."));
+    server::Server srv("acc_srv", "1.0", std::nullopt, std::nullopt, std::string("Initial."));
     assert(srv.instructions().has_value());
     assert(*srv.instructions() == "Initial.");
 
@@ -270,8 +268,7 @@ static void test_legacy_constructor_compatibility()
     assert(app_with_vector.list_page_size() == 3);
     assert(!app_with_vector.dereference_schemas());
 
-    FastMCP app_with_braces("legacy_app_braces", "1.0.0", std::nullopt, std::nullopt, {}, 0,
-                            false);
+    FastMCP app_with_braces("legacy_app_braces", "1.0.0", std::nullopt, std::nullopt, {}, 0, false);
     assert(!app_with_braces.instructions().has_value());
     assert(app_with_braces.list_page_size() == 0);
     assert(!app_with_braces.dereference_schemas());

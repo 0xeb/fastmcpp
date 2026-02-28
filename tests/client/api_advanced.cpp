@@ -508,17 +508,20 @@ void test_jsonrpc_envelope_normalization()
         bool elicitation_called = false;
         bool roots_called = false;
         c.set_sampling_callback(
-            [&](const Json&) {
+            [&](const Json&)
+            {
                 sampling_called = true;
                 return Json::object();
             });
         c.set_elicitation_callback(
-            [&](const Json&) {
+            [&](const Json&)
+            {
                 elicitation_called = true;
                 return Json::object();
             });
         c.set_roots_callback(
-            [&]() {
+            [&]()
+            {
                 roots_called = true;
                 return Json::array({"root1"});
             });
