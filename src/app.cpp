@@ -16,8 +16,7 @@ namespace fastmcpp
 {
 
 FastMCP::FastMCP(std::string name, std::string version, std::optional<std::string> website_url,
-                 std::optional<std::vector<Icon>> icons,
-                 std::optional<std::string> instructions,
+                 std::optional<std::vector<Icon>> icons, std::optional<std::string> instructions,
                  std::vector<std::shared_ptr<providers::Provider>> providers, int list_page_size,
                  bool dereference_schemas)
     : server_(std::move(name), std::move(version), std::move(website_url), std::move(icons),

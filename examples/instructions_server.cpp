@@ -40,24 +40,22 @@ int main(int argc, char* argv[])
     FastMCP app("instructions_http_server", "2.0.0",
                 /*website_url=*/std::nullopt,
                 /*icons=*/std::nullopt,
-                /*instructions=*/std::string(
-                    "This server provides echo and add tools. "
-                    "Use 'echo' to repeat a message, and 'add' to sum two numbers."));
+                /*instructions=*/
+                std::string("This server provides echo and add tools. "
+                            "Use 'echo' to repeat a message, and 'add' to sum two numbers."));
 
-    app.tool(
-        "echo",
-        Json{{"type", "object"},
-             {"properties", Json{{"message", Json{{"type", "string"}}}}},
-             {"required", Json::array({"message"})}},
-        [](const Json& args) { return args.at("message"); });
+    app.tool("echo",
+             Json{{"type", "object"},
+                  {"properties", Json{{"message", Json{{"type", "string"}}}}},
+                  {"required", Json::array({"message"})}},
+             [](const Json& args) { return args.at("message"); });
 
     app.tool(
         "add",
         Json{{"type", "object"},
              {"properties", Json{{"a", Json{{"type", "number"}}}, {"b", Json{{"type", "number"}}}}},
              {"required", Json::array({"a", "b"})}},
-        [](const Json& args)
-        { return args.at("a").get<double>() + args.at("b").get<double>(); });
+        [](const Json& args) { return args.at("a").get<double>() + args.at("b").get<double>(); });
 
     auto handler = fastmcpp::mcp::make_mcp_handler(app);
 

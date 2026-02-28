@@ -121,8 +121,8 @@ class FastMCP
     /// Backward-compatible constructor overload (legacy parameter order).
     FastMCP(std::string name, std::string version, std::optional<std::string> website_url,
             std::optional<std::vector<Icon>> icons,
-            std::vector<std::shared_ptr<providers::Provider>> providers,
-            int list_page_size = 0, bool dereference_schemas = true);
+            std::vector<std::shared_ptr<providers::Provider>> providers, int list_page_size = 0,
+            bool dereference_schemas = true);
     /// Backward-compatible constructor overload for `{}` provider arguments.
     FastMCP(std::string name, std::string version, std::optional<std::string> website_url,
             std::optional<std::vector<Icon>> icons,

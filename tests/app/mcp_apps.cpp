@@ -335,10 +335,11 @@ static int test_instructions_parsed_by_client()
 
     auto handler = mcp::make_mcp_handler(app);
     client::Client c(std::make_unique<client::InProcessMcpTransport>(handler));
-    auto init_result = c.call(
-        "initialize", Json{{"protocolVersion", "2024-11-05"},
-                           {"capabilities", Json::object()},
-                           {"clientInfo", Json{{"name", "instructions-test"}, {"version", "1.0.0"}}}});
+    auto init_result =
+        c.call("initialize",
+               Json{{"protocolVersion", "2024-11-05"},
+                    {"capabilities", Json::object()},
+                    {"clientInfo", Json{{"name", "instructions-test"}, {"version", "1.0.0"}}}});
     CHECK_TRUE(init_result.contains("instructions"),
                "client init result should contain instructions");
     CHECK_TRUE(init_result["instructions"] == "This server provides weather data.",
