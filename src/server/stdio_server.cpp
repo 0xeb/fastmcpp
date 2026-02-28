@@ -96,6 +96,21 @@ void StdioServerWrapper::run_loop()
             // Parse JSON-RPC request
             auto request = fastmcpp::util::json::parse(line);
 
+            // JSON-RPC notifications (missing/null id) must not receive responses.
+            const bool is_notification = !request.contains("id") || request["id"].is_null();
+            if (is_notification)
+            {
+                try
+                {
+                    (void)handler_(request); // process side effects only
+                }
+                catch (...)
+                {
+                    // Ignore notification errors by design.
+                }
+                continue;
+            }
+
             // Process with handler
             auto response = handler_(request);
 
@@ -143,7 +158,7 @@ void StdioServerWrapper::run_loop()
             try
             {
                 auto request = fastmcpp::util::json::parse(line);
-                if (request.contains("id"))
+                if (request.contains("id") && !request["id"].is_null())
                     error_response["id"] = request["id"];
             }
             catch (...)
@@ -161,7 +176,7 @@ void StdioServerWrapper::run_loop()
             try
             {
                 auto request = fastmcpp::util::json::parse(line);
-                if (request.contains("id"))
+                if (request.contains("id") && !request["id"].is_null())
                     error_response["id"] = request["id"];
             }
             catch (...)
@@ -179,7 +194,7 @@ void StdioServerWrapper::run_loop()
             try
             {
                 auto request = fastmcpp::util::json::parse(line);
-                if (request.contains("id"))
+                if (request.contains("id") && !request["id"].is_null())
                     error_response["id"] = request["id"];
             }
             catch (...)
