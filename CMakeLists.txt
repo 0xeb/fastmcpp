@@ -169,7 +169,7 @@ if(FASTMCPP_ENABLE_POST_STREAMING OR FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS)
   endif()
 endif()
 
-# Cross-platform subprocess management (replaces tiny-process-library)
+# Cross-platform subprocess management
 target_sources(fastmcpp_core PRIVATE src/internal/process.cpp)
 find_package(Threads REQUIRED)
 target_link_libraries(fastmcpp_core PRIVATE Threads::Threads)
