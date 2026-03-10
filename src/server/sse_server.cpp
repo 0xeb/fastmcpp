@@ -557,13 +557,20 @@ bool SseServerWrapper::start()
             }
         });
 
-    // Bind synchronously to get actual port (supports port 0 / OS auto-assign)
-    int bound_port = (port_ == 0)
-        ? svr_->bind_to_any_port(host_)
-        : svr_->bind_to_port(host_, port_);
-    if (bound_port <= 0)
-        return false;
-    port_ = bound_port;
+    // Bind synchronously to get actual port (supports port 0 / OS auto-assign).
+    // bind_to_any_port() returns the assigned port; bind_to_port() returns bool.
+    if (port_ == 0)
+    {
+        int bound_port = svr_->bind_to_any_port(host_);
+        if (bound_port <= 0)
+            return false;
+        port_ = bound_port;
+    }
+    else
+    {
+        if (!svr_->bind_to_port(host_, port_))
+            return false;
+    }
 
     running_ = true;
 
