@@ -255,8 +255,8 @@ void SseServerWrapper::send_event_to_session(const std::string& session_id,
 
 void SseServerWrapper::run_server()
 {
-    // Just run the server - routes are already set up
-    svr_->listen(host_.c_str(), port_);
+    // Just run the server - bind was already done in start()
+    svr_->listen_after_bind();
     running_ = false;
 }
 
@@ -556,6 +556,14 @@ bool SseServerWrapper::start()
                 res.status = 500;
             }
         });
+
+    // Bind synchronously to get actual port (supports port 0 / OS auto-assign)
+    int bound_port = (port_ == 0)
+        ? svr_->bind_to_any_port(host_)
+        : svr_->bind_to_port(host_, port_);
+    if (bound_port <= 0)
+        return false;
+    port_ = bound_port;
 
     running_ = true;
 
