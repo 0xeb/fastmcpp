@@ -23,6 +23,7 @@ class HttpServerWrapper
      * @param core Shared pointer to the core Server (routes handler)
      * @param host Host address to bind to (default: "127.0.0.1" for localhost)
      * @param port Port to listen on (default: 18080)
+     *             To bind to any random available port provided by the OS use port number 0.
      * @param auth_token Optional auth token for Bearer authentication (empty = no auth required)
      * @param cors_origin Optional CORS origin to allow (empty = no CORS header, use "*" for
      * wildcard)
@@ -37,10 +38,14 @@ class HttpServerWrapper
     {
         return running_.load();
     }
-    int port() const
-    {
-        return port_;
-    }
+
+    /**
+     * Get the port the server is bound to.
+     *
+     * If the server is not bound to any port returns std::nullopt.
+     */
+    std::optional<int> port() const;
+
     const std::string& host() const
     {
         return host_;
@@ -51,7 +56,8 @@ class HttpServerWrapper
 
     std::shared_ptr<Server> core_;
     std::string host_;
-    int port_;
+    int requested_port_;
+    std::atomic<int> bound_port_ = 0;
     std::string auth_token_;  // Optional Bearer token for authentication
     std::string cors_origin_; // Optional CORS origin (empty = no CORS)
     std::unique_ptr<httplib::Server> svr_;

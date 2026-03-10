@@ -17,7 +17,7 @@ int main()
         std::cerr << "Failed to start HTTP server" << std::endl;
         return 1;
     }
-    std::cout << "Server listening on http://" << http.host() << ":" << http.port() << std::endl;
+    std::cout << "Server listening on http://" << http.host() << ":" << *http.port() << std::endl;
     // Run for a short period for demo purposes
     std::this_thread::sleep_for(std::chrono::seconds(3));
     http.stop();

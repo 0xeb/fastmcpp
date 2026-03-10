@@ -50,6 +50,7 @@ class SseServerWrapper
      * @param handler Function that processes JSON-RPC requests and returns responses
      * @param host Host address to bind to (default: "127.0.0.1")
      * @param port Port to listen on (default: 18080)
+     *             To bind to any random available port provided by the OS use port number 0.
      * @param sse_path Path for SSE GET endpoint (default: "/sse")
      * @param message_path Path for POST message endpoint (default: "/messages")
      * @param auth_token Optional auth token for Bearer authentication (empty = no auth required)
@@ -89,12 +90,11 @@ class SseServerWrapper
     }
 
     /**
-     * Get the port the server is listening on.
+     * Get the port the server is bound to.
+     *
+     * If the server is not bound to any port returns std::nullopt.
      */
-    int port() const
-    {
-        return port_;
-    }
+    std::optional<int> port() const;
 
     /**
      * Get the host address the server is bound to.
@@ -181,7 +181,8 @@ class SseServerWrapper
 
     McpHandler handler_;
     std::string host_;
-    int port_;
+    int requested_port_;
+    std::atomic<int> bound_port_ = 0;
     std::string sse_path_;
     std::string message_path_;
     std::string auth_token_;  // Optional Bearer token for authentication

@@ -61,7 +61,7 @@ int main()
 
     std::cout << "[OK] Server started successfully\n";
     std::cout << "   Host: " << sse_server.host() << "\n";
-    std::cout << "   Port: " << sse_server.port() << "\n";
+    std::cout << "   Port: " << *sse_server.port() << "\n";
     std::cout << "   SSE endpoint: " << sse_server.sse_path() << " (GET)\n";
     std::cout << "   Message endpoint: " << sse_server.message_path() << " (POST)\n\n";
 

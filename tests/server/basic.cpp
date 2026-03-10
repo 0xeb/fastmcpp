@@ -269,7 +269,7 @@ void test_server_properties()
     server::HttpServerWrapper http{srv, "192.168.1.1", 8080};
 
     assert(http.host() == "192.168.1.1");
-    assert(http.port() == 8080);
+    assert(!http.port());
     assert(!http.running());
 
     std::cout << "  [PASS] Server properties accessible correctly\n";
@@ -290,6 +290,8 @@ void test_error_recovery()
     server::HttpServerWrapper http{srv, "127.0.0.1", 18098};
     http.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    assert(http.port() && *http.port() == 18098);
 
     client::HttpTransport client{"127.0.0.1:18098"};
 

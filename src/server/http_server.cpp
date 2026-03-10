@@ -10,7 +10,7 @@ namespace fastmcpp::server
 
 HttpServerWrapper::HttpServerWrapper(std::shared_ptr<Server> core, std::string host, int port,
                                      std::string auth_token, std::string cors_origin)
-    : core_(std::move(core)), host_(std::move(host)), port_(port),
+    : core_(std::move(core)), host_(std::move(host)), requested_port_(port),
       auth_token_(std::move(auth_token)), cors_origin_(std::move(cors_origin))
 {
 }
@@ -18,6 +18,15 @@ HttpServerWrapper::HttpServerWrapper(std::shared_ptr<Server> core, std::string h
 HttpServerWrapper::~HttpServerWrapper()
 {
     stop();
+}
+
+std::optional<int> HttpServerWrapper::port() const
+{
+    const int bound_port = bound_port_.load();
+    if (bound_port > 0)
+        return bound_port;
+    else
+        return std::nullopt;
 }
 
 bool HttpServerWrapper::check_auth(const std::string& auth_header) const
@@ -39,6 +48,8 @@ bool HttpServerWrapper::start()
     // Idempotent start: return false if already running
     if (running_)
         return false;
+
+    bound_port_.store(0); // Reset the bound port's value.
     svr_ = std::make_unique<httplib::Server>();
 
     // Security: Set payload and timeout limits to prevent DoS
@@ -92,11 +103,50 @@ bool HttpServerWrapper::start()
     thread_ = std::thread(
         [this]()
         {
-            svr_->listen(host_.c_str(), port_);
+            if (requested_port_ == 0) // Request any available port from the operating system.
+            {
+                const int bound_port = svr_->bind_to_any_port(host_.c_str());
+                if (bound_port != -1) // Returns -1 if some error occured.
+                {
+                    bound_port_.store(bound_port);
+                    svr_->listen_after_bind();
+                }
+            }
+            else
+            {
+                const bool success = svr_->bind_to_port(host_.c_str(), requested_port_);
+                if (success)
+                {
+                    bound_port_.store(requested_port_);
+                    svr_->listen_after_bind();
+                }
+            }
             running_ = false;
         });
-    // Give the server a moment to bind
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // Wait for server to be ready by probing a safe GET endpoint.
+    // HttpServerWrapper only defines POST routes, so GET / should return 404 once bound.
+    for (int attempt = 0; attempt < 20; ++attempt)
+    {
+        if (running_)
+        {
+            if (const std::optional bound_port = port())
+            {
+                httplib::Client probe(host_.c_str(), *bound_port);
+                probe.set_connection_timeout(std::chrono::seconds(2));
+                probe.set_read_timeout(std::chrono::seconds(2));
+                auto res = probe.Get("/");
+                if (res)
+                    return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        else
+        {
+            stop();
+            return false; // thread_ signalled failure.
+        }
+    }
     return true;
 }
 
@@ -109,6 +159,8 @@ void HttpServerWrapper::stop()
         thread_.join();
     running_ = false;
     svr_.reset();
+
+    bound_port_.store(0); // Reset the bound port's value.
 }
 
 } // namespace fastmcpp::server

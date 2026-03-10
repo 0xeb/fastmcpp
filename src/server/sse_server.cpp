@@ -78,7 +78,7 @@ std::optional<TaskNotificationInfo> extract_task_notification_info(const fastmcp
 SseServerWrapper::SseServerWrapper(McpHandler handler, std::string host, int port,
                                    std::string sse_path, std::string message_path,
                                    std::string auth_token, std::string cors_origin)
-    : handler_(std::move(handler)), host_(std::move(host)), port_(port),
+    : handler_(std::move(handler)), host_(std::move(host)), requested_port_(port),
       sse_path_(std::move(sse_path)), message_path_(std::move(message_path)),
       auth_token_(std::move(auth_token)), cors_origin_(std::move(cors_origin))
 {
@@ -87,6 +87,15 @@ SseServerWrapper::SseServerWrapper(McpHandler handler, std::string host, int por
 SseServerWrapper::~SseServerWrapper()
 {
     stop();
+}
+
+std::optional<int> SseServerWrapper::port() const
+{
+    const int bound_port = bound_port_.load();
+    if (bound_port > 0)
+        return bound_port;
+    else
+        return std::nullopt;
 }
 
 bool SseServerWrapper::check_auth(const std::string& auth_header) const
@@ -256,7 +265,24 @@ void SseServerWrapper::send_event_to_session(const std::string& session_id,
 void SseServerWrapper::run_server()
 {
     // Just run the server - routes are already set up
-    svr_->listen(host_.c_str(), port_);
+    if (requested_port_ == 0) // Request any available port from the operating system.
+    {
+        const int bound_port = svr_->bind_to_any_port(host_.c_str());
+        if (bound_port != -1) // Returns -1 if some error occured.
+        {
+            bound_port_.store(bound_port);
+            svr_->listen_after_bind();
+        }
+    }
+    else
+    {
+        const bool success = svr_->bind_to_port(host_.c_str(), requested_port_);
+        if (success)
+        {
+            bound_port_.store(requested_port_);
+            svr_->listen_after_bind();
+        }
+    }
     running_ = false;
 }
 
@@ -265,6 +291,7 @@ bool SseServerWrapper::start()
     if (running_)
         return false;
 
+    bound_port_.store(0); // Reset the bound port's value.
     svr_ = std::make_unique<httplib::Server>();
 
     // Security: Set payload and timeout limits to prevent DoS
@@ -567,20 +594,31 @@ bool SseServerWrapper::start()
     // Result as an error even though data was received. Track actual data receipt.
     for (int attempt = 0; attempt < 20; ++attempt)
     {
-        bool received_data = false;
-        httplib::Client probe(host_.c_str(), port_);
-        probe.set_connection_timeout(std::chrono::seconds(2));
-        probe.set_read_timeout(std::chrono::seconds(2));
-        probe.Get(sse_path_.c_str(),
-                  [&](const char*, size_t)
-                  {
-                      // Cancel after first chunk to indicate readiness
-                      received_data = true;
-                      return false;
-                  });
-        if (received_data)
-            break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        if (running_)
+        {
+            if (const std::optional bound_port = port())
+            {
+                bool received_data = false;
+                httplib::Client probe(host_.c_str(), *bound_port);
+                probe.set_connection_timeout(std::chrono::seconds(2));
+                probe.set_read_timeout(std::chrono::seconds(2));
+                probe.Get(sse_path_.c_str(),
+                          [&](const char*, size_t)
+                          {
+                              // Cancel after first chunk to indicate readiness
+                              received_data = true;
+                              return false;
+                          });
+                if (received_data)
+                    return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        else
+        {
+            stop();
+            return false; // thread_ signalled failure.
+        }
     }
 
     return true;
@@ -603,6 +641,8 @@ void SseServerWrapper::stop()
         svr_->stop();
     if (thread_.joinable())
         thread_.join();
+
+    bound_port_.store(0); // Reset the bound port's value.
 }
 
 } // namespace fastmcpp::server

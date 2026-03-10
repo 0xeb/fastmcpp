@@ -49,6 +49,7 @@ class StreamableHttpServerWrapper
      * @param handler Function that processes JSON-RPC requests and returns responses
      * @param host Host address to bind to (default: "127.0.0.1")
      * @param port Port to listen on (default: 18080)
+     *             To bind to any random available port provided by the OS use port number 0.
      * @param mcp_path Path for the MCP POST endpoint (default: "/mcp")
      * @param auth_token Optional auth token for Bearer authentication (empty = no auth required)
      * @param cors_origin Optional CORS origin to allow (empty = no CORS header, use "*" for
@@ -87,12 +88,11 @@ class StreamableHttpServerWrapper
     }
 
     /**
-     * Get the port the server is listening on.
+     * Get the port the server is bound to.
+     *
+     * If the server is not bound to any port returns std::nullopt.
      */
-    int port() const
-    {
-        return port_;
-    }
+    std::optional<int> port() const;
 
     /**
      * Get the host address the server is bound to.
@@ -144,7 +144,8 @@ class StreamableHttpServerWrapper
 
     McpHandler handler_;
     std::string host_;
-    int port_;
+    int requested_port_;
+    std::atomic<int> bound_port_ = 0;
     std::string mcp_path_;
     std::string auth_token_;  // Optional Bearer token for authentication
     std::string cors_origin_; // Optional CORS origin (empty = no CORS)
