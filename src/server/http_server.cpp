@@ -53,6 +53,17 @@ bool HttpServerWrapper::start()
     svr_->set_read_timeout(30, 0);                  // 30 second read timeout
     svr_->set_write_timeout(30, 0);                 // 30 second write timeout
 
+    // Handle OPTIONS for CORS preflight on all routes
+    svr_->Options(R"(/(.*))",
+                  [this](const httplib::Request&, httplib::Response& res)
+                  {
+                      res.set_header("Access-Control-Allow-Methods", "POST, OPTIONS");
+                      res.set_header("Access-Control-Allow-Headers",
+                                     "Content-Type, Authorization, Mcp-Session-Id");
+                      apply_additional_response_headers(res);
+                      res.status = 204;
+                  });
+
     // Generic POST: /<route>
     svr_->Post(R"(/(.*))",
                [this](const httplib::Request& req, httplib::Response& res)

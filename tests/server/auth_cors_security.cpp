@@ -224,6 +224,110 @@ int main()
         std::cout << "  [PASS] SSE server with auth rejects unauthenticated connections\n";
     }
 
+    // Test 7: HTTP server route should handle CORS preflight when configured
+    {
+        std::cout << "Test: HTTP server route handles CORS preflight...\n";
+
+        auto srv = std::make_shared<Server>();
+        srv->route("test", [](const Json&) { return Json{{"result", "ok"}}; });
+
+        HttpServerWrapper http_server(srv, "127.0.0.1", 18605, "",
+                                      {{"Access-Control-Allow-Origin", "https://example.com"}});
+        if (!http_server.start())
+        {
+            std::cerr << "Failed to start HTTP server with CORS config\n";
+            return 1;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        httplib::Client client("127.0.0.1", 18605);
+        httplib::Headers headers = {{"Origin", "https://example.com"},
+                                    {"Access-Control-Request-Method", "POST"},
+                                    {"Access-Control-Request-Headers", "Content-Type"}};
+        auto res = client.Options("/test", headers);
+
+        if (!res || res->status != 204)
+        {
+            std::cerr << "  [FAIL] Expected 204 for preflight, got: "
+                      << (res ? std::to_string(res->status) : "no response") << "\n";
+            http_server.stop();
+            return 1;
+        }
+
+        auto cors_it = res->headers.find("Access-Control-Allow-Origin");
+        if (cors_it == res->headers.end() || cors_it->second != "https://example.com")
+        {
+            std::cerr << "  [FAIL] Missing or incorrect Access-Control-Allow-Origin\n";
+            http_server.stop();
+            return 1;
+        }
+
+        auto methods_it = res->headers.find("Access-Control-Allow-Methods");
+        if (methods_it == res->headers.end() ||
+            methods_it->second.find("POST") == std::string::npos)
+        {
+            std::cerr << "  [FAIL] Missing or incorrect Access-Control-Allow-Methods\n";
+            http_server.stop();
+            return 1;
+        }
+
+        http_server.stop();
+        std::cout << "  [PASS] HTTP server route handles CORS preflight\n";
+    }
+
+    // Test 8: SSE message endpoint should handle CORS preflight when configured
+    {
+        std::cout << "Test: SSE message endpoint handles CORS preflight...\n";
+
+        auto handler = [](const Json& req) -> Json
+        { return Json{{"jsonrpc", "2.0"}, {"id", req["id"]}, {"result", {}}}; };
+
+        SseServerWrapper sse_server(handler, "127.0.0.1", 18605, "/sse", "/messages", "",
+                                    {{"Access-Control-Allow-Origin", "https://example.com"}});
+        if (!sse_server.start())
+        {
+            std::cerr << "Failed to start SSE server with CORS config\n";
+            return 1;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+        httplib::Client client("127.0.0.1", 18605);
+        httplib::Headers headers = {{"Origin", "https://example.com"},
+                                    {"Access-Control-Request-Method", "POST"},
+                                    {"Access-Control-Request-Headers", "Content-Type"}};
+        auto res = client.Options("/messages", headers);
+
+        if (!res || res->status != 204)
+        {
+            std::cerr << "  [FAIL] Expected 204 for preflight, got: "
+                      << (res ? std::to_string(res->status) : "no response") << "\n";
+            sse_server.stop();
+            return 1;
+        }
+
+        auto cors_it = res->headers.find("Access-Control-Allow-Origin");
+        if (cors_it == res->headers.end() || cors_it->second != "https://example.com")
+        {
+            std::cerr << "  [FAIL] Missing or incorrect Access-Control-Allow-Origin\n";
+            sse_server.stop();
+            return 1;
+        }
+
+        auto methods_it = res->headers.find("Access-Control-Allow-Methods");
+        if (methods_it == res->headers.end() ||
+            methods_it->second.find("POST") == std::string::npos)
+        {
+            std::cerr << "  [FAIL] Missing or incorrect Access-Control-Allow-Methods\n";
+            sse_server.stop();
+            return 1;
+        }
+
+        sse_server.stop();
+        std::cout << "  [PASS] SSE message endpoint handles CORS preflight\n";
+    }
+
     std::cout << "\n[OK] All HTTP/SSE auth and CORS security tests passed!\n";
     return 0;
 }

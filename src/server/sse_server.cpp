@@ -380,6 +380,17 @@ bool SseServerWrapper::start()
                       [](bool) {});
               });
 
+    // Handle OPTIONS for CORS preflight on SSE endpoint
+    svr_->Options(sse_path_,
+                  [this](const httplib::Request&, httplib::Response& res)
+                  {
+                      res.set_header("Access-Control-Allow-Methods", "GET, OPTIONS");
+                      res.set_header("Access-Control-Allow-Headers",
+                                     "Content-Type, Authorization, Mcp-Session-Id");
+                      apply_additional_response_headers(res);
+                      res.status = 204;
+                  });
+
     // Set up SSE endpoint POST handler (v2.13.0+) - Return 405 Method Not Allowed
     svr_->Post(
         sse_path_,
@@ -577,6 +588,17 @@ bool SseServerWrapper::start()
                 res.status = 500;
             }
         });
+
+    // Handle OPTIONS for CORS preflight on message endpoint
+    svr_->Options(message_path_,
+                  [this](const httplib::Request&, httplib::Response& res)
+                  {
+                      res.set_header("Access-Control-Allow-Methods", "POST, OPTIONS");
+                      res.set_header("Access-Control-Allow-Headers",
+                                     "Content-Type, Authorization, Mcp-Session-Id");
+                      apply_additional_response_headers(res);
+                      res.status = 204;
+                  });
 
     running_ = true;
 
