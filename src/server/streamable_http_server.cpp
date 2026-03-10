@@ -3,6 +3,9 @@
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/util/json.hpp"
 
+#include <algorithm>
+#include <cassert>
+#include <cctype>
 #include <chrono>
 #include <httplib.h>
 #include <iomanip>
@@ -16,11 +19,22 @@ namespace fastmcpp::server
 StreamableHttpServerWrapper::StreamableHttpServerWrapper(McpHandler handler, std::string host,
                                                          int port, std::string mcp_path,
                                                          std::string auth_token,
-                                                         std::string cors_origin)
+                                                         std::unordered_map<std::string, std::string> response_headers)
     : handler_(std::move(handler)), host_(std::move(host)), port_(port),
       mcp_path_(std::move(mcp_path)), auth_token_(std::move(auth_token)),
-      cors_origin_(std::move(cors_origin))
+      response_headers_(std::move(response_headers))
 {
+    assert(port >= 0 && "'port' is expected to be non-negative.");
+
+    for (const auto& [name, value] : response_headers_)
+    {
+        std::string lower_name = name;
+        std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        assert(lower_name != "content-type" &&
+               "'response_headers' must not override streamable HTTP Content-Type.");
+    }
 }
 
 StreamableHttpServerWrapper::~StreamableHttpServerWrapper()
@@ -40,6 +54,12 @@ bool StreamableHttpServerWrapper::check_auth(const std::string& auth_header) con
 
     std::string provided_token = auth_header.substr(7); // Skip "Bearer "
     return provided_token == auth_token_;
+}
+
+void StreamableHttpServerWrapper::apply_additional_response_headers(httplib::Response& res) const
+{
+    for (const auto& [name, value] : response_headers_)
+        res.set_header(name, value);
 }
 
 std::string StreamableHttpServerWrapper::generate_session_id()
@@ -76,18 +96,15 @@ bool StreamableHttpServerWrapper::start()
     svr_->set_write_timeout(30, 0);                 // 30 second write timeout
 
     // Handle OPTIONS for CORS preflight
-    if (!cors_origin_.empty())
-    {
-        svr_->Options(mcp_path_,
-                      [this](const httplib::Request&, httplib::Response& res)
-                      {
-                          res.set_header("Access-Control-Allow-Origin", cors_origin_);
-                          res.set_header("Access-Control-Allow-Methods", "POST, OPTIONS");
-                          res.set_header("Access-Control-Allow-Headers",
-                                         "Content-Type, Authorization, Mcp-Session-Id");
-                          res.status = 204;
-                      });
-    }
+    svr_->Options(mcp_path_,
+                  [this](const httplib::Request&, httplib::Response& res)
+                  {
+                      res.set_header("Access-Control-Allow-Methods", "POST, OPTIONS");
+                      res.set_header("Access-Control-Allow-Headers",
+                                     "Content-Type, Authorization, Mcp-Session-Id");
+                      apply_additional_response_headers(res);
+                      res.status = 204;
+                  });
 
     // Set up MCP endpoint (POST)
     svr_->Post(
@@ -108,9 +125,7 @@ bool StreamableHttpServerWrapper::start()
                     }
                 }
 
-                // Security: Only set CORS header if explicitly configured
-                if (!cors_origin_.empty())
-                    res.set_header("Access-Control-Allow-Origin", cors_origin_);
+                apply_additional_response_headers(res);
 
                 // Parse JSON-RPC message
                 auto message = fastmcpp::util::json::parse(req.body);

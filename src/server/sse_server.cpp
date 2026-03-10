@@ -3,6 +3,9 @@
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/util/json.hpp"
 
+#include <algorithm>
+#include <cassert>
+#include <cctype>
 #include <chrono>
 #include <ctime>
 #include <httplib.h>
@@ -77,11 +80,27 @@ std::optional<TaskNotificationInfo> extract_task_notification_info(const fastmcp
 
 SseServerWrapper::SseServerWrapper(McpHandler handler, std::string host, int port,
                                    std::string sse_path, std::string message_path,
-                                   std::string auth_token, std::string cors_origin)
+                                   std::string auth_token,
+                                   std::unordered_map<std::string, std::string> response_headers)
     : handler_(std::move(handler)), host_(std::move(host)), port_(port),
       sse_path_(std::move(sse_path)), message_path_(std::move(message_path)),
-      auth_token_(std::move(auth_token)), cors_origin_(std::move(cors_origin))
+      auth_token_(std::move(auth_token)), response_headers_(std::move(response_headers))
 {
+    assert(port >= 0 && "'port' is expected to be non-negative.");
+
+    for (const auto& [name, value] : response_headers_)
+    {
+        std::string lower_name = name;
+        std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        assert(lower_name != "content-type" &&
+               "'response_headers' must not override SSE Content-Type.");
+        assert(lower_name != "connection" &&
+               "'response_headers' must not override SSE Connection.");
+        assert(lower_name != "cache-control" &&
+               "'response_headers' must not override SSE Cache-Control.");
+    }
 }
 
 SseServerWrapper::~SseServerWrapper()
@@ -101,6 +120,12 @@ bool SseServerWrapper::check_auth(const std::string& auth_header) const
 
     std::string provided_token = auth_header.substr(7); // Skip "Bearer "
     return provided_token == auth_token_;
+}
+
+void SseServerWrapper::apply_additional_response_headers(httplib::Response& res) const
+{
+    for (const auto& [name, value] : response_headers_)
+        res.set_header(name, value);
 }
 
 std::string SseServerWrapper::generate_session_id()
@@ -307,9 +332,7 @@ bool SseServerWrapper::start()
                   res.set_header("Cache-Control", "no-cache, no-transform");
                   res.set_header("Connection", "keep-alive");
 
-                  // Security: Only set CORS header if explicitly configured
-                  if (!cors_origin_.empty())
-                      res.set_header("Access-Control-Allow-Origin", cors_origin_);
+                  apply_additional_response_headers(res);
 
                   res.set_header("X-Accel-Buffering", "no");
 
@@ -394,9 +417,7 @@ bool SseServerWrapper::start()
                     }
                 }
 
-                // Security: Only set CORS header if explicitly configured
-                if (!cors_origin_.empty())
-                    res.set_header("Access-Control-Allow-Origin", cors_origin_);
+                apply_additional_response_headers(res);
 
                 // Security: Require session_id parameter to prevent message injection
                 std::string session_id;

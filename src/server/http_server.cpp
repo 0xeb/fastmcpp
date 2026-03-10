@@ -9,9 +9,10 @@ namespace fastmcpp::server
 {
 
 HttpServerWrapper::HttpServerWrapper(std::shared_ptr<Server> core, std::string host, int port,
-                                     std::string auth_token, std::string cors_origin)
+                                     std::string auth_token,
+                                     std::unordered_map<std::string, std::string> response_headers)
     : core_(std::move(core)), host_(std::move(host)), port_(port),
-      auth_token_(std::move(auth_token)), cors_origin_(std::move(cors_origin))
+      auth_token_(std::move(auth_token)), response_headers_(std::move(response_headers))
 {
 }
 
@@ -32,6 +33,12 @@ bool HttpServerWrapper::check_auth(const std::string& auth_header) const
 
     std::string provided_token = auth_header.substr(7); // Skip "Bearer "
     return provided_token == auth_token_;
+}
+
+void HttpServerWrapper::apply_additional_response_headers(httplib::Response& res) const
+{
+    for (const auto& [name, value] : response_headers_)
+        res.set_header(name, value);
 }
 
 bool HttpServerWrapper::start()
@@ -62,9 +69,7 @@ bool HttpServerWrapper::start()
                        }
                    }
 
-                   // Security: Only set CORS header if explicitly configured
-                   if (!cors_origin_.empty())
-                       res.set_header("Access-Control-Allow-Origin", cors_origin_);
+                   apply_additional_response_headers(res);
 
                    try
                    {

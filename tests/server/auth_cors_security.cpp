@@ -158,7 +158,8 @@ int main()
         auto srv = std::make_shared<Server>();
         srv->route("test", [](const Json&) { return Json{{"result", "ok"}}; });
 
-        HttpServerWrapper http_server(srv, "127.0.0.1", 18603, "", "https://example.com");
+        HttpServerWrapper http_server(srv, "127.0.0.1", 18603, "",
+                                      {{"Access-Control-Allow-Origin", "https://example.com"}});
         if (!http_server.start())
         {
             std::cerr << "Failed to start HTTP server\n";

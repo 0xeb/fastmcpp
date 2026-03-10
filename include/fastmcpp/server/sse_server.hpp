@@ -53,12 +53,13 @@ class SseServerWrapper
      * @param sse_path Path for SSE GET endpoint (default: "/sse")
      * @param message_path Path for POST message endpoint (default: "/messages")
      * @param auth_token Optional auth token for Bearer authentication (empty = no auth required)
-     * @param cors_origin Optional CORS origin to allow (empty = no CORS header, use "*" for
-     * wildcard)
+     * @param response_headers Additional HTTP headers added to responses (e.g.
+     *                         "Access-Control-Allow-Origin"...)
      */
     explicit SseServerWrapper(McpHandler handler, std::string host = "127.0.0.1", int port = 18080,
                               std::string sse_path = "/sse", std::string message_path = "/messages",
-                              std::string auth_token = "", std::string cors_origin = "");
+                              std::string auth_token = "",
+                              std::unordered_map<std::string, std::string> response_headers = {});
 
     ~SseServerWrapper();
 
@@ -178,14 +179,15 @@ class SseServerWrapper
     void send_event_to_session(const std::string& session_id, const fastmcpp::Json& event);
     std::string generate_session_id();
     bool check_auth(const std::string& auth_header) const;
+    void apply_additional_response_headers(httplib::Response& res) const;
 
     McpHandler handler_;
     std::string host_;
     int port_;
     std::string sse_path_;
     std::string message_path_;
-    std::string auth_token_;  // Optional Bearer token for authentication
-    std::string cors_origin_; // Optional CORS origin (empty = no CORS)
+    std::string auth_token_; // Optional Bearer token for authentication
+    std::unordered_map<std::string, std::string> response_headers_;
 
     std::unique_ptr<httplib::Server> svr_;
     std::thread thread_;
