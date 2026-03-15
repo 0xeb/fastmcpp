@@ -434,6 +434,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_client_sampling_handlers PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_client_sampling_handlers COMMAND fastmcpp_client_sampling_handlers)
 
+  add_executable(fastmcpp_client_audio_content tests/client/test_audio_content.cpp)
+  target_link_libraries(fastmcpp_client_audio_content PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_audio_content COMMAND fastmcpp_client_audio_content)
+
   add_executable(fastmcpp_server_middleware tests/server/middleware.cpp)
   target_link_libraries(fastmcpp_server_middleware PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_middleware COMMAND fastmcpp_server_middleware)

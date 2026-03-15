@@ -34,6 +34,14 @@ struct ImageContent
     std::string mimeType; ///< e.g., "image/png"
 };
 
+/// Audio content block
+struct AudioContent
+{
+    std::string type{"audio"};
+    std::string data;     ///< Base64-encoded audio bytes
+    std::string mimeType; ///< e.g., "audio/wav", "audio/mpeg"
+};
+
 /// Embedded resource content
 struct EmbeddedResourceContent
 {
@@ -45,7 +53,7 @@ struct EmbeddedResourceContent
 };
 
 /// Content block variant (matches mcp.types.ContentBlock)
-using ContentBlock = std::variant<TextContent, ImageContent, EmbeddedResourceContent>;
+using ContentBlock = std::variant<TextContent, ImageContent, AudioContent, EmbeddedResourceContent>;
 
 // ============================================================================
 // Tool Types
@@ -331,6 +339,18 @@ inline void from_json(const fastmcpp::Json& j, ImageContent& c)
     c.mimeType = j.at("mimeType").get<std::string>();
 }
 
+inline void to_json(fastmcpp::Json& j, const AudioContent& c)
+{
+    j = fastmcpp::Json{{"type", c.type}, {"data", c.data}, {"mimeType", c.mimeType}};
+}
+
+inline void from_json(const fastmcpp::Json& j, AudioContent& c)
+{
+    c.type = j.value("type", "audio");
+    c.data = j.at("data").get<std::string>();
+    c.mimeType = j.at("mimeType").get<std::string>();
+}
+
 inline void to_json(fastmcpp::Json& j, const ToolInfo& t)
 {
     j = fastmcpp::Json{{"name", t.name}, {"inputSchema", t.inputSchema}};
@@ -550,6 +570,10 @@ inline ContentBlock parse_content_block(const fastmcpp::Json& j)
     else if (type == "image")
     {
         return j.get<ImageContent>();
+    }
+    else if (type == "audio")
+    {
+        return j.get<AudioContent>();
     }
     else if (type == "resource")
     {

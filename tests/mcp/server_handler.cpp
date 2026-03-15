@@ -21,11 +21,25 @@ int main()
                 return Json{{"content", content}};
             });
 
+    // audio_tool returns mixed text + audio content
+    s.route("audio_tool",
+            [](const Json&)
+            {
+                AudioContent audio;
+                audio.data = "aGVsbG8="; // base64("hello")
+                audio.mimeType = "audio/wav";
+                Json content =
+                    Json::array({TextContent{"text", "Audio attached"}, audio});
+                return Json{{"content", content}};
+            });
+
     std::vector<std::tuple<std::string, std::string, Json>> meta;
     meta.emplace_back("generate_chart", "Generates a chart",
                       Json{{"type", "object"},
                            {"properties", Json::object({{"title", Json{{"type", "string"}}}})},
                            {"required", Json::array({"title"})}});
+    meta.emplace_back("audio_tool", "Returns audio content",
+                      Json{{"type", "object"}, {"properties", Json::object()}});
 
     auto handler = mcp::make_mcp_handler("viz", "1.0.0", s, meta);
 
@@ -46,6 +60,20 @@ int main()
     assert(content[0]["type"] == "text");
     assert(content[1]["type"] == "image");
     assert(content[1]["mimeType"] == "image/png");
+
+    // call audio_tool — verify audio block preserved through handler
+    Json audio_call = {
+        {"jsonrpc", "2.0"},
+        {"id", 10},
+        {"method", "tools/call"},
+        {"params", Json{{"name", "audio_tool"}, {"arguments", Json::object()}}}};
+    auto audio_resp = handler(audio_call);
+    auto audio_content = audio_resp["result"]["content"];
+    assert(audio_content.size() == 2);
+    assert(audio_content[0]["type"] == "text");
+    assert(audio_content[1]["type"] == "audio");
+    assert(audio_content[1]["data"] == "aGVsbG8=");
+    assert(audio_content[1]["mimeType"] == "audio/wav");
 
     // resources/list route
     s.route("resources/list",
