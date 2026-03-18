@@ -511,6 +511,22 @@ bool SseServerWrapper::start()
                     return;
                 }
 
+                // JSON-RPC notifications (missing/null id) must not receive responses.
+                const bool is_notification = !message.contains("id") || message["id"].is_null();
+                if (is_notification)
+                {
+                    try
+                    {
+                        (void)handler_(message); // process side effects only
+                    }
+                    catch (...)
+                    {
+                        // Ignore notification errors by design.
+                    }
+                    res.status = 202;
+                    return;
+                }
+
                 // Normal request - process with handler
                 auto response = handler_(message);
 
