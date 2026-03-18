@@ -511,22 +511,19 @@ bool SseServerWrapper::start()
                     return;
                 }
 
-                // Check if this is a notification (no "id" field means notification)
-                // JSON-RPC 2.0 spec: server MUST NOT reply to notifications
-                bool is_notification = !message.contains("id") || message["id"].is_null();
-
+                // JSON-RPC notifications (missing/null id) must not receive responses.
+                const bool is_notification = !message.contains("id") || message["id"].is_null();
                 if (is_notification)
                 {
-                    // For notifications, call handler but don't send response body
                     try
                     {
-                        handler_(message); // Process but ignore result
+                        (void)handler_(message); // process side effects only
                     }
                     catch (...)
                     {
-                        // Silently ignore errors for notifications
+                        // Ignore notification errors by design.
                     }
-                    res.status = 202; // Accepted, no content
+                    res.status = 202;
                     return;
                 }
 

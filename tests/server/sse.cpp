@@ -3,17 +3,202 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <httplib.h>
 #include <iostream>
+#include <mutex>
+#include <stdexcept>
+#include <string>
 #include <thread>
+#include <vector>
 
 using fastmcpp::Json;
 using fastmcpp::server::SseServerWrapper;
 
+namespace
+{
+struct TestState
+{
+    std::atomic<int> initialized_notifications{0};
+    std::atomic<int> cancelled_notifications{0};
+    std::atomic<int> throwing_notifications{0};
+};
+
+struct CaptureState
+{
+    std::atomic<bool> connected{false};
+    std::atomic<bool> stop{false};
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::vector<Json> messages;
+    std::string session_id;
+    std::string buffer;
+};
+
+template <typename Predicate>
+bool wait_for(Predicate&& predicate, std::chrono::milliseconds timeout)
+{
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        if (predicate())
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return predicate();
+}
+
+size_t message_count(CaptureState& capture)
+{
+    std::lock_guard<std::mutex> lock(capture.mutex);
+    return capture.messages.size();
+}
+
+bool expect_no_new_messages(CaptureState& capture, size_t baseline,
+                            std::chrono::milliseconds quiet_period)
+{
+    const auto deadline = std::chrono::steady_clock::now() + quiet_period;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        if (message_count(capture) != baseline)
+            return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return message_count(capture) == baseline;
+}
+
+void parse_sse_chunk(CaptureState& capture, const std::string& chunk)
+{
+    std::lock_guard<std::mutex> lock(capture.mutex);
+    capture.buffer += chunk;
+
+    for (;;)
+    {
+        size_t sep = capture.buffer.find("\n\n");
+        if (sep == std::string::npos)
+            break;
+
+        std::string event = capture.buffer.substr(0, sep);
+        capture.buffer.erase(0, sep + 2);
+
+        std::string event_type;
+        std::string data_line;
+        size_t pos = 0;
+        while (pos < event.size())
+        {
+            size_t eol = event.find('\n', pos);
+            if (eol == std::string::npos)
+                eol = event.size();
+            std::string line = event.substr(pos, eol - pos);
+            pos = (eol < event.size()) ? (eol + 1) : eol;
+
+            if (line.rfind("event: ", 0) == 0)
+            {
+                event_type = line.substr(7);
+            }
+            else if (line.rfind("data: ", 0) == 0)
+            {
+                if (!data_line.empty())
+                    data_line += '\n';
+                data_line += line.substr(6);
+            }
+        }
+
+        if (event_type == "endpoint")
+        {
+            size_t sid_pos = data_line.find("session_id=");
+            if (sid_pos != std::string::npos)
+            {
+                size_t sid_start = sid_pos + 11;
+                size_t sid_end = data_line.find_first_of("&\n\r", sid_start);
+                capture.session_id = data_line.substr(sid_start, sid_end - sid_start);
+                capture.cv.notify_all();
+            }
+            continue;
+        }
+
+        if (data_line.empty())
+            continue;
+
+        try
+        {
+            capture.messages.push_back(Json::parse(data_line));
+            capture.cv.notify_all();
+        }
+        catch (...)
+        {
+            // Ignore non-JSON SSE payloads like heartbeats.
+        }
+    }
+}
+
+bool start_sse_client(int port, CaptureState& capture, std::thread& sse_thread)
+{
+    sse_thread = std::thread(
+        [&, port]()
+        {
+            httplib::Client sse_client("127.0.0.1", port);
+            sse_client.set_read_timeout(std::chrono::seconds(20));
+            sse_client.set_connection_timeout(std::chrono::seconds(10));
+            sse_client.set_default_headers({{"Accept", "text/event-stream"}});
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            auto sse_receiver = [&](const char* data, size_t len)
+            {
+                capture.connected = true;
+                parse_sse_chunk(capture, std::string(data, len));
+                return !capture.stop.load();
+            };
+
+            for (int attempt = 0; attempt < 20 && !capture.stop.load(); ++attempt)
+            {
+                auto res = sse_client.Get("/sse", sse_receiver);
+                if (capture.stop.load())
+                    return;
+                if (capture.connected)
+                    break;
+
+                if (!res)
+                {
+                    std::cerr << "SSE GET request failed: " << res.error() << " (attempt "
+                              << (attempt + 1) << ")\n";
+                }
+                else if (res->status != 200)
+                {
+                    std::cerr << "SSE GET returned status: " << res->status << " (attempt "
+                              << (attempt + 1) << ")\n";
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            }
+        });
+
+    if (!wait_for([&] { return capture.connected.load(); }, std::chrono::seconds(5)))
+        return false;
+
+    return wait_for(
+        [&]()
+        {
+            std::lock_guard<std::mutex> lock(capture.mutex);
+            return !capture.session_id.empty();
+        },
+        std::chrono::seconds(5));
+}
+
+void stop_server_and_join(SseServerWrapper& server, CaptureState& capture, std::thread& sse_thread)
+{
+    capture.stop = true;
+    server.stop();
+    if (sse_thread.joinable())
+        sse_thread.join();
+}
+} // namespace
+
 int main()
 {
-    // Create a simple echo handler
-    auto handler = [](const Json& request) -> Json
+    TestState state;
+
+    auto handler = [&](const Json& request) -> Json
     {
         Json response;
         response["jsonrpc"] = "2.0";
@@ -21,20 +206,44 @@ int main()
         if (request.contains("id"))
             response["id"] = request["id"];
 
-        if (request.contains("method"))
+        if (!request.contains("method") || !request["method"].is_string())
         {
-            std::string method = request["method"];
-            if (method == "echo")
-                response["result"] = request.value("params", Json::object());
-            else
-                response["error"] = Json{{"code", -32601}, {"message", "Method not found"}};
+            response["error"] = Json{{"code", -32600}, {"message", "Invalid Request"}};
+            return response;
         }
 
+        const std::string method = request["method"];
+        if (method == "echo")
+        {
+            response["result"] = request.value("params", Json::object());
+            return response;
+        }
+
+        if (method == "notifications/initialized")
+        {
+            state.initialized_notifications++;
+            response["result"] = Json{{"unexpected", true}};
+            return response;
+        }
+
+        if (method == "notifications/cancelled")
+        {
+            state.cancelled_notifications++;
+            response["result"] = Json{{"unexpected", "cancelled"}};
+            return response;
+        }
+
+        if (method == "notifications/throw")
+        {
+            state.throwing_notifications++;
+            throw std::runtime_error("notification failure");
+        }
+
+        response["error"] = Json{{"code", -32601}, {"message", "Method not found"}};
         return response;
     };
 
-    // Start SSE server
-    int port = 18106; // Unique port
+    const int port = 18106;
     SseServerWrapper server(handler, "127.0.0.1", port, "/sse", "/messages");
 
     if (!server.start())
@@ -43,201 +252,150 @@ int main()
         return 1;
     }
 
-    // Wait for server to be ready - longer delay for macOS compatibility
     std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
-    std::cout << "Server started on port " << port << "\n";
-
-    // Verify server is running
     if (!server.running())
     {
         std::cerr << "Server not running after start\n";
         return 1;
     }
 
-    std::atomic<bool> sse_connected{false};
-    std::atomic<int> events_received{0};
-    Json received_event;
-    std::mutex event_mutex;
-    std::string session_id;
-
-    // Start SSE connection in background thread (retry a few times for robustness)
-    // NOTE: httplib::Client must be created in the same thread that uses it on Linux
-    std::thread sse_thread(
-        [&, port]()
-        {
-            // Create client inside thread - httplib::Client is not thread-safe across threads on
-            // Linux
-            httplib::Client sse_client("127.0.0.1", port);
-            sse_client.set_read_timeout(std::chrono::seconds(20));
-            sse_client.set_connection_timeout(std::chrono::seconds(10));
-
-            // Give server a moment to fully initialize before first connection attempt
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-            auto sse_receiver = [&](const char* data, size_t len)
-            {
-                sse_connected = true;
-                std::string chunk(data, len);
-
-                // Parse SSE endpoint event to extract session_id
-                if (chunk.find("event: endpoint") != std::string::npos)
-                {
-                    size_t data_pos = chunk.find("data: ");
-                    if (data_pos != std::string::npos)
-                    {
-                        size_t start = data_pos + 6; // After "data: "
-                        size_t end = chunk.find_first_of("\n\r", start);
-                        std::string endpoint_url = chunk.substr(start, end - start);
-
-                        // Extract session_id from URL like "/messages?session_id=..."
-                        size_t sid_pos = endpoint_url.find("session_id=");
-                        if (sid_pos != std::string::npos)
-                        {
-                            size_t sid_start = sid_pos + 11; // After "session_id="
-                            size_t sid_end = endpoint_url.find_first_of("&\n\r", sid_start);
-                            session_id = endpoint_url.substr(sid_start, sid_end - sid_start);
-                        }
-                    }
-                }
-
-                // Parse SSE format: "data: <json>\n\n"
-                if (chunk.find("data: ") == 0)
-                {
-                    size_t start = 6; // After "data: "
-                    size_t end = chunk.find("\n\n");
-                    if (end != std::string::npos)
-                    {
-                        std::string json_str = chunk.substr(start, end - start);
-                        try
-                        {
-                            Json event = Json::parse(json_str);
-                            {
-                                std::lock_guard<std::mutex> lock(event_mutex);
-                                received_event = event;
-                                events_received++;
-                            }
-                        }
-                        catch (...)
-                        {
-                            std::cerr << "Failed to parse SSE event: " << json_str << "\n";
-                        }
-                    }
-                }
-
-                return true; // Continue receiving
-            };
-
-            // Retry loop to establish SSE connection in flaky environments
-            for (int attempt = 0; attempt < 20 && !sse_connected; ++attempt)
-            {
-                auto res = sse_client.Get("/sse", sse_receiver);
-                if (!res)
-                {
-                    std::cerr << "SSE GET request failed: " << res.error() << " (attempt "
-                              << (attempt + 1) << ")\n";
-                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                    continue;
-                }
-                if (res->status != 200)
-                {
-                    std::cerr << "SSE GET returned status: " << res->status << " (attempt "
-                              << (attempt + 1) << ")\n";
-                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                }
-            }
-        });
-
-    // Wait for SSE connection to establish (allow up to 5 seconds)
-    for (int i = 0; i < 500 && !sse_connected; ++i)
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-    if (!sse_connected)
+    CaptureState capture;
+    std::thread sse_thread;
+    if (!start_sse_client(port, capture, sse_thread))
     {
         std::cerr << "SSE connection failed to establish\n";
-        server.stop();
-        if (sse_thread.joinable())
-            sse_thread.detach();
+        stop_server_and_join(server, capture, sse_thread);
         return 1;
     }
-
-    // Wait for session_id to be extracted
-    for (int i = 0; i < 100 && session_id.empty(); ++i)
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-    if (session_id.empty())
-    {
-        std::cerr << "Failed to extract session_id from SSE endpoint\n";
-        server.stop();
-        if (sse_thread.joinable())
-            sse_thread.detach();
-        return 1;
-    }
-
-    // Send a message via POST with session_id
-    Json request;
-    request["jsonrpc"] = "2.0";
-    request["id"] = 1;
-    request["method"] = "echo";
-    request["params"] = Json{{"message", "Hello SSE"}};
 
     httplib::Client post_client("127.0.0.1", port);
     post_client.set_connection_timeout(std::chrono::seconds(10));
     post_client.set_read_timeout(std::chrono::seconds(10));
 
-    // Include session_id in POST URL
-    std::string post_url = "/messages?session_id=" + session_id;
+    const std::string post_url = "/messages?session_id=" + capture.session_id;
+
+    Json initialized = {{"jsonrpc", "2.0"}, {"method", "notifications/initialized"}};
+    auto initialized_res = post_client.Post(post_url, initialized.dump(), "application/json");
+    if (!initialized_res || initialized_res->status != 202 || !initialized_res->body.empty())
+    {
+        std::cerr << "notifications/initialized should return 202 with empty body\n";
+        stop_server_and_join(server, capture, sse_thread);
+        return 1;
+    }
+
+    if (!wait_for([&] { return state.initialized_notifications.load() == 1; },
+                  std::chrono::seconds(1)))
+    {
+        std::cerr << "notifications/initialized did not reach handler\n";
+        stop_server_and_join(server, capture, sse_thread);
+        return 1;
+    }
+
+    if (!expect_no_new_messages(capture, 0, std::chrono::milliseconds(300)))
+    {
+        std::cerr << "Notification should not emit an SSE response event\n";
+        stop_server_and_join(server, capture, sse_thread);
+        return 1;
+    }
+
+    Json cancelled = {{"jsonrpc", "2.0"},
+                      {"id", nullptr},
+                      {"method", "notifications/cancelled"},
+                      {"params", {{"requestId", "123"}, {"reason", "timeout"}}}};
+    auto cancelled_res = post_client.Post(post_url, cancelled.dump(), "application/json");
+    if (!cancelled_res || cancelled_res->status != 202 || !cancelled_res->body.empty())
+    {
+        std::cerr << "notifications/cancelled with id:null should return 202 with empty body\n";
+        stop_server_and_join(server, capture, sse_thread);
+        return 1;
+    }
+
+    if (!wait_for([&] { return state.cancelled_notifications.load() == 1; },
+                  std::chrono::seconds(1)))
+    {
+        std::cerr << "notifications/cancelled did not reach handler\n";
+        stop_server_and_join(server, capture, sse_thread);
+        return 1;
+    }
+
+    if (!expect_no_new_messages(capture, 0, std::chrono::milliseconds(300)))
+    {
+        std::cerr << "Notification with id:null should not emit an SSE response event\n";
+        stop_server_and_join(server, capture, sse_thread);
+        return 1;
+    }
+
+    Json throwing_notification = {{"jsonrpc", "2.0"}, {"method", "notifications/throw"}};
+    auto throwing_res = post_client.Post(post_url, throwing_notification.dump(), "application/json");
+    if (!throwing_res || throwing_res->status != 202 || !throwing_res->body.empty())
+    {
+        std::cerr << "Throwing notification should still return 202 with empty body\n";
+        stop_server_and_join(server, capture, sse_thread);
+        return 1;
+    }
+
+    if (!wait_for([&] { return state.throwing_notifications.load() == 1; },
+                  std::chrono::seconds(1)))
+    {
+        std::cerr << "Throwing notification did not reach handler\n";
+        stop_server_and_join(server, capture, sse_thread);
+        return 1;
+    }
+
+    if (!expect_no_new_messages(capture, 0, std::chrono::milliseconds(300)))
+    {
+        std::cerr << "Throwing notification should not emit an SSE response event\n";
+        stop_server_and_join(server, capture, sse_thread);
+        return 1;
+    }
+
+    Json request = {{"jsonrpc", "2.0"},
+                    {"id", 1},
+                    {"method", "echo"},
+                    {"params", {{"message", "Hello SSE"}}}};
     auto post_res = post_client.Post(post_url, request.dump(), "application/json");
 
     if (!post_res || post_res->status != 200)
     {
-        std::cerr << "POST request failed\n";
-        server.stop();
-        if (sse_thread.joinable())
-            sse_thread.detach();
+        std::cerr << "Request POST failed\n";
+        stop_server_and_join(server, capture, sse_thread);
         return 1;
     }
 
-    // Wait for SSE event
-    for (int i = 0; i < 200 && events_received == 0; ++i)
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-
-    // Stop server to close SSE connection
-    server.stop();
-
-    if (sse_thread.joinable())
-        sse_thread.join();
-
-    // Verify we received the event
-    if (events_received == 0)
+    if (!wait_for([&] { return message_count(capture) == 1; }, std::chrono::seconds(4)))
     {
-        std::cerr << "No events received via SSE\n";
+        std::cerr << "Request should emit exactly one SSE response event\n";
+        stop_server_and_join(server, capture, sse_thread);
         return 1;
     }
 
-    // Verify event content
+    Json received_event;
     {
-        std::lock_guard<std::mutex> lock(event_mutex);
+        std::lock_guard<std::mutex> lock(capture.mutex);
+        received_event = capture.messages.front();
+    }
 
-        if (!received_event.contains("result"))
-        {
-            std::cerr << "Event missing 'result' field\n";
-            return 1;
-        }
+    stop_server_and_join(server, capture, sse_thread);
 
-        auto result = received_event["result"];
-        if (!result.contains("message"))
-        {
-            std::cerr << "Result missing 'message' field\n";
-            return 1;
-        }
+    if (!received_event.contains("result") || !received_event["result"].contains("message"))
+    {
+        std::cerr << "SSE response event missing echoed message\n";
+        return 1;
+    }
 
-        std::string msg = result["message"];
-        if (msg != "Hello SSE")
-        {
-            std::cerr << "Unexpected message: " << msg << "\n";
-            return 1;
-        }
+    if (received_event["result"]["message"] != "Hello SSE")
+    {
+        std::cerr << "Unexpected SSE response message\n";
+        return 1;
+    }
+
+    Json http_body = Json::parse(post_res->body);
+    if (!http_body.contains("result") || !http_body["result"].contains("message") ||
+        http_body["result"]["message"] != "Hello SSE")
+    {
+        std::cerr << "HTTP response body should still contain the echoed message\n";
+        return 1;
     }
 
     std::cout << "SSE server test passed\n";
