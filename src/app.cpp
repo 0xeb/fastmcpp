@@ -6,6 +6,7 @@
 #include "fastmcpp/mcp/handler.hpp"
 #include "fastmcpp/providers/provider.hpp"
 #include "fastmcpp/resources/template.hpp"
+#include "fastmcpp/util/http_methods.hpp"
 #include "fastmcpp/util/json_schema.hpp"
 #include "fastmcpp/util/schema_build.hpp"
 
@@ -287,10 +288,10 @@ FastMCP& FastMCP::add_custom_route(CustomRoute route)
 {
     if (route.path.empty() || route.path.front() != '/')
         throw ValidationError("CustomRoute.path must start with '/' (got '" + route.path + "')");
-    if (route.method.empty())
-        throw ValidationError("CustomRoute.method is required");
     if (!route.handler)
         throw ValidationError("CustomRoute.handler is required");
+
+    route.method = util::http::normalize_custom_route_method(std::move(route.method));
 
     // Re-registering the same (method, path) replaces the previous entry —
     // matches Python `@server.custom_route()` decorator semantics.

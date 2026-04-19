@@ -65,9 +65,10 @@ static int test_register_replaces_duplicate()
 {
     std::cout << "  test_register_replaces_duplicate..." << std::endl;
     FastMCP app("a", "1.0.0");
-    app.add_custom_route(make_route("GET", "/x", "first"));
+    app.add_custom_route(make_route("get", "/x", "first"));
     app.add_custom_route(make_route("GET", "/x", "second"));
     ASSERT_EQ(app.custom_routes().size(), 1u, "still one route");
+    ASSERT_EQ(app.custom_routes().front().method, std::string("GET"), "method normalized to uppercase");
     auto resp = app.custom_routes().front().handler({"GET", "/x", "", {}});
     ASSERT_EQ(resp.body, std::string("second"), "second handler wins");
     std::cout << "    PASS" << std::endl;
@@ -90,6 +91,28 @@ static int test_validation_rejects_bad_inputs()
     ASSERT_TRUE(threw, "missing leading slash rejected");
 
     threw = false;
+    try
+    {
+        app.add_custom_route(make_route("", "/x", "x"));
+    }
+    catch (const fastmcpp::ValidationError&)
+    {
+        threw = true;
+    }
+    ASSERT_TRUE(threw, "missing method rejected");
+
+    threw = false;
+    try
+    {
+        app.add_custom_route(make_route("HEAD", "/x", "x"));
+    }
+    catch (const fastmcpp::ValidationError&)
+    {
+        threw = true;
+    }
+    ASSERT_TRUE(threw, "unsupported method rejected");
+
+    threw = false;
     CustomRoute no_handler;
     no_handler.method = "GET";
     no_handler.path = "/x";
@@ -102,6 +125,28 @@ static int test_validation_rejects_bad_inputs()
         threw = true;
     }
     ASSERT_TRUE(threw, "missing handler rejected");
+    std::cout << "    PASS" << std::endl;
+    return 0;
+}
+
+static int test_http_wrapper_rejects_unsupported_custom_route_method()
+{
+    std::cout << "  test_http_wrapper_rejects_unsupported_custom_route_method..." << std::endl;
+
+    auto core = std::make_shared<server::Server>();
+    server::HttpServerWrapper http(core, "127.0.0.1", 0);
+
+    bool threw = false;
+    try
+    {
+        http.set_custom_routes({make_route("HEAD", "/health", "ok")});
+    }
+    catch (const fastmcpp::ValidationError&)
+    {
+        threw = true;
+    }
+
+    ASSERT_TRUE(threw, "direct wrapper route registration rejects unsupported methods");
     std::cout << "    PASS" << std::endl;
     return 0;
 }
@@ -192,6 +237,93 @@ static int test_http_end_to_end_serves_route()
     ASSERT_TRUE(resp != nullptr, "GET request returned a response");
     ASSERT_EQ(resp->status, 200, "200 OK");
     ASSERT_EQ(resp->body, std::string("from child"), "body forwarded from child");
+
+    http->stop();
+    std::cout << "    PASS" << std::endl;
+    return 0;
+}
+
+static int test_http_custom_route_preserves_query_params()
+{
+    std::cout << "  test_http_custom_route_preserves_query_params..." << std::endl;
+
+    CustomRouteRequest captured;
+    bool called = false;
+
+    FastMCP child("child", "1.0.0");
+    CustomRoute query_route;
+    query_route.method = "GET";
+    query_route.path = "/search";
+    query_route.handler = [&](const CustomRouteRequest& req)
+    {
+        called = true;
+        captured = req;
+
+        CustomRouteResponse resp;
+        resp.body = "query ok";
+        resp.content_type = "text/plain";
+        return resp;
+    };
+    child.add_custom_route(std::move(query_route));
+
+    FastMCP parent("parent", "1.0.0");
+    parent.mount(child, "kids");
+
+    auto core = std::make_shared<server::Server>(parent.server());
+
+    int port = 0;
+    std::unique_ptr<server::HttpServerWrapper> http;
+    for (int candidate = 18481; candidate <= 18500; ++candidate)
+    {
+        auto trial = std::make_unique<server::HttpServerWrapper>(core, "127.0.0.1", candidate);
+        trial->set_custom_routes(parent.all_custom_routes());
+        if (trial->start())
+        {
+            port = trial->port();
+            http = std::move(trial);
+            break;
+        }
+    }
+    ASSERT_TRUE(http && port > 0, "HTTP server started");
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+
+    httplib::Client client("127.0.0.1", port);
+    client.set_connection_timeout(std::chrono::seconds(2));
+    client.set_read_timeout(std::chrono::seconds(2));
+
+    auto resp = client.Get("/kids/search?q=a&q=b&lang=en");
+    ASSERT_TRUE(resp != nullptr, "GET with query params returned a response");
+    ASSERT_EQ(resp->status, 200, "query route served");
+    ASSERT_EQ(resp->body, std::string("query ok"), "query route body");
+
+    ASSERT_TRUE(called, "handler was invoked");
+    ASSERT_EQ(captured.method, std::string("GET"), "request method preserved");
+    ASSERT_EQ(captured.path, std::string("/kids/search"), "path preserved without query string");
+    ASSERT_EQ(captured.target, std::string("/kids/search?q=a&q=b&lang=en"),
+              "raw target preserves query string");
+    ASSERT_EQ(captured.query_params.count("q"), 2u, "repeated query param preserved");
+    ASSERT_EQ(captured.query_params.count("lang"), 1u, "single query param preserved");
+
+    auto q_range = captured.query_params.equal_range("q");
+    bool seen_q_a = false;
+    bool seen_q_b = false;
+    size_t q_values = 0;
+    for (auto it = q_range.first; it != q_range.second; ++it)
+    {
+        ++q_values;
+        if (it->second == "a")
+            seen_q_a = true;
+        if (it->second == "b")
+            seen_q_b = true;
+    }
+    ASSERT_EQ(q_values, 2u, "two q values captured");
+    ASSERT_TRUE(seen_q_a, "q=a preserved");
+    ASSERT_TRUE(seen_q_b, "q=b preserved");
+
+    auto lang_it = captured.query_params.find("lang");
+    ASSERT_TRUE(lang_it != captured.query_params.end(), "lang key present");
+    ASSERT_EQ(lang_it->second, std::string("en"), "lang value preserved");
 
     http->stop();
     std::cout << "    PASS" << std::endl;
@@ -296,9 +428,11 @@ int main()
     failures += test_register_basic();
     failures += test_register_replaces_duplicate();
     failures += test_validation_rejects_bad_inputs();
+    failures += test_http_wrapper_rejects_unsupported_custom_route_method();
     failures += test_aggregate_from_mounted_child();
     failures += test_aggregate_dedups_collisions();
     failures += test_http_end_to_end_serves_route();
+    failures += test_http_custom_route_preserves_query_params();
     failures += test_http_custom_route_requires_auth();
     failures += test_http_custom_route_options_advertises_methods();
     std::cout << std::endl;

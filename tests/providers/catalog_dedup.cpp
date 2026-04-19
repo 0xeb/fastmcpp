@@ -209,6 +209,71 @@ static int test_no_meta_for_single_version()
     return 0;
 }
 
+static int test_get_tool_catalog_coerces_scalar_meta_to_object()
+{
+    std::cout << "  test_get_tool_catalog_coerces_scalar_meta_to_object..." << std::endl;
+    NoopCatalogTransform t;
+
+    auto v1 = make_tool("greet", "1");
+    auto v3 = make_tool("greet", "3");
+    v3.set_meta(Json("scalar-meta"));
+
+    auto result = t.get_tool_catalog(fixed_call_next({v1, v3}));
+    ASSERT_EQ(result.size(), 1u, "one tool");
+    ASSERT_TRUE(result[0].meta().has_value(), "meta present");
+    ASSERT_TRUE(result[0].meta()->is_object(), "scalar meta coerced to object");
+    ASSERT_TRUE((*result[0].meta()).contains("fastmcp"), "fastmcp block present");
+    auto versions = (*result[0].meta())["fastmcp"]["versions"].get<std::vector<std::string>>();
+    ASSERT_EQ(versions.size(), 2u, "two versions preserved");
+    ASSERT_TRUE(versions[0] == "3" && versions[1] == "1", "version order preserved");
+
+    std::cout << "    PASS" << std::endl;
+    return 0;
+}
+
+static int test_get_tool_catalog_coerces_array_meta_to_object()
+{
+    std::cout << "  test_get_tool_catalog_coerces_array_meta_to_object..." << std::endl;
+    NoopCatalogTransform t;
+
+    auto v1 = make_tool("greet", "1");
+    auto v3 = make_tool("greet", "3");
+    v3.set_meta(Json::array({"alpha", "beta"}));
+
+    auto result = t.get_tool_catalog(fixed_call_next({v1, v3}));
+    ASSERT_EQ(result.size(), 1u, "one tool");
+    ASSERT_TRUE(result[0].meta().has_value(), "meta present");
+    ASSERT_TRUE(result[0].meta()->is_object(), "array meta coerced to object");
+    ASSERT_TRUE((*result[0].meta()).contains("fastmcp"), "fastmcp block present");
+    ASSERT_TRUE((*result[0].meta())["fastmcp"]["versions"].is_array(), "versions injected");
+
+    std::cout << "    PASS" << std::endl;
+    return 0;
+}
+
+static int test_get_tool_catalog_preserves_existing_object_meta()
+{
+    std::cout << "  test_get_tool_catalog_preserves_existing_object_meta..." << std::endl;
+    NoopCatalogTransform t;
+
+    auto v1 = make_tool("greet", "1");
+    auto v3 = make_tool("greet", "3");
+    v3.set_meta(Json{{"custom", "value"}, {"fastmcp", Json{{"source", "canonical"}}}});
+
+    auto result = t.get_tool_catalog(fixed_call_next({v1, v3}));
+    ASSERT_EQ(result.size(), 1u, "one tool");
+    ASSERT_TRUE(result[0].meta().has_value(), "meta present");
+    ASSERT_TRUE(result[0].meta()->is_object(), "object meta retained");
+    ASSERT_TRUE((*result[0].meta()).value("custom", std::string{}) == "value", "custom key preserved");
+    ASSERT_TRUE((*result[0].meta())["fastmcp"].value("source", std::string{}) == "canonical",
+                "existing fastmcp fields preserved");
+    auto versions = (*result[0].meta())["fastmcp"]["versions"].get<std::vector<std::string>>();
+    ASSERT_EQ(versions.size(), 2u, "versions still injected");
+
+    std::cout << "    PASS" << std::endl;
+    return 0;
+}
+
 // 0142fefe: VersionFilter applied before CatalogTransform must restrict what
 // the catalog accessor sees. We simulate this by chaining a filter call_next.
 static int test_version_filter_applied_before_catalog()
@@ -293,6 +358,41 @@ static int test_metadata_survives_tool_info_and_mcp_serialization()
     return 0;
 }
 
+static int test_non_object_meta_does_not_break_tool_info_or_mcp_serialization()
+{
+    std::cout << "  test_non_object_meta_does_not_break_tool_info_or_mcp_serialization..." << std::endl;
+
+    auto v1 = make_tool("greet", "1");
+    auto v3 = make_tool("greet", "3");
+    v3.set_meta(Json("scalar-meta"));
+
+    auto provider = std::make_shared<StaticToolProvider>(std::vector<tools::Tool>{v1, v3});
+    provider->add_transform(std::make_shared<PipelineCatalogTransform>());
+
+    FastMCP app("catalog", "1.0.0");
+    app.add_provider(provider);
+
+    auto tools = app.list_all_tools_info();
+    ASSERT_EQ(tools.size(), 1u, "deduped tool list");
+    ASSERT_TRUE(tools[0]._meta.has_value(), "tool info carries _meta");
+    ASSERT_TRUE((*tools[0]._meta).is_object(), "non-object meta coerced before tool info serialization");
+    ASSERT_TRUE((*tools[0]._meta).contains("fastmcp"), "fastmcp block present in tool info");
+    ASSERT_TRUE((*tools[0]._meta)["fastmcp"].contains("versions"), "versions surfaced in tool info");
+
+    auto handler = mcp::make_mcp_handler(app);
+    Json req = {{"jsonrpc", "2.0"}, {"id", 1}, {"method", "tools/list"}};
+    Json resp = handler(req);
+    ASSERT_TRUE(resp.contains("result") && resp["result"].contains("tools"), "tools/list result");
+    ASSERT_EQ(resp["result"]["tools"].size(), 1u, "one serialized tool");
+    const auto& tool = resp["result"]["tools"][0];
+    ASSERT_TRUE(tool.contains("_meta") && tool["_meta"].is_object(), "serialized _meta");
+    ASSERT_TRUE(tool["_meta"].contains("fastmcp"), "serialized fastmcp block");
+    ASSERT_TRUE(tool["_meta"]["fastmcp"].contains("versions"), "serialized versions");
+
+    std::cout << "    PASS" << std::endl;
+    return 0;
+}
+
 int main()
 {
     std::cout << "CatalogTransform Dedup + Ordering Tests" << std::endl;
@@ -304,8 +404,12 @@ int main()
     failures += test_get_tool_catalog_injects_versions_meta();
     failures += test_get_tool_catalog_mixed_versioned_unversioned();
     failures += test_no_meta_for_single_version();
+    failures += test_get_tool_catalog_coerces_scalar_meta_to_object();
+    failures += test_get_tool_catalog_coerces_array_meta_to_object();
+    failures += test_get_tool_catalog_preserves_existing_object_meta();
     failures += test_version_filter_applied_before_catalog();
     failures += test_metadata_survives_tool_info_and_mcp_serialization();
+    failures += test_non_object_meta_does_not_break_tool_info_or_mcp_serialization();
     std::cout << std::endl;
     if (failures == 0)
     {

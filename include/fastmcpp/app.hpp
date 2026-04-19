@@ -10,6 +10,7 @@
 #include <chrono>
 #include <functional>
 #include <initializer_list>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -33,6 +34,8 @@ struct CustomRouteRequest
     std::string path;
     std::string body;
     std::unordered_map<std::string, std::string> headers;
+    std::string target;
+    std::multimap<std::string, std::string> query_params;
 };
 
 /// HTTP response returned by a custom-route handler.
@@ -49,7 +52,7 @@ struct CustomRouteResponse
 /// fixed forwarding from mounted servers).
 struct CustomRoute
 {
-    std::string method; // GET, POST, etc. (uppercase)
+    std::string method; // GET, POST, PUT, DELETE, PATCH
     std::string path;   // Absolute path, e.g. "/health" — must start with '/'
     std::function<CustomRouteResponse(const CustomRouteRequest&)> handler;
 };

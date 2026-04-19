@@ -108,7 +108,9 @@ class CatalogTransform : public Transform
             if (!entry.available_versions.empty())
             {
                 fastmcpp::Json meta =
-                    entry.item.meta().has_value() ? *entry.item.meta() : fastmcpp::Json::object();
+                    entry.item.meta().has_value() && entry.item.meta()->is_object()
+                        ? *entry.item.meta()
+                        : fastmcpp::Json::object();
                 fastmcpp::Json fm = meta.contains("fastmcp") && meta["fastmcp"].is_object()
                                         ? meta["fastmcp"]
                                         : fastmcpp::Json::object();

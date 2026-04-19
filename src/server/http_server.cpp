@@ -2,6 +2,7 @@
 
 #include "fastmcpp/app.hpp"
 #include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/util/http_methods.hpp"
 #include "fastmcpp/util/json.hpp"
 
 #include <httplib.h>
@@ -11,6 +12,14 @@ namespace fastmcpp::server
 
 void HttpServerWrapper::set_custom_routes(std::vector<fastmcpp::CustomRoute> routes)
 {
+    for (auto& route : routes)
+    {
+        route.method = fastmcpp::util::http::normalize_custom_route_method(std::move(route.method));
+        if (route.path.empty() || route.path.front() != '/')
+            throw ValidationError("CustomRoute.path must start with '/' (got '" + route.path + "')");
+        if (!route.handler)
+            throw ValidationError("CustomRoute.handler is required");
+    }
     custom_routes_ = std::move(routes);
 }
 
@@ -107,9 +116,11 @@ bool HttpServerWrapper::start()
 
             apply_additional_response_headers(res);
             fastmcpp::CustomRouteRequest cr;
-            cr.method = route.method;
+            cr.method = req.method;
             cr.path = req.path;
             cr.body = req.body;
+            cr.target = req.target;
+            cr.query_params = req.params;
             for (const auto& [k, v] : req.headers)
                 cr.headers[k] = v;
             try
