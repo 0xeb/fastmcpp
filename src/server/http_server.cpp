@@ -16,7 +16,8 @@ void HttpServerWrapper::set_custom_routes(std::vector<fastmcpp::CustomRoute> rou
     {
         route.method = fastmcpp::util::http::normalize_custom_route_method(std::move(route.method));
         if (route.path.empty() || route.path.front() != '/')
-            throw ValidationError("CustomRoute.path must start with '/' (got '" + route.path + "')");
+            throw ValidationError("CustomRoute.path must start with '/' (got '" + route.path +
+                                  "')");
         if (!route.handler)
             throw ValidationError("CustomRoute.handler is required");
     }

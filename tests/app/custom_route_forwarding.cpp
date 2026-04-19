@@ -68,7 +68,8 @@ static int test_register_replaces_duplicate()
     app.add_custom_route(make_route("get", "/x", "first"));
     app.add_custom_route(make_route("GET", "/x", "second"));
     ASSERT_EQ(app.custom_routes().size(), 1u, "still one route");
-    ASSERT_EQ(app.custom_routes().front().method, std::string("GET"), "method normalized to uppercase");
+    ASSERT_EQ(app.custom_routes().front().method, std::string("GET"),
+              "method normalized to uppercase");
     auto resp = app.custom_routes().front().handler({"GET", "/x", "", {}});
     ASSERT_EQ(resp.body, std::string("second"), "second handler wins");
     std::cout << "    PASS" << std::endl;

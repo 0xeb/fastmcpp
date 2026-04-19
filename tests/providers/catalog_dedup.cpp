@@ -264,7 +264,8 @@ static int test_get_tool_catalog_preserves_existing_object_meta()
     ASSERT_EQ(result.size(), 1u, "one tool");
     ASSERT_TRUE(result[0].meta().has_value(), "meta present");
     ASSERT_TRUE(result[0].meta()->is_object(), "object meta retained");
-    ASSERT_TRUE((*result[0].meta()).value("custom", std::string{}) == "value", "custom key preserved");
+    ASSERT_TRUE((*result[0].meta()).value("custom", std::string{}) == "value",
+                "custom key preserved");
     ASSERT_TRUE((*result[0].meta())["fastmcp"].value("source", std::string{}) == "canonical",
                 "existing fastmcp fields preserved");
     auto versions = (*result[0].meta())["fastmcp"]["versions"].get<std::vector<std::string>>();
@@ -360,7 +361,8 @@ static int test_metadata_survives_tool_info_and_mcp_serialization()
 
 static int test_non_object_meta_does_not_break_tool_info_or_mcp_serialization()
 {
-    std::cout << "  test_non_object_meta_does_not_break_tool_info_or_mcp_serialization..." << std::endl;
+    std::cout << "  test_non_object_meta_does_not_break_tool_info_or_mcp_serialization..."
+              << std::endl;
 
     auto v1 = make_tool("greet", "1");
     auto v3 = make_tool("greet", "3");
@@ -375,9 +377,11 @@ static int test_non_object_meta_does_not_break_tool_info_or_mcp_serialization()
     auto tools = app.list_all_tools_info();
     ASSERT_EQ(tools.size(), 1u, "deduped tool list");
     ASSERT_TRUE(tools[0]._meta.has_value(), "tool info carries _meta");
-    ASSERT_TRUE((*tools[0]._meta).is_object(), "non-object meta coerced before tool info serialization");
+    ASSERT_TRUE((*tools[0]._meta).is_object(),
+                "non-object meta coerced before tool info serialization");
     ASSERT_TRUE((*tools[0]._meta).contains("fastmcp"), "fastmcp block present in tool info");
-    ASSERT_TRUE((*tools[0]._meta)["fastmcp"].contains("versions"), "versions surfaced in tool info");
+    ASSERT_TRUE((*tools[0]._meta)["fastmcp"].contains("versions"),
+                "versions surfaced in tool info");
 
     auto handler = mcp::make_mcp_handler(app);
     Json req = {{"jsonrpc", "2.0"}, {"id", 1}, {"method", "tools/list"}};
