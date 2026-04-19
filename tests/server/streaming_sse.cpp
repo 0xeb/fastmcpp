@@ -16,8 +16,14 @@ using fastmcpp::server::SseServerWrapper;
 
 int main()
 {
-    // Echo handler: returns posted JSON unchanged
-    auto handler = [](const Json& request) -> Json { return request; };
+    // Echo handler: returns a minimal JSON-RPC response carrying the posted value.
+    auto handler = [](const Json& request) -> Json
+    {
+        Json response = {{"jsonrpc", "2.0"},
+                         {"id", request.value("id", Json(nullptr))},
+                         {"result", request.value("params", Json::object())}};
+        return response;
+    };
 
     // Choose port with fallback range
     int port = -1;
@@ -100,17 +106,18 @@ int main()
                         continue;
                     }
 
-                    // Parse "data: {json}" events and collect n values
+                    // Parse "data: {json}" events and collect result.n values.
                     if (block.rfind("data: ", 0) == 0)
                     {
                         std::string json_str = block.substr(6);
                         try
                         {
                             Json j = Json::parse(json_str);
-                            if (j.contains("n"))
+                            if (j.contains("result") && j["result"].is_object() &&
+                                j["result"].contains("n"))
                             {
                                 std::lock_guard<std::mutex> lock(seen_mutex);
-                                seen.push_back(j["n"].get<int>());
+                                seen.push_back(j["result"]["n"].get<int>());
                                 if (seen.size() >= 3)
                                     return false; // stop after 3
                             }
@@ -168,7 +175,7 @@ int main()
     }
     for (int i = 1; i <= 3; ++i)
     {
-        Json j = Json{{"n", i}};
+        Json j = {{"jsonrpc", "2.0"}, {"id", i}, {"method", "echo"}, {"params", {{"n", i}}}};
         auto res = post.Post(post_path, j.dump(), "application/json");
         if (!res || res->status != 200)
         {

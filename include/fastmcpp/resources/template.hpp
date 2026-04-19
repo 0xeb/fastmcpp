@@ -29,8 +29,8 @@ enum class ParamKind
 struct TemplateParameter
 {
     std::string name;
-    bool is_wildcard{false};        // {var*} vs {var}
-    bool is_query{false};           // {?var} query param
+    bool is_wildcard{false}; // {var*} vs {var}
+    bool is_query{false};    // {?var} query param
     ParamKind kind{ParamKind::String};
 };
 

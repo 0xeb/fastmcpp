@@ -15,11 +15,9 @@
 namespace fastmcpp::server
 {
 
-StreamableHttpServerWrapper::StreamableHttpServerWrapper(McpHandler handler, std::string host,
-                                                         int port, std::string mcp_path,
-                                                         std::string auth_token,
-                                                         std::string cors_origin,
-                                                         std::unordered_map<std::string, std::string> response_headers)
+StreamableHttpServerWrapper::StreamableHttpServerWrapper(
+    McpHandler handler, std::string host, int port, std::string mcp_path, std::string auth_token,
+    std::string cors_origin, std::unordered_map<std::string, std::string> response_headers)
     : handler_(std::move(handler)), host_(std::move(host)), requested_port_(port),
       mcp_path_(std::move(mcp_path)), auth_token_(std::move(auth_token)),
       response_headers_(std::move(response_headers))

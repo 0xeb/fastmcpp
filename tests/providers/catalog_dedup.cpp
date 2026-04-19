@@ -4,7 +4,8 @@
 // test_catalog.py).
 
 #include "fastmcpp/app.hpp"
-#include "fastmcpp/providers/local_provider.hpp"
+#include "fastmcpp/mcp/handler.hpp"
+#include "fastmcpp/providers/provider.hpp"
 #include "fastmcpp/providers/transforms/catalog.hpp"
 #include "fastmcpp/providers/transforms/version_filter.hpp"
 #include "fastmcpp/util/versions.hpp"
@@ -51,6 +52,30 @@ tools::Tool make_tool(const std::string& name, const std::string& version)
 
 class NoopCatalogTransform : public CatalogTransform
 {
+};
+
+class PipelineCatalogTransform : public CatalogTransform
+{
+  public:
+    std::vector<tools::Tool>
+    transform_tools(const providers::transforms::ListToolsNext& call_next) const override
+    {
+        return get_tool_catalog(call_next);
+    }
+};
+
+class StaticToolProvider : public providers::Provider
+{
+  public:
+    explicit StaticToolProvider(std::vector<tools::Tool> tools) : tools_(std::move(tools)) {}
+
+    std::vector<tools::Tool> list_tools() const override
+    {
+        return tools_;
+    }
+
+  private:
+    std::vector<tools::Tool> tools_;
 };
 
 // Build a list_tools call_next that simply returns a fixed tool list (we're
@@ -145,7 +170,7 @@ static int test_get_tool_catalog_mixed_versioned_unversioned()
     std::cout << "  test_get_tool_catalog_mixed_versioned_unversioned..." << std::endl;
     NoopCatalogTransform t;
     auto next = fixed_call_next({
-        make_tool("standalone", ""),    // unversioned, distinct key
+        make_tool("standalone", ""), // unversioned, distinct key
         make_tool("greet", "1"),
         make_tool("greet", "2"),
     });
@@ -155,8 +180,7 @@ static int test_get_tool_catalog_mixed_versioned_unversioned()
     // standalone first (insertion order preserved); greet@2 second.
     ASSERT_EQ(result[0].name(), std::string("standalone"), "standalone first");
     ASSERT_TRUE(!result[0].version().has_value(), "standalone unversioned");
-    ASSERT_TRUE(!result[0].meta().has_value() ||
-                    !result[0].meta()->contains("fastmcp") ||
+    ASSERT_TRUE(!result[0].meta().has_value() || !result[0].meta()->contains("fastmcp") ||
                     !(*result[0].meta())["fastmcp"].contains("versions"),
                 "no versions meta when single-version (or no version) entry");
 
@@ -198,7 +222,8 @@ static int test_version_filter_applied_before_catalog()
         make_tool("greet", "2"),
         make_tool("greet", "3"),
     };
-    auto filtered_next = [&]() {
+    auto filtered_next = [&]()
+    {
         std::vector<tools::Tool> filtered;
         for (const auto& tool : raw)
         {
@@ -220,6 +245,54 @@ static int test_version_filter_applied_before_catalog()
     return 0;
 }
 
+static int test_metadata_survives_tool_info_and_mcp_serialization()
+{
+    std::cout << "  test_metadata_survives_tool_info_and_mcp_serialization..." << std::endl;
+
+    auto v1 = make_tool("greet", "1");
+    auto v3 = make_tool("greet", "3");
+    AppConfig app_config;
+    app_config.resource_uri = "ui://widgets/greet.html";
+    v3.set_app(app_config);
+    auto provider = std::make_shared<StaticToolProvider>(std::vector<tools::Tool>{v1, v3});
+    provider->add_transform(std::make_shared<PipelineCatalogTransform>());
+
+    FastMCP app("catalog", "1.0.0");
+    app.add_provider(provider);
+    auto tools = app.list_all_tools_info();
+    ASSERT_EQ(tools.size(), 1u, "deduped tool list");
+    ASSERT_TRUE(tools[0]._meta.has_value(), "tool info carries _meta");
+    ASSERT_TRUE((*tools[0]._meta).contains("fastmcp"), "fastmcp block present");
+    ASSERT_TRUE((*tools[0]._meta)["fastmcp"].contains("versions"), "versions surfaced");
+    ASSERT_TRUE((*tools[0]._meta).contains("ui"), "ui metadata preserved");
+    auto handler = mcp::make_mcp_handler(app);
+    Json req = {{"jsonrpc", "2.0"}, {"id", 1}, {"method", "tools/list"}};
+    Json resp = handler(req);
+    ASSERT_TRUE(resp.contains("result") && resp["result"].contains("tools"), "tools/list result");
+    ASSERT_EQ(resp["result"]["tools"].size(), 1u, "one serialized tool");
+    const auto& tool = resp["result"]["tools"][0];
+    ASSERT_TRUE(tool.contains("_meta") && tool["_meta"].is_object(), "serialized _meta");
+    ASSERT_TRUE(tool["_meta"].contains("fastmcp"), "serialized fastmcp block");
+    ASSERT_TRUE(tool["_meta"]["fastmcp"].contains("versions"), "serialized versions");
+    ASSERT_TRUE(tool["_meta"]["fastmcp"]["versions"].is_array(), "serialized versions array");
+    std::vector<std::string> versions;
+    for (const auto& version_json : tool["_meta"]["fastmcp"]["versions"])
+    {
+        ASSERT_TRUE(version_json.is_string(), "serialized version value is string");
+        versions.push_back(version_json.get<std::string>());
+    }
+    ASSERT_EQ(versions.size(), 2u, "two versions serialized");
+    ASSERT_TRUE(versions[0] == "3" && versions[1] == "1", "serialized version order");
+    ASSERT_TRUE(tool["_meta"].contains("ui"), "serialized ui preserved");
+    ASSERT_TRUE(tool["_meta"]["ui"].is_object(), "serialized ui object");
+    ASSERT_TRUE(tool["_meta"]["ui"].value("resourceUri", std::string{}) ==
+                    "ui://widgets/greet.html",
+                "serialized ui value preserved");
+
+    std::cout << "    PASS" << std::endl;
+    return 0;
+}
+
 int main()
 {
     std::cout << "CatalogTransform Dedup + Ordering Tests" << std::endl;
@@ -232,6 +305,7 @@ int main()
     failures += test_get_tool_catalog_mixed_versioned_unversioned();
     failures += test_no_meta_for_single_version();
     failures += test_version_filter_applied_before_catalog();
+    failures += test_metadata_survives_tool_info_and_mcp_serialization();
     std::cout << std::endl;
     if (failures == 0)
     {

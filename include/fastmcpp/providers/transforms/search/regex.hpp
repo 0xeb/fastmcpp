@@ -18,8 +18,8 @@ class RegexSearchTransform : public BaseSearchTransform
   public:
     explicit RegexSearchTransform(Options opts = {}) : BaseSearchTransform(std::move(opts)) {}
 
-    std::vector<tools::Tool>
-    do_search(const std::vector<tools::Tool>& tools, const std::string& query) const override
+    std::vector<tools::Tool> do_search(const std::vector<tools::Tool>& tools,
+                                       const std::string& query) const override
     {
         std::regex pattern;
         try
@@ -51,18 +51,16 @@ class RegexSearchTransform : public BaseSearchTransform
         Json input_schema = {
             {"type", "object"},
             {"properties",
-             Json{{"pattern",
-                   Json{{"type", "string"},
-                        {"description", "Regex pattern to match against tool names, "
-                                        "descriptions, and parameters"}}}}},
+             Json{{"pattern", Json{{"type", "string"},
+                                   {"description", "Regex pattern to match against tool names, "
+                                                   "descriptions, and parameters"}}}}},
             {"required", Json::array({"pattern"})}};
 
         tools::Tool::Fn fn = [](const Json& /*args*/) -> Json
         {
             return Json{{"content",
-                         Json::array(
-                             {Json{{"type", "text"},
-                                   {"text", "Search tool: use with pattern argument"}}})}};
+                         Json::array({Json{{"type", "text"},
+                                           {"text", "Search tool: use with pattern argument"}}})}};
         };
 
         return tools::Tool(search_tool_name(), std::move(input_schema), Json::object(),

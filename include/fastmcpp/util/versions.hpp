@@ -25,8 +25,7 @@ namespace detail
 inline bool is_digits(const std::string& s)
 {
     return !s.empty() &&
-           std::all_of(s.begin(), s.end(),
-                       [](unsigned char c) { return std::isdigit(c) != 0; });
+           std::all_of(s.begin(), s.end(), [](unsigned char c) { return std::isdigit(c) != 0; });
 }
 
 inline std::string strip_leading_zeros(const std::string& s)
@@ -114,7 +113,8 @@ inline int compare(const std::optional<std::string>& a, const std::optional<std:
 
 /// Deduplicated entry: the winning component plus the sorted list of
 /// available versions that mapped to its key (descending).
-template <typename T> struct DedupedEntry
+template <typename T>
+struct DedupedEntry
 {
     T item;
     std::vector<std::string> available_versions;
@@ -124,8 +124,8 @@ template <typename T> struct DedupedEntry
 /// group, and report the list of available concrete versions for each group
 /// (descending). Mirrors Python `dedupe_with_versions` from commit 03673d9f.
 template <typename T, typename KeyFn, typename VersionFn>
-std::vector<DedupedEntry<T>>
-dedupe_with_versions(const std::vector<T>& items, KeyFn key_fn, VersionFn version_fn)
+std::vector<DedupedEntry<T>> dedupe_with_versions(const std::vector<T>& items, KeyFn key_fn,
+                                                  VersionFn version_fn)
 {
     // Preserve first-seen order of keys for stable output.
     std::vector<std::string> key_order;
@@ -147,10 +147,8 @@ dedupe_with_versions(const std::vector<T>& items, KeyFn key_fn, VersionFn versio
         const auto& indices = by_key.at(key);
         size_t winner_idx = indices.front();
         for (size_t i : indices)
-        {
             if (compare(version_fn(items[i]), version_fn(items[winner_idx])) > 0)
                 winner_idx = i;
-        }
 
         std::vector<std::string> versions;
         versions.reserve(indices.size());

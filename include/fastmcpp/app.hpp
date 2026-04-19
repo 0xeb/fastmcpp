@@ -49,8 +49,8 @@ struct CustomRouteResponse
 /// fixed forwarding from mounted servers).
 struct CustomRoute
 {
-    std::string method;            // GET, POST, etc. (uppercase)
-    std::string path;              // Absolute path, e.g. "/health" — must start with '/'
+    std::string method; // GET, POST, etc. (uppercase)
+    std::string path;   // Absolute path, e.g. "/health" — must start with '/'
     std::function<CustomRouteResponse(const CustomRouteRequest&)> handler;
 };
 

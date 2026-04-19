@@ -38,10 +38,9 @@ tools::Tool ResourcesAsTools::make_list_resources_tool() const
         return Json{{"type", "text"}, {"text", result.dump(2)}};
     };
 
-    tools::Tool tool(
-        "list_resources", Json::object(), Json(), fn, std::nullopt,
-        std::optional<std::string>("List available resources and resource templates"),
-        std::nullopt);
+    tools::Tool tool("list_resources", Json::object(), Json(), fn, std::nullopt,
+                     std::optional<std::string>("List available resources and resource templates"),
+                     std::nullopt);
     tool.set_annotations(kReadOnlyAnnotations);
     return tool;
 }

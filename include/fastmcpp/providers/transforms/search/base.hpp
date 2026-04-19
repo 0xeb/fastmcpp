@@ -76,7 +76,9 @@ class BaseSearchTransform : public CatalogTransform
         SearchResultSerializer search_result_serializer;
     };
 
-    explicit BaseSearchTransform(Options opts = {})
+    BaseSearchTransform() : BaseSearchTransform(Options{}) {}
+
+    explicit BaseSearchTransform(Options opts)
         : max_results_(opts.max_results),
           always_visible_(opts.always_visible.begin(), opts.always_visible.end()),
           search_tool_name_(std::move(opts.search_tool_name)),
@@ -87,8 +89,7 @@ class BaseSearchTransform : public CatalogTransform
             search_result_serializer_ = serialize_tools_for_output_json;
     }
 
-    std::vector<tools::Tool>
-    transform_tools(const ListToolsNext& call_next) const override
+    std::vector<tools::Tool> transform_tools(const ListToolsNext& call_next) const override
     {
         auto tools = call_next();
         std::vector<tools::Tool> result;
@@ -115,8 +116,8 @@ class BaseSearchTransform : public CatalogTransform
     }
 
     /// Perform search over tools. Subclasses implement this.
-    virtual std::vector<tools::Tool>
-    do_search(const std::vector<tools::Tool>& tools, const std::string& query) const = 0;
+    virtual std::vector<tools::Tool> do_search(const std::vector<tools::Tool>& tools,
+                                               const std::string& query) const = 0;
 
   protected:
     /// Create the search tool. Subclasses provide the implementation via do_search.
@@ -126,25 +127,22 @@ class BaseSearchTransform : public CatalogTransform
     {
         Json input_schema = {
             {"type", "object"},
-            {"properties",
-             Json{{"name",
-                   Json{{"type", "string"}, {"description", "The name of the tool to call"}}},
-                  {"arguments",
-                   Json{{"type", "object"},
-                        {"description", "Arguments to pass to the tool"},
-                        {"additionalProperties", true}}}}},
+            {"properties", Json{{"name", Json{{"type", "string"},
+                                              {"description", "The name of the tool to call"}}},
+                                {"arguments", Json{{"type", "object"},
+                                                   {"description", "Arguments to pass to the tool"},
+                                                   {"additionalProperties", true}}}}},
             {"required", Json::array({"name"})}};
 
         tools::Tool::Fn fn = [](const Json& /*args*/) -> Json
         {
-            return Json{{"content",
-                         Json::array({Json{{"type", "text"},
-                                           {"text", "call_tool proxy: use tools/call directly "
-                                                    "with the discovered tool name"}}})}};
+            return Json{
+                {"content", Json::array({Json{{"type", "text"},
+                                              {"text", "call_tool proxy: use tools/call directly "
+                                                       "with the discovered tool name"}}})}};
         };
 
-        return tools::Tool(call_tool_name_, std::move(input_schema), Json::object(),
-                           std::move(fn));
+        return tools::Tool(call_tool_name_, std::move(input_schema), Json::object(), std::move(fn));
     }
 
     int max_results() const

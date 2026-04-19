@@ -87,8 +87,7 @@ class BM25Index
             auto df_it = df_.find(token);
             if (df_it == df_.end())
                 continue;
-            double idf =
-                std::log((n_ - df_it->second + 0.5) / (df_it->second + 0.5) + 1.0);
+            double idf = std::log((n_ - df_it->second + 0.5) / (df_it->second + 0.5) + 1.0);
             for (int i = 0; i < n_; ++i)
             {
                 auto tf_it = tf_[i].find(token);
@@ -104,8 +103,7 @@ class BM25Index
 
         std::vector<int> indices(n_);
         std::iota(indices.begin(), indices.end(), 0);
-        std::partial_sort(indices.begin(),
-                          indices.begin() + std::min(top_k, n_), indices.end(),
+        std::partial_sort(indices.begin(), indices.begin() + std::min(top_k, n_), indices.end(),
                           [&](int a, int b_idx) { return scores[a] > scores[b_idx]; });
 
         std::vector<int> result;
@@ -115,8 +113,14 @@ class BM25Index
         return result;
     }
 
-    double k1() const { return k1_; }
-    double b() const { return b_; }
+    double k1() const
+    {
+        return k1_;
+    }
+    double b() const
+    {
+        return b_;
+    }
 
   private:
     double k1_;
@@ -142,8 +146,8 @@ class BM25SearchTransform : public BaseSearchTransform
   public:
     explicit BM25SearchTransform(Options opts = {}) : BaseSearchTransform(std::move(opts)) {}
 
-    std::vector<tools::Tool>
-    do_search(const std::vector<tools::Tool>& tools, const std::string& query) const override
+    std::vector<tools::Tool> do_search(const std::vector<tools::Tool>& tools,
+                                       const std::string& query) const override
     {
         // Rebuild index if catalog changed
         auto hash = catalog_hash(tools);
@@ -173,17 +177,15 @@ class BM25SearchTransform : public BaseSearchTransform
         Json input_schema = {
             {"type", "object"},
             {"properties",
-             Json{{"query",
-                   Json{{"type", "string"},
-                        {"description", "Natural language query to search for tools"}}}}},
+             Json{{"query", Json{{"type", "string"},
+                                 {"description", "Natural language query to search for tools"}}}}},
             {"required", Json::array({"query"})}};
 
         tools::Tool::Fn fn = [](const Json& /*args*/) -> Json
         {
-            return Json{{"content",
-                         Json::array(
-                             {Json{{"type", "text"},
-                                   {"text", "Search tool: use with query argument"}}})}};
+            return Json{
+                {"content", Json::array({Json{{"type", "text"},
+                                              {"text", "Search tool: use with query argument"}}})}};
         };
 
         return tools::Tool(search_tool_name(), std::move(input_schema), Json::object(),

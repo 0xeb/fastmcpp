@@ -74,17 +74,14 @@ int main()
     {
         tools::ToolManager tm2;
         Json schema = {{"type", "object"}, {"properties", Json::object()}};
-        tools::Tool versioned{"versioned", schema, Json(),
-                              [](const Json&) { return 42; }};
+        tools::Tool versioned{"versioned", schema, Json(), [](const Json&) { return 42; }};
         versioned.set_version("2.0.0");
         tm2.register_tool(versioned);
-        tools::Tool plain{"plain", schema, Json(),
-                          [](const Json&) { return 1; }};
+        tools::Tool plain{"plain", schema, Json(), [](const Json&) { return 1; }};
         tm2.register_tool(plain);
 
         auto handler2 = mcp::make_mcp_handler("ver_test", "1.0.0", tm2);
-        auto list2 =
-            handler2(Json{{"jsonrpc", "2.0"}, {"id", 10}, {"method", "tools/list"}});
+        auto list2 = handler2(Json{{"jsonrpc", "2.0"}, {"id", 10}, {"method", "tools/list"}});
         bool checked_versioned = false, checked_plain = false;
         for (const auto& t : list2["result"]["tools"])
         {
@@ -109,8 +106,7 @@ int main()
         tools::ToolManager tm3;
         Json schema = {{"type", "object"}, {"properties", Json::object()}};
         // Json() = null → no outputSchema emitted
-        tools::Tool no_schema{"no_schema", schema, Json(),
-                              [](const Json&) { return 1; }};
+        tools::Tool no_schema{"no_schema", schema, Json(), [](const Json&) { return 1; }};
         // Json{{"type","object"}} → outputSchema present
         tools::Tool with_schema{"with_schema", schema, Json{{"type", "object"}},
                                 [](const Json&) { return 1; }};
@@ -118,8 +114,7 @@ int main()
         tm3.register_tool(with_schema);
 
         auto handler3 = mcp::make_mcp_handler("schema_test", "1.0.0", tm3);
-        auto list3 =
-            handler3(Json{{"jsonrpc", "2.0"}, {"id", 20}, {"method", "tools/list"}});
+        auto list3 = handler3(Json{{"jsonrpc", "2.0"}, {"id", 20}, {"method", "tools/list"}});
         bool checked_no = false, checked_with = false;
         for (const auto& t : list3["result"]["tools"])
         {

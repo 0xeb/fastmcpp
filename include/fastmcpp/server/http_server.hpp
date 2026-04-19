@@ -13,7 +13,7 @@ namespace httplib
 {
 class Server;
 class Response;
-}
+} // namespace httplib
 
 namespace fastmcpp
 {
@@ -38,8 +38,7 @@ class HttpServerWrapper
      * @param response_headers Additional HTTP headers added to responses
      */
     HttpServerWrapper(std::shared_ptr<Server> core, std::string host = "127.0.0.1",
-                      int port = 18080, std::string auth_token = "",
-                      std::string cors_origin = "",
+                      int port = 18080, std::string auth_token = "", std::string cors_origin = "",
                       std::unordered_map<std::string, std::string> response_headers = {});
     ~HttpServerWrapper();
 

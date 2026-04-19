@@ -457,12 +457,12 @@ void test_hidden_does_not_block_rename_into_its_slot()
     std::cout << "  test_hidden_does_not_block_rename_into_its_slot... " << std::flush;
     auto add_tool = create_add_tool();
     std::unordered_map<std::string, ArgTransform> transforms;
-    transforms["y"] = make_hidden(Json(7));    // y is hidden, slot freed
-    transforms["x"] = make_rename("y");        // rename x -> y is OK now
+    transforms["y"] = make_hidden(Json(7)); // y is hidden, slot freed
+    transforms["x"] = make_rename("y");     // rename x -> y is OK now
     auto t = TransformedTool::from_tool(add_tool, std::nullopt, std::nullopt, transforms);
     auto schema = t.input_schema();
     assert(schema["properties"].contains("y"));
-    auto result = t.invoke(Json{{"y", 5}});    // y maps back to x, hidden y default = 7
+    auto result = t.invoke(Json{{"y", 5}}); // y maps back to x, hidden y default = 7
     assert(result["result"].get<int>() == 12);
     std::cout << "PASSED\n";
 }

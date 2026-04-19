@@ -327,7 +327,8 @@ int main()
     }
 
     Json throwing_notification = {{"jsonrpc", "2.0"}, {"method", "notifications/throw"}};
-    auto throwing_res = post_client.Post(post_url, throwing_notification.dump(), "application/json");
+    auto throwing_res =
+        post_client.Post(post_url, throwing_notification.dump(), "application/json");
     if (!throwing_res || throwing_res->status != 202 || !throwing_res->body.empty())
     {
         std::cerr << "Throwing notification should still return 202 with empty body\n";
@@ -350,10 +351,8 @@ int main()
         return 1;
     }
 
-    Json request = {{"jsonrpc", "2.0"},
-                    {"id", 1},
-                    {"method", "echo"},
-                    {"params", {{"message", "Hello SSE"}}}};
+    Json request = {
+        {"jsonrpc", "2.0"}, {"id", 1}, {"method", "echo"}, {"params", {{"message", "Hello SSE"}}}};
     auto post_res = post_client.Post(post_url, request.dump(), "application/json");
 
     if (!post_res || post_res->status != 200)

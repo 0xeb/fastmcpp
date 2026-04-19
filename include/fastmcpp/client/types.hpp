@@ -64,8 +64,8 @@ using ContentBlock = std::variant<TextContent, ImageContent, AudioContent, Embed
 struct ToolInfo
 {
     std::string name;
-    std::optional<std::string> version;               ///< Component version metadata
-    std::optional<std::string> title;                 ///< Human-readable title
+    std::optional<std::string> version; ///< Component version metadata
+    std::optional<std::string> title;   ///< Human-readable title
     std::optional<std::string> description;
     fastmcpp::Json inputSchema;                       ///< JSON Schema for tool input
     std::optional<fastmcpp::Json> outputSchema;       ///< JSON Schema for structured output
@@ -134,8 +134,8 @@ struct ResourceInfo
 {
     std::string uri;
     std::string name;
-    std::optional<std::string> version;               ///< Component version metadata
-    std::optional<std::string> title;                 ///< Human-readable title
+    std::optional<std::string> version; ///< Component version metadata
+    std::optional<std::string> title;   ///< Human-readable title
     std::optional<std::string> description;
     std::optional<std::string> mimeType;
     std::optional<fastmcpp::Json> annotations;
@@ -221,8 +221,8 @@ struct PromptArgument
 struct PromptInfo
 {
     std::string name;
-    std::optional<std::string> version;               ///< Component version metadata
-    std::optional<std::string> title;                 ///< Human-readable title
+    std::optional<std::string> version; ///< Component version metadata
+    std::optional<std::string> title;   ///< Human-readable title
     std::optional<std::string> description;
     std::optional<std::vector<PromptArgument>> arguments;
     std::optional<std::vector<fastmcpp::Icon>> icons; ///< Icons for UI display

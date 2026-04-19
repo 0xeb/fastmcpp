@@ -99,10 +99,9 @@ build_transformed_schema(const Json& parent_schema,
             if (it != transform_args.end() && it->second.hide)
                 continue; // hidden args do not occupy an effective slot
 
-            std::string effective =
-                (it != transform_args.end() && it->second.name.has_value())
-                    ? *it->second.name
-                    : old_name;
+            std::string effective = (it != transform_args.end() && it->second.name.has_value())
+                                        ? *it->second.name
+                                        : old_name;
 
             auto inserted = seen_owner.emplace(effective, old_name);
             if (!inserted.second)

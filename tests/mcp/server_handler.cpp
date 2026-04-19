@@ -28,8 +28,7 @@ int main()
                 AudioContent audio;
                 audio.data = "aGVsbG8="; // base64("hello")
                 audio.mimeType = "audio/wav";
-                Json content =
-                    Json::array({TextContent{"text", "Audio attached"}, audio});
+                Json content = Json::array({TextContent{"text", "Audio attached"}, audio});
                 return Json{{"content", content}};
             });
 
@@ -62,11 +61,10 @@ int main()
     assert(content[1]["mimeType"] == "image/png");
 
     // call audio_tool — verify audio block preserved through handler
-    Json audio_call = {
-        {"jsonrpc", "2.0"},
-        {"id", 10},
-        {"method", "tools/call"},
-        {"params", Json{{"name", "audio_tool"}, {"arguments", Json::object()}}}};
+    Json audio_call = {{"jsonrpc", "2.0"},
+                       {"id", 10},
+                       {"method", "tools/call"},
+                       {"params", Json{{"name", "audio_tool"}, {"arguments", Json::object()}}}};
     auto audio_resp = handler(audio_call);
     auto audio_content = audio_resp["result"]["content"];
     assert(audio_content.size() == 2);

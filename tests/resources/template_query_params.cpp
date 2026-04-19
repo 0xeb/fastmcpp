@@ -50,9 +50,7 @@ static ResourceTemplate make_typed_template()
          }},
     };
     t.provider = [](const Json& params) -> ResourceContent
-    {
-        return ResourceContent{"search://echo", "application/json", params.dump()};
-    };
+    { return ResourceContent{"search://echo", "application/json", params.dump()}; };
     t.parse();
     return t;
 }
@@ -62,7 +60,6 @@ static int test_kind_populated_from_schema()
     std::cout << "  test_kind_populated_from_schema..." << std::endl;
     auto t = make_typed_template();
     for (const auto& p : t.parsed_params)
-    {
         if (p.name == "query")
             ASSERT_TRUE(p.kind == ParamKind::String, "query kind");
         else if (p.name == "limit" || p.name == "offset")
@@ -71,7 +68,6 @@ static int test_kind_populated_from_schema()
             ASSERT_TRUE(p.kind == ParamKind::Boolean, "bool kind");
         else if (p.name == "score")
             ASSERT_TRUE(p.kind == ParamKind::Number, "number kind");
-    }
     std::cout << "    PASS" << std::endl;
     return 0;
 }
@@ -179,7 +175,10 @@ static int test_build_typed_params()
     std::cout << "  test_build_typed_params..." << std::endl;
     auto t = make_typed_template();
     std::unordered_map<std::string, std::string> raw{
-        {"query", "apple"}, {"limit", "5"}, {"verbose", "yes"}, {"score", "0.9"},
+        {"query", "apple"},
+        {"limit", "5"},
+        {"verbose", "yes"},
+        {"score", "0.9"},
     };
     Json p = t.build_typed_params(raw);
     ASSERT_TRUE(p["query"].is_string() && p["query"].get<std::string>() == "apple", "query");

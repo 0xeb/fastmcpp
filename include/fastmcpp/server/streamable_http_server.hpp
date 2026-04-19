@@ -57,8 +57,7 @@ class StreamableHttpServerWrapper
      */
     explicit StreamableHttpServerWrapper(
         McpHandler handler, std::string host = "127.0.0.1", int port = 18080,
-        std::string mcp_path = "/mcp", std::string auth_token = "",
-        std::string cors_origin = "",
+        std::string mcp_path = "/mcp", std::string auth_token = "", std::string cors_origin = "",
         std::unordered_map<std::string, std::string> response_headers = {});
 
     ~StreamableHttpServerWrapper();

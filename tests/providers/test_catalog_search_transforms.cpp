@@ -156,14 +156,12 @@ void test_regex_transform_list_tools()
 
     bool has_pinned = false, has_search = false, has_call = false;
     for (const auto& t : tools)
-    {
         if (t.name() == "tool_a")
             has_pinned = true;
         else if (t.name() == "search_tools")
             has_search = true;
         else if (t.name() == "call_tool")
             has_call = true;
-    }
     assert(has_pinned);
     assert(has_search);
     assert(has_call);

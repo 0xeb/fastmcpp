@@ -38,7 +38,8 @@ Json coerce_param_value(const std::string& value, ParamKind kind, const std::str
     {
     case ParamKind::String:
         return Json(value);
-    case ParamKind::Boolean: {
+    case ParamKind::Boolean:
+    {
         const std::string lower = to_lower(value);
         if (lower == "true" || lower == "1" || lower == "yes")
             return Json(true);
@@ -47,7 +48,8 @@ Json coerce_param_value(const std::string& value, ParamKind kind, const std::str
         throw fastmcpp::ValidationError("Invalid boolean value for " + param_name + ": '" + value +
                                         "'");
     }
-    case ParamKind::Integer: {
+    case ParamKind::Integer:
+    {
         try
         {
             size_t consumed = 0;
@@ -67,7 +69,8 @@ Json coerce_param_value(const std::string& value, ParamKind kind, const std::str
                                             value + "'");
         }
     }
-    case ParamKind::Number: {
+    case ParamKind::Number:
+    {
         try
         {
             size_t consumed = 0;

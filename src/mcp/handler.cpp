@@ -822,10 +822,9 @@ fastmcpp::Json build_fastmcp_tool_result(const fastmcpp::Json& result,
         // Merge wrap_result into existing _meta
         if (wrap_result)
         {
-            fastmcpp::Json meta =
-                payload.contains("_meta") && payload["_meta"].is_object()
-                    ? payload["_meta"]
-                    : fastmcpp::Json::object();
+            fastmcpp::Json meta = payload.contains("_meta") && payload["_meta"].is_object()
+                                      ? payload["_meta"]
+                                      : fastmcpp::Json::object();
             meta["fastmcp"] = fastmcpp::Json{{"wrap_result", true}};
             payload["_meta"] = std::move(meta);
         }
@@ -998,7 +997,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
 
                     tools_array.push_back(make_tool_entry(
                         name, desc, schema, tool.title(), tool.icons(), tool.output_schema(),
-                        tool.task_support(), tool.sequential(), tool.app(), std::nullopt,
+                        tool.task_support(), tool.sequential(), tool.app(), tool.meta(),
                         tool.version(), tool.annotations()));
                 }
 
@@ -1373,7 +1372,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     std::string desc = tool.description() ? *tool.description() : "";
                     tools_array.push_back(make_tool_entry(
                         name, desc, tool.input_schema(), tool.title(), tool.icons(),
-                        tool.output_schema(), tool.task_support(), tool.sequential(), tool.app()));
+                        tool.output_schema(), tool.task_support(), tool.sequential(), tool.app(),
+                        tool.meta(), tool.version(), tool.annotations()));
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
@@ -1554,7 +1554,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     std::string desc = tool.description() ? *tool.description() : "";
                     tools_array.push_back(make_tool_entry(
                         name, desc, tool.input_schema(), tool.title(), tool.icons(),
-                        tool.output_schema(), tool.task_support(), tool.sequential(), tool.app()));
+                        tool.output_schema(), tool.task_support(), tool.sequential(), tool.app(),
+                        tool.meta(), tool.version(), tool.annotations()));
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
                                       {"id", id},
@@ -1999,8 +2000,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
 
                         tasks->enqueue_task(
                             task_id,
-                            [&app, name, args, has_output_schema,
-                             wrap_result]() -> fastmcpp::Json
+                            [&app, name, args, has_output_schema, wrap_result]() -> fastmcpp::Json
                             {
                                 auto invoke_result = app.invoke_tool(name, args, false);
                                 return build_fastmcp_tool_result(invoke_result, has_output_schema,

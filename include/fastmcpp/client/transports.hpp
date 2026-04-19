@@ -124,8 +124,7 @@ class SseClientTransport : public ITransport,
     /// @param sse_path Path for SSE endpoint (default: "/sse")
     /// @param messages_path Path for message endpoint (default: "/messages")
     explicit SseClientTransport(std::string base_url, std::string sse_path = "/sse",
-                                std::string messages_path = "/messages",
-                                bool verify_ssl = true);
+                                std::string messages_path = "/messages", bool verify_ssl = true);
 
     ~SseClientTransport();
 

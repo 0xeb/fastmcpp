@@ -553,10 +553,14 @@ std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
             info.execution = execution;
         }
         info.icons = tool.icons();
+        if (tool.meta() && tool.meta()->is_object())
+            info._meta = *tool.meta();
         if (tool.app() && !tool.app()->empty())
         {
             info.app = *tool.app();
-            info._meta = Json{{"ui", *tool.app()}};
+            if (!info._meta || !info._meta->is_object())
+                info._meta = Json::object();
+            (*info._meta)["ui"] = *tool.app();
         }
         normalize_tool_info_schemas(info);
         result.push_back(info);

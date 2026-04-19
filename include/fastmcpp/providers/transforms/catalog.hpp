@@ -61,8 +61,7 @@ class CatalogTransform : public Transform
 
     // ---- Subclass hooks (override these, not list_*) ----
 
-    virtual std::vector<tools::Tool>
-    transform_tools(const ListToolsNext& call_next) const
+    virtual std::vector<tools::Tool> transform_tools(const ListToolsNext& call_next) const
     {
         return call_next();
     }
@@ -79,8 +78,7 @@ class CatalogTransform : public Transform
         return call_next();
     }
 
-    virtual std::vector<prompts::Prompt>
-    transform_prompts(const ListPromptsNext& call_next) const
+    virtual std::vector<prompts::Prompt> transform_prompts(const ListPromptsNext& call_next) const
     {
         return call_next();
     }
@@ -123,15 +121,13 @@ class CatalogTransform : public Transform
         return result;
     }
 
-    std::vector<resources::Resource>
-    get_resource_catalog(const ListResourcesNext& call_next) const
+    std::vector<resources::Resource> get_resource_catalog(const ListResourcesNext& call_next) const
     {
         BypassGuard guard(bypass_);
         return call_next();
     }
 
-    std::vector<prompts::Prompt>
-    get_prompt_catalog(const ListPromptsNext& call_next) const
+    std::vector<prompts::Prompt> get_prompt_catalog(const ListPromptsNext& call_next) const
     {
         BypassGuard guard(bypass_);
         return call_next();

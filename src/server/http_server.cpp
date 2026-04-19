@@ -68,12 +68,28 @@ bool HttpServerWrapper::start()
     svr_->Options(R"(/(.*))",
                   [this](const httplib::Request&, httplib::Response& res)
                   {
-                      res.set_header("Access-Control-Allow-Methods", "POST, OPTIONS");
+                      res.set_header("Access-Control-Allow-Methods",
+                                     "GET, POST, PUT, DELETE, PATCH, OPTIONS");
                       res.set_header("Access-Control-Allow-Headers",
                                      "Content-Type, Authorization, Mcp-Session-Id");
                       apply_additional_response_headers(res);
                       res.status = 204;
                   });
+
+    auto authorize_or_401 = [this](const httplib::Request& req, httplib::Response& res) -> bool
+    {
+        if (auth_token_.empty())
+            return true;
+
+        auto auth_it = req.headers.find("Authorization");
+        if (auth_it != req.headers.end() && check_auth(auth_it->second))
+            return true;
+
+        apply_additional_response_headers(res);
+        res.status = 401;
+        res.set_content("{\"error\":\"Unauthorized\"}", "application/json");
+        return false;
+    };
 
     // Register user-supplied custom routes BEFORE the catch-all so they
     // shadow JSON-RPC dispatch on those paths. Parity with Python fastmcp
@@ -83,8 +99,12 @@ bool HttpServerWrapper::start()
     {
         if (!route.handler)
             continue;
-        auto handler = [this, route](const httplib::Request& req, httplib::Response& res)
+        auto handler =
+            [this, route, authorize_or_401](const httplib::Request& req, httplib::Response& res)
         {
+            if (!authorize_or_401(req, res))
+                return;
+
             apply_additional_response_headers(res);
             fastmcpp::CustomRouteRequest cr;
             cr.method = route.method;
@@ -122,19 +142,10 @@ bool HttpServerWrapper::start()
 
     // Generic POST: /<route>
     svr_->Post(R"(/(.*))",
-               [this](const httplib::Request& req, httplib::Response& res)
+               [this, authorize_or_401](const httplib::Request& req, httplib::Response& res)
                {
-                   // Security: Check authentication if configured
-                   if (!auth_token_.empty())
-                   {
-                       auto auth_it = req.headers.find("Authorization");
-                       if (auth_it == req.headers.end() || !check_auth(auth_it->second))
-                       {
-                           res.status = 401;
-                           res.set_content("{\"error\":\"Unauthorized\"}", "application/json");
-                           return;
-                       }
-                   }
+                   if (!authorize_or_401(req, res))
+                       return;
 
                    apply_additional_response_headers(res);
 

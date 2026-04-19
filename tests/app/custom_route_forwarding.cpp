@@ -39,7 +39,8 @@ static CustomRoute make_route(const std::string& method, const std::string& path
     CustomRoute r;
     r.method = method;
     r.path = path;
-    r.handler = [body](const CustomRouteRequest&) {
+    r.handler = [body](const CustomRouteRequest&)
+    {
         CustomRouteResponse resp;
         resp.body = body;
         resp.content_type = "text/plain";
@@ -197,6 +198,96 @@ static int test_http_end_to_end_serves_route()
     return 0;
 }
 
+static int test_http_custom_route_requires_auth()
+{
+    std::cout << "  test_http_custom_route_requires_auth..." << std::endl;
+    FastMCP app("secure", "1.0.0");
+    app.add_custom_route(make_route("GET", "/health", "ok"));
+
+    auto core = std::make_shared<server::Server>(app.server());
+
+    int port = 0;
+    std::unique_ptr<server::HttpServerWrapper> http;
+    for (int candidate = 18441; candidate <= 18460; ++candidate)
+    {
+        auto trial = std::make_unique<server::HttpServerWrapper>(core, "127.0.0.1", candidate,
+                                                                 "secret-token");
+        trial->set_custom_routes(app.all_custom_routes());
+        if (trial->start())
+        {
+            port = trial->port();
+            http = std::move(trial);
+            break;
+        }
+    }
+    ASSERT_TRUE(http && port > 0, "HTTP server started");
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+
+    httplib::Client client("127.0.0.1", port);
+    client.set_connection_timeout(std::chrono::seconds(2));
+    client.set_read_timeout(std::chrono::seconds(2));
+
+    auto unauthorized = client.Get("/health");
+    ASSERT_TRUE(unauthorized != nullptr, "unauthorized GET returned a response");
+    ASSERT_EQ(unauthorized->status, 401, "missing bearer token rejected");
+
+    httplib::Headers headers = {{"Authorization", "Bearer secret-token"}};
+    auto authorized = client.Get("/health", headers);
+    ASSERT_TRUE(authorized != nullptr, "authorized GET returned a response");
+    ASSERT_EQ(authorized->status, 200, "authorized request succeeded");
+    ASSERT_EQ(authorized->body, std::string("ok"), "authorized body");
+
+    http->stop();
+    std::cout << "    PASS" << std::endl;
+    return 0;
+}
+
+static int test_http_custom_route_options_advertises_methods()
+{
+    std::cout << "  test_http_custom_route_options_advertises_methods..." << std::endl;
+    FastMCP app("cors", "1.0.0");
+    app.add_custom_route(make_route("PATCH", "/mutate", "patched"));
+
+    auto core = std::make_shared<server::Server>(app.server());
+
+    int port = 0;
+    std::unique_ptr<server::HttpServerWrapper> http;
+    for (int candidate = 18461; candidate <= 18480; ++candidate)
+    {
+        auto trial = std::make_unique<server::HttpServerWrapper>(core, "127.0.0.1", candidate);
+        trial->set_custom_routes(app.all_custom_routes());
+        if (trial->start())
+        {
+            port = trial->port();
+            http = std::move(trial);
+            break;
+        }
+    }
+    ASSERT_TRUE(http && port > 0, "HTTP server started");
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+
+    httplib::Client client("127.0.0.1", port);
+    client.set_connection_timeout(std::chrono::seconds(2));
+    client.set_read_timeout(std::chrono::seconds(2));
+
+    auto resp = client.Options("/mutate");
+    ASSERT_TRUE(resp != nullptr, "OPTIONS request returned a response");
+    ASSERT_EQ(resp->status, 204, "preflight status");
+    auto methods = resp->get_header_value("Access-Control-Allow-Methods");
+    ASSERT_TRUE(methods.find("GET") != std::string::npos, "GET advertised");
+    ASSERT_TRUE(methods.find("POST") != std::string::npos, "POST advertised");
+    ASSERT_TRUE(methods.find("PUT") != std::string::npos, "PUT advertised");
+    ASSERT_TRUE(methods.find("DELETE") != std::string::npos, "DELETE advertised");
+    ASSERT_TRUE(methods.find("PATCH") != std::string::npos, "PATCH advertised");
+    ASSERT_TRUE(methods.find("OPTIONS") != std::string::npos, "OPTIONS advertised");
+
+    http->stop();
+    std::cout << "    PASS" << std::endl;
+    return 0;
+}
+
 int main()
 {
     std::cout << "Custom Route Forwarding Tests" << std::endl;
@@ -208,6 +299,8 @@ int main()
     failures += test_aggregate_from_mounted_child();
     failures += test_aggregate_dedups_collisions();
     failures += test_http_end_to_end_serves_route();
+    failures += test_http_custom_route_requires_auth();
+    failures += test_http_custom_route_options_advertises_methods();
     std::cout << std::endl;
     if (failures == 0)
     {
