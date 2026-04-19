@@ -283,6 +283,71 @@ void FastMCP::add_provider(std::shared_ptr<providers::Provider> provider)
     providers_.push_back(std::move(provider));
 }
 
+FastMCP& FastMCP::add_custom_route(CustomRoute route)
+{
+    if (route.path.empty() || route.path.front() != '/')
+        throw ValidationError("CustomRoute.path must start with '/' (got '" + route.path + "')");
+    if (route.method.empty())
+        throw ValidationError("CustomRoute.method is required");
+    if (!route.handler)
+        throw ValidationError("CustomRoute.handler is required");
+
+    // Re-registering the same (method, path) replaces the previous entry —
+    // matches Python `@server.custom_route()` decorator semantics.
+    for (auto& existing : custom_routes_)
+    {
+        if (existing.method == route.method && existing.path == route.path)
+        {
+            existing = std::move(route);
+            return *this;
+        }
+    }
+    custom_routes_.push_back(std::move(route));
+    return *this;
+}
+
+namespace
+{
+std::string join_route_path(const std::string& prefix, const std::string& path)
+{
+    if (prefix.empty())
+        return path;
+    std::string p = prefix.front() == '/' ? prefix : "/" + prefix;
+    if (!p.empty() && p.back() == '/')
+        p.pop_back();
+    return p + path;
+}
+} // namespace
+
+std::vector<CustomRoute> FastMCP::all_custom_routes() const
+{
+    std::vector<CustomRoute> result = custom_routes_;
+    for (const auto& mounted : mounted_)
+    {
+        if (!mounted.app)
+            continue;
+        for (const auto& child : mounted.app->all_custom_routes())
+        {
+            CustomRoute prefixed = child;
+            prefixed.path = join_route_path(mounted.prefix, child.path);
+            // First-registration wins: skip duplicates already produced by the
+            // parent's own list (parity with Python aggregation order).
+            bool dup = false;
+            for (const auto& existing : result)
+            {
+                if (existing.method == prefixed.method && existing.path == prefixed.path)
+                {
+                    dup = true;
+                    break;
+                }
+            }
+            if (!dup)
+                result.push_back(std::move(prefixed));
+        }
+    }
+    return result;
+}
+
 // =========================================================================
 // Prefix Utilities
 // =========================================================================
@@ -931,9 +996,9 @@ resources::ResourceContent FastMCP::read_resource(const std::string& uri, const 
             if (!match_params)
                 continue;
 
-            Json merged_params = Json::object();
-            for (const auto& [key, value] : *match_params)
-                merged_params[key] = value;
+            // Matched values are string-typed; coerce them per-param against the
+            // template's parameter schema. Parity with Python fastmcp 9ccaef2b.
+            Json merged_params = templ->build_typed_params(*match_params);
             for (const auto& [key, value] : params.items())
                 merged_params[key] = value;
 

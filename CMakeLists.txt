@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 if(POLICY CMP0169)
   cmake_policy(SET CMP0169 OLD)
 endif()
-project(fastmcpp VERSION 3.1.0 LANGUAGES CXX)
+project(fastmcpp VERSION 3.1.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -284,6 +284,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_settings PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_settings COMMAND fastmcpp_settings)
 
+  add_executable(fastmcpp_util_metadata_parsing tests/util/metadata_parsing.cpp)
+  target_link_libraries(fastmcpp_util_metadata_parsing PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_util_metadata_parsing COMMAND fastmcpp_util_metadata_parsing)
+
   add_executable(fastmcpp_stdio_server tests/transports/stdio_server.cpp)
   target_link_libraries(fastmcpp_stdio_server PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_stdio_server COMMAND fastmcpp_stdio_server)
@@ -317,6 +321,12 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_resources_templates tests/resources/templates.cpp)
   target_link_libraries(fastmcpp_resources_templates PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_resources_templates COMMAND fastmcpp_resources_templates)
+
+  add_executable(fastmcpp_resources_template_query_params
+                 tests/resources/template_query_params.cpp)
+  target_link_libraries(fastmcpp_resources_template_query_params PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_resources_template_query_params
+           COMMAND fastmcpp_resources_template_query_params)
 
   add_executable(fastmcpp_server_basic tests/server/basic.cpp)
   target_link_libraries(fastmcpp_server_basic PRIVATE fastmcpp_core)
@@ -490,6 +500,15 @@ if(FASTMCPP_BUILD_TESTS)
   set_tests_properties(fastmcpp_stdio_timeout PROPERTIES TIMEOUT 60)
 
   # App mounting tests
+  add_executable(fastmcpp_app_mount_query_params tests/app/mount_query_params.cpp)
+  target_link_libraries(fastmcpp_app_mount_query_params PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_app_mount_query_params COMMAND fastmcpp_app_mount_query_params)
+
+  add_executable(fastmcpp_app_custom_route_forwarding
+                 tests/app/custom_route_forwarding.cpp)
+  target_link_libraries(fastmcpp_app_custom_route_forwarding PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_app_custom_route_forwarding COMMAND fastmcpp_app_custom_route_forwarding)
+
   add_executable(fastmcpp_app_mounting tests/app/mounting.cpp)
   target_link_libraries(fastmcpp_app_mounting PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_app_mounting COMMAND fastmcpp_app_mounting)
@@ -527,6 +546,10 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_provider_version_filter tests/providers/version_filter.cpp)
   target_link_libraries(fastmcpp_provider_version_filter PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_provider_version_filter COMMAND fastmcpp_provider_version_filter)
+
+  add_executable(fastmcpp_provider_catalog_dedup tests/providers/catalog_dedup.cpp)
+  target_link_libraries(fastmcpp_provider_catalog_dedup PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_provider_catalog_dedup COMMAND fastmcpp_provider_catalog_dedup)
 
   add_executable(fastmcpp_provider_catalog_search tests/providers/test_catalog_search_transforms.cpp)
   target_link_libraries(fastmcpp_provider_catalog_search PRIVATE fastmcpp_core)

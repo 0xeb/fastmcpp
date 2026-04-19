@@ -386,6 +386,87 @@ void test_chained_transforms()
     std::cout << "PASSED\n";
 }
 
+// F5 — parity with Python fastmcp commit d316f193:
+// Renaming an arg to a name that another (passthrough) parent param already
+// occupies must raise ValidationError. Two renames colliding with each other
+// must also raise.
+void test_rename_collides_with_passthrough_name()
+{
+    std::cout << "  test_rename_collides_with_passthrough_name... " << std::flush;
+    auto add_tool = create_add_tool();
+    std::unordered_map<std::string, ArgTransform> transforms;
+    transforms["x"] = make_rename("y"); // collides with untouched 'y'
+
+    bool threw = false;
+    try
+    {
+        (void)TransformedTool::from_tool(add_tool, std::nullopt, std::nullopt, transforms);
+    }
+    catch (const fastmcpp::ValidationError& e)
+    {
+        std::string msg = e.what();
+        if (msg.find("y") == std::string::npos)
+        {
+            std::cerr << "\nUnexpected message: " << msg << std::endl;
+            assert(false);
+        }
+        threw = true;
+    }
+    assert(threw);
+    std::cout << "PASSED\n";
+}
+
+void test_two_renames_colliding()
+{
+    std::cout << "  test_two_renames_colliding... " << std::flush;
+    auto add_tool = create_add_tool();
+    std::unordered_map<std::string, ArgTransform> transforms;
+    transforms["x"] = make_rename("z");
+    transforms["y"] = make_rename("z");
+
+    bool threw = false;
+    try
+    {
+        (void)TransformedTool::from_tool(add_tool, std::nullopt, std::nullopt, transforms);
+    }
+    catch (const fastmcpp::ValidationError&)
+    {
+        threw = true;
+    }
+    assert(threw);
+    std::cout << "PASSED\n";
+}
+
+void test_rename_does_not_collide()
+{
+    std::cout << "  test_rename_does_not_collide... " << std::flush;
+    auto add_tool = create_add_tool();
+    std::unordered_map<std::string, ArgTransform> transforms;
+    transforms["x"] = make_rename("alpha");
+    auto t = TransformedTool::from_tool(add_tool, std::nullopt, std::nullopt, transforms);
+    auto schema = t.input_schema();
+    assert(schema["properties"].contains("alpha"));
+    assert(schema["properties"].contains("y"));
+    auto result = t.invoke(Json{{"alpha", 4}, {"y", 6}});
+    assert(result["result"].get<int>() == 10);
+    std::cout << "PASSED\n";
+}
+
+void test_hidden_does_not_block_rename_into_its_slot()
+{
+    std::cout << "  test_hidden_does_not_block_rename_into_its_slot... " << std::flush;
+    auto add_tool = create_add_tool();
+    std::unordered_map<std::string, ArgTransform> transforms;
+    transforms["y"] = make_hidden(Json(7));    // y is hidden, slot freed
+    transforms["x"] = make_rename("y");        // rename x -> y is OK now
+    auto t = TransformedTool::from_tool(add_tool, std::nullopt, std::nullopt, transforms);
+    auto schema = t.input_schema();
+    assert(schema["properties"].contains("y"));
+    auto result = t.invoke(Json{{"y", 5}});    // y maps back to x, hidden y default = 7
+    assert(result["result"].get<int>() == 12);
+    std::cout << "PASSED\n";
+}
+
 int main()
 {
     std::cout << "Tool Transform Tests\n";
@@ -405,6 +486,10 @@ int main()
         test_tool_transform_config();
         test_apply_transformations_to_tools();
         test_chained_transforms();
+        test_rename_collides_with_passthrough_name();
+        test_two_renames_colliding();
+        test_rename_does_not_collide();
+        test_hidden_does_not_block_rename_into_its_slot();
 
         std::cout << "\nAll tests passed!\n";
         return 0;

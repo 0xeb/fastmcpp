@@ -199,6 +199,20 @@ class Tool
         return *this;
     }
 
+    /// Free-form metadata attached to this tool — surfaces in MCP `_meta`
+    /// when a caller chooses to serialize it. Used by CatalogTransform to
+    /// publish `meta.fastmcp.versions` under the dedup contract (Python
+    /// fastmcp commit 03673d9f).
+    const std::optional<fastmcpp::Json>& meta() const
+    {
+        return meta_;
+    }
+    Tool& set_meta(fastmcpp::Json meta)
+    {
+        meta_ = std::move(meta);
+        return *this;
+    }
+
   private:
     static std::string format_timeout_seconds(std::chrono::milliseconds timeout)
     {
@@ -262,6 +276,7 @@ class Tool
     std::optional<fastmcpp::Json> annotations_;
     std::optional<fastmcpp::AppConfig> app_;
     std::optional<std::string> version_;
+    std::optional<fastmcpp::Json> meta_;
 };
 
 } // namespace fastmcpp::tools

@@ -1328,6 +1328,10 @@ fastmcpp::Json StreamableHttpTransport::request(const std::string& route,
         cli.set_connection_timeout(30, 0);
         cli.set_read_timeout(300, 0); // Align with MCP HTTP defaults (30s connect, 5min read)
         cli.set_keep_alive(true);
+        // Manual redirect loop below (set_follow_location(false)) is a deliberate
+        // policy: fastmcpp uses libcurl/cpp-httplib and explicitly handles 3xx
+        // so it can manage Authorization-stripping on cross-origin redirects.
+        // Python fastmcp commit 226bfb49 made the same policy choice on httpx.
         cli.set_follow_location(false);
 
         res = cli.Post(path.c_str(), request_headers, rpc_request.dump(), "application/json");

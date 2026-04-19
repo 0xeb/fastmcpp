@@ -1,5 +1,6 @@
 #include "fastmcpp/server/http_server.hpp"
 
+#include "fastmcpp/app.hpp"
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/util/json.hpp"
 
@@ -7,6 +8,11 @@
 
 namespace fastmcpp::server
 {
+
+void HttpServerWrapper::set_custom_routes(std::vector<fastmcpp::CustomRoute> routes)
+{
+    custom_routes_ = std::move(routes);
+}
 
 HttpServerWrapper::HttpServerWrapper(std::shared_ptr<Server> core, std::string host, int port,
                                      std::string auth_token, std::string cors_origin,
@@ -68,6 +74,51 @@ bool HttpServerWrapper::start()
                       apply_additional_response_headers(res);
                       res.status = 204;
                   });
+
+    // Register user-supplied custom routes BEFORE the catch-all so they
+    // shadow JSON-RPC dispatch on those paths. Parity with Python fastmcp
+    // `custom_route()` aggregation (commit 68e76fea forwards routes from
+    // mounted children, see FastMCP::all_custom_routes()).
+    for (const auto& route : custom_routes_)
+    {
+        if (!route.handler)
+            continue;
+        auto handler = [this, route](const httplib::Request& req, httplib::Response& res)
+        {
+            apply_additional_response_headers(res);
+            fastmcpp::CustomRouteRequest cr;
+            cr.method = route.method;
+            cr.path = req.path;
+            cr.body = req.body;
+            for (const auto& [k, v] : req.headers)
+                cr.headers[k] = v;
+            try
+            {
+                auto out = route.handler(cr);
+                res.status = out.status;
+                for (const auto& [k, v] : out.headers)
+                    res.set_header(k, v);
+                res.set_content(out.body, out.content_type);
+            }
+            catch (const std::exception& e)
+            {
+                res.status = 500;
+                res.set_content(std::string("{\"error\":\"") + e.what() + "\"}",
+                                "application/json");
+            }
+        };
+
+        if (route.method == "GET")
+            svr_->Get(route.path, handler);
+        else if (route.method == "POST")
+            svr_->Post(route.path, handler);
+        else if (route.method == "PUT")
+            svr_->Put(route.path, handler);
+        else if (route.method == "DELETE")
+            svr_->Delete(route.path, handler);
+        else if (route.method == "PATCH")
+            svr_->Patch(route.path, handler);
+    }
 
     // Generic POST: /<route>
     svr_->Post(R"(/(.*))",

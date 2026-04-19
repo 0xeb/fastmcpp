@@ -12,12 +12,26 @@
 namespace fastmcpp::resources
 {
 
+/// Type annotation for a URI template parameter.
+///
+/// When a parameter's kind is anything other than String, matched values go
+/// through typed coercion (see build_typed_params()). Invalid literals raise
+/// fastmcpp::ValidationError — parity with Python fastmcp commit 9ccaef2b.
+enum class ParamKind
+{
+    String,
+    Integer,
+    Number,
+    Boolean
+};
+
 /// Parameter extracted from URI template
 struct TemplateParameter
 {
     std::string name;
-    bool is_wildcard{false}; // {var*} vs {var}
-    bool is_query{false};    // {?var} query param
+    bool is_wildcard{false};        // {var*} vs {var}
+    bool is_query{false};           // {?var} query param
+    ParamKind kind{ParamKind::String};
 };
 
 /// MCP Resource Template definition
@@ -56,6 +70,12 @@ struct ResourceTemplate
     /// Create a resource from the template with given parameters
     Resource create_resource(const std::string& uri,
                              const std::unordered_map<std::string, std::string>& params) const;
+
+    /// Build a typed JSON object from a raw string -> string parameter map,
+    /// coercing each value using the per-parameter kind populated by parse().
+    /// Parity with Python fastmcp commit 9ccaef2b — invalid booleans / numbers
+    /// raise fastmcpp::ValidationError instead of silently passing through.
+    Json build_typed_params(const std::unordered_map<std::string, std::string>& raw) const;
 };
 
 /// Extract path parameters from URI template: {var}, {var*}
@@ -72,5 +92,11 @@ std::string url_decode(const std::string& encoded);
 
 /// URL-encode a string
 std::string url_encode(const std::string& decoded);
+
+/// Coerce a string query-/path-param value into a typed JSON value according to kind.
+/// Throws fastmcpp::ValidationError when the value does not match the declared kind
+/// (e.g., kind == Boolean but the string is "banana").
+/// String kind is a pass-through (returns Json(value)).
+Json coerce_param_value(const std::string& value, ParamKind kind, const std::string& param_name);
 
 } // namespace fastmcpp::resources

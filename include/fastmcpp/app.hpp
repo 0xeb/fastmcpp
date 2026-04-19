@@ -8,6 +8,7 @@
 #include "fastmcpp/tools/manager.hpp"
 
 #include <chrono>
+#include <functional>
 #include <initializer_list>
 #include <memory>
 #include <optional>
@@ -22,6 +23,36 @@ namespace providers
 {
 class Provider;
 } // namespace providers
+
+/// HTTP request snapshot passed to a custom-route handler.
+/// Kept transport-agnostic so HttpServerWrapper can populate it from
+/// cpp-httplib without leaking that dependency into app.hpp.
+struct CustomRouteRequest
+{
+    std::string method;
+    std::string path;
+    std::string body;
+    std::unordered_map<std::string, std::string> headers;
+};
+
+/// HTTP response returned by a custom-route handler.
+struct CustomRouteResponse
+{
+    int status{200};
+    std::string body;
+    std::string content_type{"text/plain"};
+    std::unordered_map<std::string, std::string> headers;
+};
+
+/// User-registered HTTP endpoint outside the JSON-RPC core.
+/// Parity intent with Python fastmcp `@server.custom_route()` (commit 68e76fea
+/// fixed forwarding from mounted servers).
+struct CustomRoute
+{
+    std::string method;            // GET, POST, etc. (uppercase)
+    std::string path;              // Absolute path, e.g. "/health" — must start with '/'
+    std::function<CustomRouteResponse(const CustomRouteRequest&)> handler;
+};
 
 /// Mounted app reference with prefix (direct mode)
 struct MountedApp
@@ -276,6 +307,23 @@ class FastMCP
         return proxy_mounted_;
     }
 
+    /// Register a custom HTTP route handled outside the JSON-RPC core.
+    /// Parity with Python fastmcp `@server.custom_route()`. Re-registering the
+    /// same (method, path) replaces the previous handler.
+    FastMCP& add_custom_route(CustomRoute route);
+
+    /// Get this app's directly registered custom routes (no mount prefixes).
+    const std::vector<CustomRoute>& custom_routes() const
+    {
+        return custom_routes_;
+    }
+
+    /// Aggregate this app's custom routes plus those of every directly mounted
+    /// child app (paths are prefixed with the mount prefix). Parity with Python
+    /// fastmcp commit 68e76fea (forward custom_route endpoints from mounted
+    /// servers).
+    std::vector<CustomRoute> all_custom_routes() const;
+
     void add_provider(std::shared_ptr<providers::Provider> provider);
     const std::vector<std::shared_ptr<providers::Provider>>& providers() const
     {
@@ -328,6 +376,7 @@ class FastMCP
     std::vector<std::shared_ptr<providers::Provider>> providers_;
     std::vector<MountedApp> mounted_;
     std::vector<ProxyMountedApp> proxy_mounted_;
+    std::vector<CustomRoute> custom_routes_;
     mutable std::vector<tools::Tool> provider_tools_cache_;
     mutable std::vector<prompts::Prompt> provider_prompts_cache_;
     int list_page_size_{0};

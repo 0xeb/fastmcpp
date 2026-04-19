@@ -43,10 +43,10 @@ int main()
 
     auto handler = mcp::make_mcp_handler("viz", "1.0.0", s, meta);
 
-    // list
+    // list — meta registers two tools (generate_chart + audio_tool)
     Json list = {{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}};
     auto list_resp = handler(list);
-    assert(list_resp["result"]["tools"].size() == 1);
+    assert(list_resp["result"]["tools"].size() == 2);
 
     // call
     Json call = {

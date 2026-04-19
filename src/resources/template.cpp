@@ -1,11 +1,95 @@
 #include "fastmcpp/resources/template.hpp"
 
+#include "fastmcpp/exceptions.hpp"
+
+#include <algorithm>
+#include <cctype>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
 
 namespace fastmcpp::resources
 {
+
+namespace
+{
+std::string to_lower(std::string s)
+{
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+ParamKind kind_from_schema_type(const std::string& schema_type)
+{
+    if (schema_type == "boolean")
+        return ParamKind::Boolean;
+    if (schema_type == "integer")
+        return ParamKind::Integer;
+    if (schema_type == "number")
+        return ParamKind::Number;
+    return ParamKind::String;
+}
+} // namespace
+
+Json coerce_param_value(const std::string& value, ParamKind kind, const std::string& param_name)
+{
+    switch (kind)
+    {
+    case ParamKind::String:
+        return Json(value);
+    case ParamKind::Boolean: {
+        const std::string lower = to_lower(value);
+        if (lower == "true" || lower == "1" || lower == "yes")
+            return Json(true);
+        if (lower == "false" || lower == "0" || lower == "no")
+            return Json(false);
+        throw fastmcpp::ValidationError("Invalid boolean value for " + param_name + ": '" + value +
+                                        "'");
+    }
+    case ParamKind::Integer: {
+        try
+        {
+            size_t consumed = 0;
+            long long v = std::stoll(value, &consumed);
+            if (consumed != value.size())
+                throw fastmcpp::ValidationError("Invalid integer value for " + param_name + ": '" +
+                                                value + "'");
+            return Json(v);
+        }
+        catch (const fastmcpp::ValidationError&)
+        {
+            throw;
+        }
+        catch (const std::exception&)
+        {
+            throw fastmcpp::ValidationError("Invalid integer value for " + param_name + ": '" +
+                                            value + "'");
+        }
+    }
+    case ParamKind::Number: {
+        try
+        {
+            size_t consumed = 0;
+            double v = std::stod(value, &consumed);
+            if (consumed != value.size())
+                throw fastmcpp::ValidationError("Invalid number value for " + param_name + ": '" +
+                                                value + "'");
+            return Json(v);
+        }
+        catch (const fastmcpp::ValidationError&)
+        {
+            throw;
+        }
+        catch (const std::exception&)
+        {
+            throw fastmcpp::ValidationError("Invalid number value for " + param_name + ": '" +
+                                            value + "'");
+        }
+    }
+    }
+    return Json(value);
+}
 
 // URL-decode a string (RFC 3986)
 std::string url_decode(const std::string& encoded)
@@ -216,6 +300,41 @@ void ResourceTemplate::parse()
         parsed_params.push_back(param);
     }
 
+    // Infer per-parameter kind from the JSON schema, if present.
+    // Parity with Python fastmcp commit 9ccaef2b: boolean/integer/number params
+    // go through typed coercion with ValidationError on invalid literals.
+    if (parameters.is_object() && parameters.contains("properties") &&
+        parameters["properties"].is_object())
+    {
+        const auto& props = parameters["properties"];
+        for (auto& param : parsed_params)
+        {
+            if (!props.contains(param.name))
+                continue;
+            const auto& prop = props[param.name];
+            if (!prop.is_object())
+                continue;
+
+            if (prop.contains("type") && prop["type"].is_string())
+                param.kind = kind_from_schema_type(prop["type"].get<std::string>());
+            else if (prop.contains("type") && prop["type"].is_array())
+            {
+                // JSON schema allows ["integer", "null"] etc. — pick the first
+                // non-null type (matches Python's optional-annotation behavior).
+                for (const auto& t : prop["type"])
+                {
+                    if (!t.is_string())
+                        continue;
+                    std::string s = t.get<std::string>();
+                    if (s == "null")
+                        continue;
+                    param.kind = kind_from_schema_type(s);
+                    break;
+                }
+            }
+        }
+    }
+
     // Build and compile regex
     std::string pattern = build_regex_pattern(uri_template);
 
@@ -225,8 +344,29 @@ void ResourceTemplate::parse()
     }
     catch (const std::regex_error& e)
     {
-        throw std::runtime_error("Failed to compile URI template regex: " + std::string(e.what()));
+        throw fastmcpp::ValidationError("Failed to compile URI template regex: " +
+                                        std::string(e.what()));
     }
+}
+
+Json ResourceTemplate::build_typed_params(
+    const std::unordered_map<std::string, std::string>& raw) const
+{
+    Json result = Json::object();
+
+    // Build a quick index by name
+    std::unordered_map<std::string, ParamKind> kinds;
+    kinds.reserve(parsed_params.size());
+    for (const auto& p : parsed_params)
+        kinds.emplace(p.name, p.kind);
+
+    for (const auto& [key, value] : raw)
+    {
+        auto it = kinds.find(key);
+        ParamKind kind = it == kinds.end() ? ParamKind::String : it->second;
+        result[key] = coerce_param_value(value, kind, key);
+    }
+    return result;
 }
 
 std::optional<std::unordered_map<std::string, std::string>>

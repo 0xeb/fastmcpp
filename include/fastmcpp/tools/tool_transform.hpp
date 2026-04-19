@@ -7,6 +7,7 @@
 /// - TransformedTool: Creates a new Tool by transforming another
 /// - Schema transformation utilities
 
+#include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/tools/tool.hpp"
 #include "fastmcpp/types.hpp"
 
@@ -64,6 +65,11 @@ struct TransformResult
 };
 
 /// Build a transformed schema from parent schema and transforms
+///
+/// Throws fastmcpp::ValidationError if the requested transforms would map two
+/// distinct parent arguments to the same effective name (rename collides with
+/// either another rename or an untouched passthrough param). Parity with
+/// Python fastmcp commit d316f193.
 inline TransformResult
 build_transformed_schema(const Json& parent_schema,
                          const std::unordered_map<std::string, ArgTransform>& transform_args)
@@ -80,6 +86,33 @@ build_transformed_schema(const Json& parent_schema,
         for (const auto& r : parent_schema["required"])
             if (r.is_string())
                 required_set.insert(r.get<std::string>());
+    }
+
+    // Pre-flight: detect effective-name collisions across the FULL parent
+    // param set (renames + passthroughs). Walk parent params in the same order
+    // so the error message names the first colliding pair deterministically.
+    {
+        std::unordered_map<std::string, std::string> seen_owner; // effective_name -> parent_name
+        for (auto& [old_name, _prop] : properties.items())
+        {
+            auto it = transform_args.find(old_name);
+            if (it != transform_args.end() && it->second.hide)
+                continue; // hidden args do not occupy an effective slot
+
+            std::string effective =
+                (it != transform_args.end() && it->second.name.has_value())
+                    ? *it->second.name
+                    : old_name;
+
+            auto inserted = seen_owner.emplace(effective, old_name);
+            if (!inserted.second)
+            {
+                throw fastmcpp::ValidationError(
+                    "Multiple arguments would be mapped to the same name: '" + effective +
+                    "' (from parent params '" + inserted.first->second + "' and '" + old_name +
+                    "')");
+            }
+        }
     }
 
     // Process transforms
