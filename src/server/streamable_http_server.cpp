@@ -372,6 +372,18 @@ bool StreamableHttpServerWrapper::start()
                  {
                      apply_additional_response_headers(res);
 
+                     // Security: Check authentication if configured
+                     if (!auth_token_.empty())
+                     {
+                         auto auth_it = req.headers.find("Authorization");
+                         if (auth_it == req.headers.end() || !check_auth(auth_it->second))
+                         {
+                             res.status = 401;
+                             res.set_content("{\"error\":\"Unauthorized\"}", "application/json");
+                             return;
+                         }
+                     }
+
                      auto session_it = req.headers.find("Mcp-Session-Id");
                      if (session_it == req.headers.end() || session_it->second.empty())
                      {
