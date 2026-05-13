@@ -383,16 +383,20 @@ void StreamableHttpServerWrapper::stop()
 {
     running_ = false;
 
-    // Clear sessions
-    {
-        std::lock_guard<std::mutex> lock(sessions_mutex_);
-        sessions_.clear();
-    }
-
+    // Python fastmcp commit 82090938 (#4118): drain active streamable-HTTP responses
+    // before tearing down session state. httplib's svr_->stop() begins quiescing
+    // in-flight requests; we keep `sessions_` populated so any handler still flushing
+    // a final SSE event can resolve its session_id, then clear after the listening
+    // thread joins (i.e. all handlers have returned).
     if (svr_)
         svr_->stop();
     if (thread_.joinable())
         thread_.join();
+
+    {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        sessions_.clear();
+    }
 
     bound_port_.store(0); // Reset the bound port's value.
 }

@@ -65,6 +65,22 @@ AfterHook ResponseLimitingMiddleware::make_hook() const
         // Replace content with single truncated text entry
         *content = fastmcpp::Json::array();
         content->push_back(fastmcpp::Json{{"type", "text"}, {"text", truncated}});
+
+        // Python fastmcp commit 4bbc4eec (#3756): when ResponseLimitingMiddleware truncates
+        // a tool result, drop `structuredContent` (it no longer matches the registered
+        // outputSchema after truncation) and signal bypass via `_meta = {}` so MCP SDK
+        // clients accept the response as a vanilla CallToolResult instead of failing
+        // outputSchema validation. Apply at both shapes (route payload + JSON-RPC envelope).
+        auto bypass_output_schema = [](fastmcpp::Json& obj) {
+            if (obj.contains("structuredContent"))
+                obj.erase("structuredContent");
+            if (!obj.contains("_meta") || !obj["_meta"].is_object())
+                obj["_meta"] = fastmcpp::Json::object();
+        };
+        if (response.contains("content") && response["content"].is_array())
+            bypass_output_schema(response);
+        else if (response.contains("result") && response["result"].is_object())
+            bypass_output_schema(response["result"]);
     };
 }
 

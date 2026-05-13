@@ -268,6 +268,22 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
                     Json schema = Json{{"type", "string"}};
                     if (param.contains("schema") && param["schema"].is_object())
                         schema = param["schema"];
+                    // Python fastmcp commit 042db1d0 (#3768): convert OpenAPI 3.0
+                    // `nullable: true` to JSON Schema's `type: ["X", "null"]` form so
+                    // downstream JSON Schema validators (and json_schema_to_value) accept null.
+                    if (schema.is_object() && schema.value("nullable", false))
+                    {
+                        if (schema.contains("type") && schema["type"].is_string())
+                        {
+                            std::string t = schema["type"].get<std::string>();
+                            schema["type"] = Json::array({t, "null"});
+                        }
+                        else if (!schema.contains("type"))
+                        {
+                            schema["type"] = "null";
+                        }
+                        schema.erase("nullable");
+                    }
                     if (param.contains("description") && param["description"].is_string() &&
                         (!schema.contains("description") || !schema["description"].is_string()))
                         schema["description"] = param["description"];
