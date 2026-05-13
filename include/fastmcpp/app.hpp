@@ -197,6 +197,19 @@ class FastMCP
         return dereference_schemas_;
     }
 
+    /// Experimental capabilities advertised on `initialize`. Mirrors Python
+    /// `FastMCP(experimental_capabilities=...)` (#4042 / commit `a010927e`):
+    /// the dict is propagated verbatim under `capabilities.experimental` so
+    /// servers can announce protocol extensions without a structural change.
+    const std::optional<Json>& experimental_capabilities() const
+    {
+        return experimental_capabilities_;
+    }
+    void set_experimental_capabilities(std::optional<Json> caps)
+    {
+        experimental_capabilities_ = std::move(caps);
+    }
+
     // Manager accessors
     tools::ToolManager& tools()
     {
@@ -384,6 +397,7 @@ class FastMCP
     mutable std::vector<prompts::Prompt> provider_prompts_cache_;
     int list_page_size_{0};
     bool dereference_schemas_{true};
+    std::optional<Json> experimental_capabilities_;
 
     // Prefix utilities
     static std::string add_prefix(const std::string& name, const std::string& prefix);
