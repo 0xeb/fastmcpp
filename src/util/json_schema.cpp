@@ -204,6 +204,39 @@ bool contains_ref(const Json& schema)
     return contains_ref_impl(schema);
 }
 
+// Recursively remove `discriminator` keys at union boundaries (anyOf/oneOf) after refs were
+// inlined. Mirrors Python `_strip_discriminator()` (commit 923695bd / #3682): once $defs are
+// dereferenced, OpenAPI discriminator hints reference now-removed paths and confuse strict
+// JSON Schema validators. Properties literally named "discriminator" inside `properties:` are
+// preserved (only the schema-level keyword is stripped).
+static void strip_discriminator(Json& node)
+{
+    if (node.is_array())
+    {
+        for (auto& item : node)
+            strip_discriminator(item);
+        return;
+    }
+    if (!node.is_object())
+        return;
+    bool has_union = node.contains("anyOf") || node.contains("oneOf");
+    if (has_union && node.contains("discriminator"))
+        node.erase("discriminator");
+    for (auto& [key, value] : node.items())
+    {
+        if (key == "properties" && value.is_object())
+        {
+            // Recurse into property schemas, but do not touch a literal "discriminator" property.
+            for (auto& [pname, psub] : value.items())
+                strip_discriminator(psub);
+        }
+        else
+        {
+            strip_discriminator(value);
+        }
+    }
+}
+
 Json dereference_refs(const Json& schema)
 {
     if (!schema.is_object() && !schema.is_array())
@@ -218,6 +251,8 @@ Json dereference_refs(const Json& schema)
     if (dereferenced.is_object() && dereferenced.contains("$defs") &&
         !contains_ref_impl(dereferenced))
         dereferenced.erase("$defs");
+
+    strip_discriminator(dereferenced);
 
     return dereferenced;
 }
