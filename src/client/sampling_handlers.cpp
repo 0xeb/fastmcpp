@@ -243,6 +243,28 @@ static fastmcpp::Json build_openai_messages(const fastmcpp::Json& params)
                 fastmcpp::Json{{"role", "tool"}, {"tool_call_id", tool_use_id}, {"content", text}});
         }
 
+        // Python fastmcp commit d6b55c0b (#3857): raise on unhandled content types instead of
+        // silently dropping. The OpenAI compatible handler currently supports text + tool_use +
+        // tool_result; image/audio request-body conversion (F16 / commit 734b93b9) is not yet
+        // implemented in C++, so raise a clear error rather than producing an empty assistant
+        // message that misleads upstream code.
+        for (const auto& block : normalize_content_to_array(content))
+        {
+            if (!block.is_object())
+                continue;
+            const std::string t = block.value("type", "");
+            if (t == "text" || t == "tool_use" || t == "tool_result" || t.empty())
+                continue;
+            if (t == "image" || t == "audio")
+                throw std::runtime_error(
+                    "OpenAI sampling handler: '" + t +
+                    "' content not yet supported (F16 / fastmcp #3550); cannot dispatch sampling "
+                    "request");
+            // Unknown type — surface clearly so callers don't get silent data loss.
+            throw std::runtime_error(
+                "OpenAI sampling handler: unhandled content type '" + t + "'");
+        }
+
         std::string text = join_text_blocks(content);
         auto tool_uses = extract_blocks_by_type(content, "tool_use");
 
@@ -388,6 +410,18 @@ static fastmcpp::Json build_anthropic_messages(const fastmcpp::Json& params)
                 blocks.push_back(std::move(out));
                 continue;
             }
+            // Python fastmcp commit d6b55c0b (#3857): raise on unhandled content types.
+            // Anthropic handler does not support audio inputs at all (Anthropic API doesn't
+            // accept audio); image is acknowledged but request-body conversion is part of F16
+            // (commit 734b93b9) and not yet implemented in C++.
+            if (type == "image")
+                throw std::runtime_error(
+                    "Anthropic sampling handler: 'image' content not yet supported "
+                    "(F16 / fastmcp #3550); cannot dispatch sampling request");
+            if (type == "audio")
+                throw std::runtime_error(
+                    "Anthropic sampling handler: 'audio' content is not supported by the "
+                    "Anthropic Messages API");
             if (type == "tool_result")
             {
                 // Anthropic expects tool_use_id and string content.

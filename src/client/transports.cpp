@@ -471,6 +471,21 @@ fastmcpp::Json StdioTransport::request(const std::string& route, const fastmcpp:
 
     if (keep_alive_)
     {
+        // Python fastmcp commit f5804f47 (#3630): if the subprocess died between calls,
+        // reset state and respawn on the next request rather than failing forever.
+        if (state_)
+        {
+            auto exit_code = state_->process.try_wait();
+            if (exit_code.has_value())
+            {
+                // Process already exited — tear down so we respawn cleanly below.
+                state_->stderr_running.store(false, std::memory_order_release);
+                if (state_->stderr_thread.joinable())
+                    state_->stderr_thread.join();
+                state_.reset();
+            }
+        }
+
         // --- Keep-alive mode: spawn once, reuse across calls ---
         if (!state_)
         {

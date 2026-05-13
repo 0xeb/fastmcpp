@@ -90,16 +90,21 @@ void test_call_tool_error_and_data()
     int val = client::get_data_as<int>(structured);
     assert(val == 42);
 
-    bool missing_content = false;
+    // Python fastmcp commit 556fd8fa (#3778): missing/malformed `content` no longer raises;
+    // instead the client returns an empty CallToolResult so older servers / partial responses
+    // don't crash the call site. Verify the new behavior.
+    bool missing_content_threw = false;
     try
     {
-        c.call_tool_mcp("bad_response", Json::object());
+        auto bad = c.call_tool_mcp("bad_response", Json::object());
+        assert(bad.content.empty());
+        assert(!bad.isError);
     }
     catch (const fastmcpp::ValidationError&)
     {
-        missing_content = true;
+        missing_content_threw = true;
     }
-    assert(missing_content);
+    assert(!missing_content_threw);
 
     std::cout << "  [PASS] errors throw and structuredContent populates data\n";
 }
