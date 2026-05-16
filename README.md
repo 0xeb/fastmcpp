@@ -15,7 +15,7 @@ fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp
 
 **Status:** Beta – core MCP features track the Python `fastmcp` reference.
 
-**Current version:** 2.15.0
+**Current version:** 3.3.1
 
 ## Features
 

@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 if(POLICY CMP0169)
   cmake_policy(SET CMP0169 OLD)
 endif()
-project(fastmcpp VERSION 3.3.0 LANGUAGES CXX)
+project(fastmcpp VERSION 3.3.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
