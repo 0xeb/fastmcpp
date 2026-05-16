@@ -8,7 +8,6 @@
 #include <chrono>
 #include <httplib.h>
 #include <iomanip>
-#include <iostream>
 #include <random>
 #include <sstream>
 
@@ -117,7 +116,7 @@ bool StreamableHttpServerWrapper::start()
     svr_->Options(mcp_path_,
                   [this](const httplib::Request&, httplib::Response& res)
                   {
-                      res.set_header("Access-Control-Allow-Methods", "POST, OPTIONS");
+                      res.set_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
                       res.set_header("Access-Control-Allow-Headers",
                                      "Content-Type, Authorization, Mcp-Session-Id");
                       apply_additional_response_headers(res);
@@ -129,6 +128,17 @@ bool StreamableHttpServerWrapper::start()
         mcp_path_,
         [this](const httplib::Request& req, httplib::Response& res)
         {
+            // Apply CORS / additional headers up-front so they are present on every
+            // response, including early returns (401, 503, 400, 404) and any exception
+            // propagated to the catch handlers below.
+            apply_additional_response_headers(res);
+
+            // Expose response headers that cross-origin JS clients legitimately need to
+            // read. Without this, browsers hide Mcp-Session-Id from response.headers.get()
+            // even though it is sent on the wire, because browsers only expose a small
+            // whitelist of "safe" response headers by default.
+            res.set_header("Access-Control-Expose-Headers", "Mcp-Session-Id");
+
             try
             {
                 // Security: Check authentication if configured
@@ -142,8 +152,6 @@ bool StreamableHttpServerWrapper::start()
                         return;
                     }
                 }
-
-                apply_additional_response_headers(res);
 
                 // Parse JSON-RPC message
                 auto message = fastmcpp::util::json::parse(req.body);
@@ -335,19 +343,74 @@ bool StreamableHttpServerWrapper::start()
         });
 
     // Handle GET request to return 405 Method Not Allowed
-    svr_->Get(mcp_path_,
-              [](const httplib::Request&, httplib::Response& res)
-              {
-                  res.status = 405;
-                  res.set_header("Allow", "POST");
-                  res.set_header("Content-Type", "application/json");
+    svr_->Get(
+        mcp_path_,
+        [this](const httplib::Request&, httplib::Response& res)
+        {
+            // CORS / additional headers must be applied on every response, including
+            // this 405. Without this, browsers reject the response with a misleading
+            // "No 'Access-Control-Allow-Origin' header is present" error.
+            apply_additional_response_headers(res);
 
-                  fastmcpp::Json error_response = {
-                      {"error", "Method Not Allowed"},
-                      {"message", "The MCP endpoint only supports POST requests."}};
+            res.status = 405;
+            res.set_header("Allow", "POST, DELETE, OPTIONS");
+            res.set_header("Content-Type", "application/json");
 
-                  res.set_content(error_response.dump(), "application/json");
-              });
+            fastmcpp::Json error_response = {
+                {"error", "Method Not Allowed"},
+                {"message", "The MCP endpoint only supports POST, DELETE, and OPTIONS requests."}};
+
+            res.set_content(error_response.dump(), "application/json");
+        });
+
+    // Handle DELETE request for session termination (MCP Streamable HTTP spec).
+    // Without this handler, httplib would fall back to its default 404 response,
+    // which does not carry the configured CORS headers - causing browsers to report
+    // a "No 'Access-Control-Allow-Origin' header is present" error.
+    svr_->Delete(mcp_path_,
+                 [this](const httplib::Request& req, httplib::Response& res)
+                 {
+                     apply_additional_response_headers(res);
+
+                     // Security: Check authentication if configured
+                     if (!auth_token_.empty())
+                     {
+                         auto auth_it = req.headers.find("Authorization");
+                         if (auth_it == req.headers.end() || !check_auth(auth_it->second))
+                         {
+                             res.status = 401;
+                             res.set_content("{\"error\":\"Unauthorized\"}", "application/json");
+                             return;
+                         }
+                     }
+
+                     auto session_it = req.headers.find("Mcp-Session-Id");
+                     if (session_it == req.headers.end() || session_it->second.empty())
+                     {
+                         res.status = 400;
+                         res.set_content("{\"error\":\"Mcp-Session-Id header required\"}",
+                                         "application/json");
+                         return;
+                     }
+
+                     const std::string& session_id = session_it->second;
+                     bool did_remove = false;
+                     {
+                         std::lock_guard<std::mutex> lock(sessions_mutex_);
+                         did_remove = sessions_.erase(session_id) > 0;
+                     }
+
+                     if (did_remove)
+                     {
+                         res.status = 204; // No Content
+                     }
+                     else
+                     {
+                         res.status = 404;
+                         res.set_content("{\"error\":\"Invalid or expired session\"}",
+                                         "application/json");
+                     }
+                 });
 
     running_ = true;
 
