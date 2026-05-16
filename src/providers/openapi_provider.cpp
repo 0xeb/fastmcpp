@@ -511,38 +511,56 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
         }
     }
 
-    std::unique_ptr<httplib::Client> client;
+    httplib::Result response;
     if (parsed.scheme == "http")
     {
-        client = std::make_unique<httplib::Client>(parsed.host, parsed.port);
+        std::unique_ptr<httplib::Client> client =
+            std::make_unique<httplib::Client>(parsed.host, parsed.port);
+        client->set_follow_location(true);
+        client->set_connection_timeout(30, 0);
+        client->set_read_timeout(30, 0);
+
+        const auto& m = route.method;
+        if (m == "GET")
+            response = client->Get(target.c_str());
+        else if (m == "POST")
+            response = client->Post(target.c_str(), body, ct.c_str());
+        else if (m == "PUT")
+            response = client->Put(target.c_str(), body, ct.c_str());
+        else if (m == "PATCH")
+            response = client->Patch(target.c_str(), body, ct.c_str());
+        else if (m == "DELETE")
+            response = client->Delete(target.c_str(), body, ct.c_str());
+        else
+            throw ValidationError("Unsupported OpenAPI HTTP method: " + route.method);
     }
     else
     {
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-        client = std::make_unique<httplib::SSLClient>(parsed.host, parsed.port);
+        std::unique_ptr<httplib::SSLClient> client =
+            std::make_unique<httplib::SSLClient>(parsed.host, parsed.port);
+        client->set_follow_location(true);
+        client->set_connection_timeout(30, 0);
+        client->set_read_timeout(30, 0);
+
+        const auto& m = route.method;
+        if (m == "GET")
+            response = client->Get(target.c_str());
+        else if (m == "POST")
+            response = client->Post(target.c_str(), body, ct.c_str());
+        else if (m == "PUT")
+            response = client->Put(target.c_str(), body, ct.c_str());
+        else if (m == "PATCH")
+            response = client->Patch(target.c_str(), body, ct.c_str());
+        else if (m == "DELETE")
+            response = client->Delete(target.c_str(), body, ct.c_str());
+        else
+            throw ValidationError("Unsupported OpenAPI HTTP method: " + route.method);
 #else
         throw ValidationError(
             "OpenAPIProvider https:// requires CPPHTTPLIB_OPENSSL_SUPPORT at build time");
 #endif
     }
-    client->set_follow_location(true);
-    client->set_connection_timeout(30, 0);
-    client->set_read_timeout(30, 0);
-
-    httplib::Result response;
-    const auto& m = route.method;
-    if (m == "GET")
-        response = client->Get(target.c_str());
-    else if (m == "POST")
-        response = client->Post(target.c_str(), body, ct.c_str());
-    else if (m == "PUT")
-        response = client->Put(target.c_str(), body, ct.c_str());
-    else if (m == "PATCH")
-        response = client->Patch(target.c_str(), body, ct.c_str());
-    else if (m == "DELETE")
-        response = client->Delete(target.c_str(), body, ct.c_str());
-    else
-        throw ValidationError("Unsupported OpenAPI HTTP method: " + route.method);
 
     if (!response)
         throw TransportError("OpenAPI HTTP request failed for " + route.method + " " + target);
