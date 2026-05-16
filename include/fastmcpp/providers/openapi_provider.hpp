@@ -41,6 +41,7 @@ class OpenAPIProvider : public Provider
         std::vector<std::string> path_params;
         std::vector<std::string> query_params;
         bool has_json_body{false};
+        std::string request_content_type{"application/json"};
         std::optional<std::string> description;
     };
 

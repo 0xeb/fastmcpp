@@ -145,8 +145,30 @@ build_transformed_schema(const Json& parent_schema,
                 new_prop["description"] = *transform.description;
 
             if (transform.type_schema.has_value())
+            {
+                // Python fastmcp commit b8597f94 (#4101): hoist `$defs` introduced by an
+                // ArgTransform.type_schema to the schema root so MCP clients can resolve any
+                // $ref the new property type references. Without this, properties using complex
+                // annotated types reference `$defs/X` that does not exist anywhere in the
+                // emitted schema.
+                Json hoisted_defs = Json::object();
                 for (auto& [k, v] : transform.type_schema->items())
+                {
+                    if (k == "$defs" && v.is_object())
+                    {
+                        hoisted_defs = v;
+                        continue;  // do not also write it under the property
+                    }
                     new_prop[k] = v;
+                }
+                if (!hoisted_defs.empty())
+                {
+                    if (!result.schema.contains("$defs") || !result.schema["$defs"].is_object())
+                        result.schema["$defs"] = Json::object();
+                    for (auto& [dk, dv] : hoisted_defs.items())
+                        result.schema["$defs"][dk] = dv;
+                }
+            }
 
             if (transform.default_value.has_value())
                 new_prop["default"] = *transform.default_value;
@@ -179,7 +201,20 @@ build_transformed_schema(const Json& parent_schema,
     }
 
     // Build result schema
-    result.schema = parent_schema;
+    {
+        // Preserve any $defs we hoisted above before overwriting properties/required.
+        Json hoisted = Json::object();
+        if (result.schema.contains("$defs") && result.schema["$defs"].is_object())
+            hoisted = result.schema["$defs"];
+        result.schema = parent_schema;
+        if (!hoisted.empty())
+        {
+            if (!result.schema.contains("$defs") || !result.schema["$defs"].is_object())
+                result.schema["$defs"] = Json::object();
+            for (auto& [dk, dv] : hoisted.items())
+                result.schema["$defs"][dk] = dv;
+        }
+    }
     result.schema["properties"] = new_properties;
     result.schema["required"] = Json::array();
     for (const auto& r : new_required)

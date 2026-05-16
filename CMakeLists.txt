@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 if(POLICY CMP0169)
   cmake_policy(SET CMP0169 OLD)
 endif()
-project(fastmcpp VERSION 3.1.1 LANGUAGES CXX)
+project(fastmcpp VERSION 3.3.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,6 +14,7 @@ option(FASTMCPP_BUILD_EXAMPLES "Build examples" ON)
 option(FASTMCPP_ENABLE_POST_STREAMING "Enable POST streaming via libcurl (optional)" OFF)
 option(FASTMCPP_FETCH_CURL "Fetch and build libcurl statically for POST streaming" ON)
 option(FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS "Enable built-in OpenAI/Anthropic sampling handlers (requires libcurl)" OFF)
+option(FASTMCPP_ENABLE_OPENSSL "Enable HTTPS/SSL support via OpenSSL (for cpp-httplib)" OFF)
 
 add_library(fastmcpp_core STATIC
     src/types.cpp
@@ -96,6 +97,16 @@ if(NOT cpp_httplib_POPULATED)
   FetchContent_Populate(cpp_httplib)
 endif()
 target_include_directories(fastmcpp_core PUBLIC ${cpp_httplib_SOURCE_DIR})
+
+# Optional: OpenSSL for HTTPS/SSL support
+if(FASTMCPP_ENABLE_OPENSSL)
+  find_package(OpenSSL REQUIRED)
+  target_compile_definitions(fastmcpp_core PUBLIC CPPHTTPLIB_OPENSSL_SUPPORT)
+  target_link_libraries(fastmcpp_core PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+  message(STATUS "FASTMCPP_ENABLE_OPENSSL=ON: HTTPS/SSL support enabled")
+else()
+  message(STATUS "FASTMCPP_ENABLE_OPENSSL=OFF: HTTPS/SSL support disabled")
+endif()
 
 # Optional: libcurl for POST streaming and sampling handlers (modular)
 if(FASTMCPP_ENABLE_POST_STREAMING OR FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS)

@@ -1042,12 +1042,19 @@ class Client
         CallToolResult result;
         result.isError = body.value("isError", false);
 
-        if (!body.contains("content"))
-            throw fastmcpp::ValidationError("tools/call response missing content");
-
-        if (body.contains("content"))
+        // Python fastmcp commit 556fd8fa (#3778): harden client-side parsing of malformed
+        // tools/call results.
+        // - Missing "content" with isError=true is permitted (server may have raised before
+        //   producing content); raise_on_error is handled at a higher layer using result.text().
+        // - Missing "content" with isError=false is treated as an empty result rather than a
+        //   ValidationError so older servers / partial responses do not crash the client.
+        // - "content" present but not an array is treated as empty (do not crash).
+        if (body.contains("content") && body["content"].is_array())
+        {
             for (const auto& c : body["content"])
                 result.content.push_back(parse_content_block(c));
+        }
+        // else: leave result.content empty
 
         if (body.contains("structuredContent"))
         {

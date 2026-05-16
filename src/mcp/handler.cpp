@@ -62,6 +62,16 @@ static void attach_meta_ui(fastmcpp::Json& entry, const std::optional<fastmcpp::
         entry["_meta"] = std::move(merged);
 }
 
+// Inject FastMCP::experimental_capabilities() into the `capabilities` block on `initialize`.
+// Mirrors Python `FastMCP(experimental_capabilities=...)` (#4042 / commit a010927e):
+// the dict is propagated verbatim so servers can advertise protocol extensions.
+static void advertise_experimental(fastmcpp::Json& capabilities, const FastMCP& app)
+{
+    const auto& exp = app.experimental_capabilities();
+    if (exp && exp->is_object() && !exp->empty())
+        capabilities["experimental"] = *exp;
+}
+
 static std::string normalize_resource_uri(std::string uri)
 {
     while (uri.size() > 1 && !uri.empty() && uri.back() == '/')
@@ -1871,6 +1881,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 if (!app.list_all_prompts().empty())
                     capabilities["prompts"] = fastmcpp::Json::object();
                 advertise_ui_extension(capabilities);
+                advertise_experimental(capabilities, app);
 
                 fastmcpp::Json result_obj = {{"protocolVersion", "2024-11-05"},
                                              {"capabilities", capabilities},
@@ -2577,6 +2588,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 if (!app.list_all_prompts().empty())
                     capabilities["prompts"] = fastmcpp::Json::object();
                 advertise_ui_extension(capabilities);
+                // Note: ProxyApp does not propagate experimental_capabilities (that field is
+                // FastMCP-only); skip advertise_experimental here intentionally.
 
                 fastmcpp::Json result_obj = {{"protocolVersion", "2024-11-05"},
                                              {"capabilities", capabilities},
@@ -2600,6 +2613,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 {
                     fastmcpp::Json tool_json = {{"name", tool.name},
                                                 {"inputSchema", tool.inputSchema}};
+                    if (tool.version)
+                        tool_json["version"] = *tool.version;
                     if (tool.description)
                         tool_json["description"] = *tool.description;
                     if (tool.title)
@@ -3046,6 +3061,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 if (!app.list_all_prompts().empty())
                     capabilities["prompts"] = fastmcpp::Json::object();
                 advertise_ui_extension(capabilities);
+                advertise_experimental(capabilities, app);
 
                 fastmcpp::Json result_obj = {{"protocolVersion", "2024-11-05"},
                                              {"capabilities", capabilities},

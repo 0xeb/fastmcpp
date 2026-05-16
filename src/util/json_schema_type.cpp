@@ -32,14 +32,34 @@ std::unordered_map<std::string, std::regex>& regex_cache()
     return cache;
 }
 
-const std::regex& cached_regex(const std::string& key, const std::string& pattern)
+const std::regex* cached_regex(const std::string& key, const std::string& pattern) noexcept
 {
     auto& cache = regex_cache();
     auto it = cache.find(key);
     if (it != cache.end())
-        return it->second;
-    auto [ins_it, _] = cache.emplace(key, std::regex(pattern));
-    return ins_it->second;
+        return &it->second;
+    // Python fastmcp commit 789a2986 (#3959): silently drop unsupported regex patterns
+    // (lookahead, certain Unicode escapes) so real-world OpenAPI specs (AWS, Azure) do
+    // not crash json_schema_to_value. Return nullptr — callers must treat as "no
+    // pattern constraint".
+    try
+    {
+        auto [ins_it, _] = cache.emplace(key, std::regex(pattern));
+        return &ins_it->second;
+    }
+    catch (const std::regex_error&)
+    {
+        return nullptr;
+    }
+}
+
+// Backward-compatible reference overload for built-in patterns guaranteed to compile.
+const std::regex& cached_regex_required(const std::string& key, const std::string& pattern)
+{
+    auto* p = cached_regex(key, pattern);
+    if (!p)
+        throw fastmcpp::ValidationError("internal regex compile failure for built-in pattern: " + key);
+    return *p;
 }
 
 SchemaValue convert(const fastmcpp::Json& schema, const fastmcpp::Json& instance,
@@ -74,6 +94,9 @@ void enforce_enum_const(const fastmcpp::Json& schema, const fastmcpp::Json& inst
     }
     if (schema.contains("enum"))
     {
+        // Python fastmcp commit 4b59e0d9 (#3818): empty enum still rejects gracefully.
+        if (!schema["enum"].is_array())
+            throw fastmcpp::ValidationError("Enum schema must be an array at " + path);
         bool ok = false;
         for (const auto& v : schema["enum"])
         {
@@ -116,13 +139,13 @@ SchemaValue handle_string(const fastmcpp::Json& schema, const fastmcpp::Json& in
         }
         else if (fmt == "email")
         {
-            const auto& email_re = cached_regex("email", R"(^[^@\s]+@[^@\s]+\.[^@\s]+$)");
+            const auto& email_re = cached_regex_required("email", R"(^[^@\s]+@[^@\s]+\.[^@\s]+$)");
             if (!std::regex_match(value, email_re))
                 throw fastmcpp::ValidationError("Invalid email format at " + path);
         }
         else if (fmt == "uri" || fmt == "uri-reference")
         {
-            const auto& uri_re = cached_regex("uri", R"(^[a-zA-Z][a-zA-Z0-9+.-]*://.+)");
+            const auto& uri_re = cached_regex_required("uri", R"(^[a-zA-Z][a-zA-Z0-9+.-]*://.+)");
             if (fmt == "uri" && !std::regex_match(value, uri_re))
                 throw fastmcpp::ValidationError("Invalid uri format at " + path);
             // uri-reference may be relative; allow any non-empty string
@@ -130,7 +153,7 @@ SchemaValue handle_string(const fastmcpp::Json& schema, const fastmcpp::Json& in
         else if (fmt == "date-time")
         {
             const auto& dt_re =
-                cached_regex("date-time", R"(^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$)");
+                cached_regex_required("date-time", R"(^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$)");
             if (!std::regex_match(value, dt_re))
                 throw fastmcpp::ValidationError("Invalid date-time format at " + path);
         }
@@ -141,9 +164,11 @@ SchemaValue handle_string(const fastmcpp::Json& schema, const fastmcpp::Json& in
         throw fastmcpp::ValidationError("maxLength violation at " + path);
     if (schema.contains("pattern") && schema["pattern"].is_string())
     {
-        const auto& pat = cached_regex(schema["pattern"].get<std::string>(),
+        // Python fastmcp commit 789a2986 (#3959): if the pattern fails to compile (lookahead,
+        // unsupported Unicode escapes, etc.), gracefully drop the constraint instead of crashing.
+        const auto* pat = cached_regex(schema["pattern"].get<std::string>(),
                                        schema["pattern"].get<std::string>());
-        if (!std::regex_match(value, pat))
+        if (pat && !std::regex_match(value, *pat))
             throw fastmcpp::ValidationError("pattern violation at " + path);
     }
     return value;
@@ -332,6 +357,16 @@ SchemaValue handle_object(const fastmcpp::Json& schema, const fastmcpp::Json& in
 SchemaValue convert(const fastmcpp::Json& schema, const fastmcpp::Json& instance,
                     const std::string& path)
 {
+    // JSON Schema permits boolean schemas: `true` accepts any value; `false` rejects all.
+    // Python fastmcp commits 4b59e0d9 (#3818) and e5b96343 (#3785) ensure these don't crash
+    // json_schema_to_value when they appear as a property schema or root schema.
+    if (schema.is_boolean())
+    {
+        if (schema.get<bool>())
+            return instance;  // true: accept-any, pass through
+        throw fastmcpp::ValidationError("schema=false rejects all values at " + path);
+    }
+
     // Union type via "type": ["a","b"]
     if (schema.contains("type") && schema["type"].is_array())
     {

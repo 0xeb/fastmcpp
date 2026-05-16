@@ -103,7 +103,37 @@ OpenAPIProvider::OpenAPIProvider(Json openapi_spec, std::optional<std::string> b
             !openapi_spec_["servers"].empty() && openapi_spec_["servers"][0].is_object() &&
             openapi_spec_["servers"][0].contains("url") &&
             openapi_spec_["servers"][0]["url"].is_string())
-            base_url = openapi_spec_["servers"][0]["url"].get<std::string>();
+        {
+            std::string url = openapi_spec_["servers"][0]["url"].get<std::string>();
+            // Python fastmcp commit 99eaeb8a (#3770): expand `{varName}` placeholders using the
+            // declared server variables' defaults so specs like
+            //   servers: [{url: "{protocol}://api.example.com",
+            //              variables: {protocol: {default: "https"}}}]
+            // are rendered to a valid base URL instead of leaving curly-brace placeholders.
+            const auto& srv = openapi_spec_["servers"][0];
+            if (srv.contains("variables") && srv["variables"].is_object())
+            {
+                for (auto it = srv["variables"].cbegin(); it != srv["variables"].cend(); ++it)
+                {
+                    if (!it.value().is_object() || !it.value().contains("default"))
+                        continue;
+                    const auto& dv = it.value()["default"];
+                    std::string repl;
+                    if (dv.is_string())
+                        repl = dv.get<std::string>();
+                    else
+                        repl = dv.dump();
+                    const std::string placeholder = "{" + it.key() + "}";
+                    size_t pos = 0;
+                    while ((pos = url.find(placeholder, pos)) != std::string::npos)
+                    {
+                        url.replace(pos, placeholder.size(), repl);
+                        pos += repl.size();
+                    }
+                }
+            }
+            base_url = std::move(url);
+        }
     }
     if (!base_url || base_url->empty())
         throw ValidationError("OpenAPIProvider requires base_url or servers[0].url in spec");
@@ -268,6 +298,22 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
                     Json schema = Json{{"type", "string"}};
                     if (param.contains("schema") && param["schema"].is_object())
                         schema = param["schema"];
+                    // Python fastmcp commit 042db1d0 (#3768): convert OpenAPI 3.0
+                    // `nullable: true` to JSON Schema's `type: ["X", "null"]` form so
+                    // downstream JSON Schema validators (and json_schema_to_value) accept null.
+                    if (schema.is_object() && schema.value("nullable", false))
+                    {
+                        if (schema.contains("type") && schema["type"].is_string())
+                        {
+                            std::string t = schema["type"].get<std::string>();
+                            schema["type"] = Json::array({t, "null"});
+                        }
+                        else if (!schema.contains("type"))
+                        {
+                            schema["type"] = "null";
+                        }
+                        schema.erase("nullable");
+                    }
                     if (param.contains("description") && param["description"].is_string() &&
                         (!schema.contains("description") || !schema["description"].is_string()))
                         schema["description"] = param["description"];
@@ -319,16 +365,26 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
                 if (request_body.contains("content") && request_body["content"].is_object())
                 {
                     const auto& content = request_body["content"];
-                    if (content.contains("application/json") &&
-                        content["application/json"].is_object() &&
-                        content["application/json"].contains("schema") &&
-                        content["application/json"]["schema"].is_object())
+                    // Python fastmcp commits 7dd57398 (#3932) + ca76b828 (#3611): respect the
+                    // declared request-body content type. Prefer JSON; fall back to
+                    // application/x-www-form-urlencoded; mark multipart for clarity but
+                    // keep JSON-style serialization for now (multipart not yet implemented).
+                    auto take_schema = [&](const std::string& ct) -> bool
                     {
-                        properties["body"] = content["application/json"]["schema"];
+                        if (!content.contains(ct) || !content[ct].is_object())
+                            return false;
+                        if (!content[ct].contains("schema") || !content[ct]["schema"].is_object())
+                            return false;
+                        properties["body"] = content[ct]["schema"];
+                        route.request_content_type = ct;
                         route.has_json_body = true;
                         if (request_body.value("required", false))
                             required.push_back("body");
-                    }
+                        return true;
+                    };
+                    if (!take_schema("application/json"))
+                        if (!take_schema("application/x-www-form-urlencoded"))
+                            take_schema("multipart/form-data");
                 }
             }
 
@@ -388,14 +444,38 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
 
     std::ostringstream query;
     bool first = true;
+    auto append_pair = [&](const std::string& key, const std::string& val) {
+        query << (first ? "?" : "&");
+        first = false;
+        query << url_encode_component(key) << "=" << url_encode_component(val);
+    };
     for (const auto& param : route.query_params)
     {
         if (!arguments.contains(param))
             continue;
-        query << (first ? "?" : "&");
-        first = false;
-        query << url_encode_component(param) << "="
-              << url_encode_component(to_string_value(arguments.at(param)));
+        const auto& val = arguments.at(param);
+        // Python fastmcp commits 6f30e89d (#3595) + 16eb2ffc (#3662): honor OpenAPI default
+        // `style=form, explode=true` for arrays and objects. RouteDefinition does not yet
+        // capture per-param style/explode metadata, so this implements the spec defaults
+        // (which match upstream's pre-customization behavior). Per-param overrides remain a
+        // follow-up (see kb/sync/review_result.md F20 partial-implementation note).
+        if (val.is_array())
+        {
+            // explode=true (default form): emit each element as a separate key=value pair.
+            for (const auto& el : val)
+                append_pair(param, to_string_value(el));
+        }
+        else if (val.is_object())
+        {
+            // explode=true (default form): emit each property as a separate prop=value pair
+            // (the param name is dropped).
+            for (auto it = val.cbegin(); it != val.cend(); ++it)
+                append_pair(it.key(), to_string_value(it.value()));
+        }
+        else
+        {
+            append_pair(param, to_string_value(val));
+        }
     }
 
     std::string target = parsed.base_path + resolved_path + query.str();
@@ -403,41 +483,84 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
         target = "/" + target;
 
     std::string body;
+    // Python fastmcp commits 7dd57398 (#3932) + ca76b828 (#3611): dispatch on declared
+    // request-body content type. application/x-www-form-urlencoded → form-encode body
+    // arguments (object only); multipart/form-data not yet implemented (defaults to JSON
+    // dump with the multipart content-type header so callers see a clear server-side
+    // error rather than silent garbage). JSON path unchanged.
+    const std::string& ct = route.request_content_type;
     if (route.has_json_body && arguments.contains("body"))
-        body = arguments["body"].dump();
+    {
+        if (ct == "application/x-www-form-urlencoded" && arguments["body"].is_object())
+        {
+            std::ostringstream form;
+            bool form_first = true;
+            for (auto it = arguments["body"].cbegin(); it != arguments["body"].cend(); ++it)
+            {
+                if (!form_first)
+                    form << "&";
+                form_first = false;
+                form << url_encode_component(it.key()) << "="
+                     << url_encode_component(to_string_value(it.value()));
+            }
+            body = form.str();
+        }
+        else
+        {
+            body = arguments["body"].dump();
+        }
+    }
 
-    std::unique_ptr<httplib::Client> client;
+    httplib::Result response;
     if (parsed.scheme == "http")
     {
-        client = std::make_unique<httplib::Client>(parsed.host, parsed.port);
+        std::unique_ptr<httplib::Client> client =
+            std::make_unique<httplib::Client>(parsed.host, parsed.port);
+        client->set_follow_location(true);
+        client->set_connection_timeout(30, 0);
+        client->set_read_timeout(30, 0);
+
+        const auto& m = route.method;
+        if (m == "GET")
+            response = client->Get(target.c_str());
+        else if (m == "POST")
+            response = client->Post(target.c_str(), body, ct.c_str());
+        else if (m == "PUT")
+            response = client->Put(target.c_str(), body, ct.c_str());
+        else if (m == "PATCH")
+            response = client->Patch(target.c_str(), body, ct.c_str());
+        else if (m == "DELETE")
+            response = client->Delete(target.c_str(), body, ct.c_str());
+        else
+            throw ValidationError("Unsupported OpenAPI HTTP method: " + route.method);
     }
     else
     {
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-        client = std::make_unique<httplib::SSLClient>(parsed.host, parsed.port);
+        std::unique_ptr<httplib::SSLClient> client =
+            std::make_unique<httplib::SSLClient>(parsed.host, parsed.port);
+        client->set_follow_location(true);
+        client->set_connection_timeout(30, 0);
+        client->set_read_timeout(30, 0);
+
+        const auto& m = route.method;
+        if (m == "GET")
+            response = client->Get(target.c_str());
+        else if (m == "POST")
+            response = client->Post(target.c_str(), body, ct.c_str());
+        else if (m == "PUT")
+            response = client->Put(target.c_str(), body, ct.c_str());
+        else if (m == "PATCH")
+            response = client->Patch(target.c_str(), body, ct.c_str());
+        else if (m == "DELETE")
+            response = client->Delete(target.c_str(), body, ct.c_str());
+        else
+            throw ValidationError("Unsupported OpenAPI HTTP method: " + route.method);
 #else
         throw ValidationError(
             "OpenAPIProvider https:// requires CPPHTTPLIB_OPENSSL_SUPPORT at build time");
 #endif
     }
-    client->set_follow_location(true);
-    client->set_connection_timeout(30, 0);
-    client->set_read_timeout(30, 0);
-
-    httplib::Result response;
-    const auto& m = route.method;
-    if (m == "GET")
-        response = client->Get(target.c_str());
-    else if (m == "POST")
-        response = client->Post(target.c_str(), body, "application/json");
-    else if (m == "PUT")
-        response = client->Put(target.c_str(), body, "application/json");
-    else if (m == "PATCH")
-        response = client->Patch(target.c_str(), body, "application/json");
-    else if (m == "DELETE")
-        response = client->Delete(target.c_str(), body, "application/json");
-    else
-        throw ValidationError("Unsupported OpenAPI HTTP method: " + route.method);
 
     if (!response)
         throw TransportError("OpenAPI HTTP request failed for " + route.method + " " + target);

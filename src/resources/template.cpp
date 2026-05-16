@@ -20,6 +20,19 @@ std::string to_lower(std::string s)
     return s;
 }
 
+// Python fastmcp commit 970b92bb: parameter names with hyphens are exposed to providers as
+// underscore-keyed entries (Python identifiers cannot contain hyphens, and `re` named groups
+// follow the same rule). We mirror this for cross-implementation parity so a template such as
+// `data://{user-id}/{first-name}` produces params {"user_id": ..., "first_name": ...}.
+std::string normalize_param_key(const std::string& name)
+{
+    std::string result;
+    result.reserve(name.size());
+    for (char c : name)
+        result.push_back(c == '-' ? '_' : c);
+    return result;
+}
+
 ParamKind kind_from_schema_type(const std::string& schema_type)
 {
     if (schema_type == "boolean")
@@ -405,7 +418,7 @@ ResourceTemplate::match(const std::string& uri) const
                         std::string value = pair.substr(eq_pos + 1);
 
                         if (key == param.name)
-                            params[param.name] = url_decode(value);
+                            params[normalize_param_key(param.name)] = url_decode(value);
                     }
                 }
             }
@@ -438,7 +451,7 @@ ResourceTemplate::match(const std::string& uri) const
             }
 
             if (group_index < static_cast<int>(match.size()))
-                params[param.name] = url_decode(match[group_index].str());
+                params[normalize_param_key(param.name)] = url_decode(match[group_index].str());
         }
     }
 

@@ -375,7 +375,13 @@ inline void from_json(const fastmcpp::Json& j, ToolInfo& t)
 {
     t.name = j.at("name").get<std::string>();
     if (j.contains("version"))
-        t.version = j["version"].get<std::string>();
+    {
+        // Python fastmcp encodes Tool.version as a string, but historic clients may send an int.
+        if (j["version"].is_string())
+            t.version = j["version"].get<std::string>();
+        else if (j["version"].is_number_integer())
+            t.version = std::to_string(j["version"].get<long long>());
+    }
     if (j.contains("title"))
         t.title = j["title"].get<std::string>();
     if (j.contains("description"))
@@ -392,6 +398,19 @@ inline void from_json(const fastmcpp::Json& j, ToolInfo& t)
         t._meta = j["_meta"];
         if (j["_meta"].is_object() && j["_meta"].contains("ui") && j["_meta"]["ui"].is_object())
             t.app = j["_meta"]["ui"].get<fastmcpp::AppConfig>();
+        // Python fastmcp >= 2.x exposes per-tool version via _meta.fastmcp.version (see
+        // fastmcp_slim/fastmcp/utilities/components.py:get_meta). Surface it as ToolInfo.version
+        // if no top-level "version" was provided so the proxy passthrough preserves the field.
+        if (!t.version && j["_meta"].is_object() && j["_meta"].contains("fastmcp")
+            && j["_meta"]["fastmcp"].is_object()
+            && j["_meta"]["fastmcp"].contains("version"))
+        {
+            const auto& v = j["_meta"]["fastmcp"]["version"];
+            if (v.is_string())
+                t.version = v.get<std::string>();
+            else if (v.is_number_integer())
+                t.version = std::to_string(v.get<long long>());
+        }
     }
 }
 
