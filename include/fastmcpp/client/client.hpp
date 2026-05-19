@@ -1050,10 +1050,8 @@ class Client
         //   ValidationError so older servers / partial responses do not crash the client.
         // - "content" present but not an array is treated as empty (do not crash).
         if (body.contains("content") && body["content"].is_array())
-        {
             for (const auto& c : body["content"])
                 result.content.push_back(parse_content_block(c));
-        }
         // else: leave result.content empty
 
         if (body.contains("structuredContent"))

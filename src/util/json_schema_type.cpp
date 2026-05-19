@@ -58,7 +58,8 @@ const std::regex& cached_regex_required(const std::string& key, const std::strin
 {
     auto* p = cached_regex(key, pattern);
     if (!p)
-        throw fastmcpp::ValidationError("internal regex compile failure for built-in pattern: " + key);
+        throw fastmcpp::ValidationError("internal regex compile failure for built-in pattern: " +
+                                        key);
     return *p;
 }
 
@@ -152,8 +153,8 @@ SchemaValue handle_string(const fastmcpp::Json& schema, const fastmcpp::Json& in
         }
         else if (fmt == "date-time")
         {
-            const auto& dt_re =
-                cached_regex_required("date-time", R"(^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$)");
+            const auto& dt_re = cached_regex_required(
+                "date-time", R"(^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$)");
             if (!std::regex_match(value, dt_re))
                 throw fastmcpp::ValidationError("Invalid date-time format at " + path);
         }
@@ -363,7 +364,7 @@ SchemaValue convert(const fastmcpp::Json& schema, const fastmcpp::Json& instance
     if (schema.is_boolean())
     {
         if (schema.get<bool>())
-            return instance;  // true: accept-any, pass through
+            return instance; // true: accept-any, pass through
         throw fastmcpp::ValidationError("schema=false rejects all values at " + path);
     }
 

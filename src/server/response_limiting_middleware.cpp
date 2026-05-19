@@ -71,7 +71,8 @@ AfterHook ResponseLimitingMiddleware::make_hook() const
         // outputSchema after truncation) and signal bypass via `_meta = {}` so MCP SDK
         // clients accept the response as a vanilla CallToolResult instead of failing
         // outputSchema validation. Apply at both shapes (route payload + JSON-RPC envelope).
-        auto bypass_output_schema = [](fastmcpp::Json& obj) {
+        auto bypass_output_schema = [](fastmcpp::Json& obj)
+        {
             if (obj.contains("structuredContent"))
                 obj.erase("structuredContent");
             if (!obj.contains("_meta") || !obj["_meta"].is_object())

@@ -444,7 +444,8 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
 
     std::ostringstream query;
     bool first = true;
-    auto append_pair = [&](const std::string& key, const std::string& val) {
+    auto append_pair = [&](const std::string& key, const std::string& val)
+    {
         query << (first ? "?" : "&");
         first = false;
         query << url_encode_component(key) << "=" << url_encode_component(val);

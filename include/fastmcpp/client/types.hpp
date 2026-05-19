@@ -401,9 +401,8 @@ inline void from_json(const fastmcpp::Json& j, ToolInfo& t)
         // Python fastmcp >= 2.x exposes per-tool version via _meta.fastmcp.version (see
         // fastmcp_slim/fastmcp/utilities/components.py:get_meta). Surface it as ToolInfo.version
         // if no top-level "version" was provided so the proxy passthrough preserves the field.
-        if (!t.version && j["_meta"].is_object() && j["_meta"].contains("fastmcp")
-            && j["_meta"]["fastmcp"].is_object()
-            && j["_meta"]["fastmcp"].contains("version"))
+        if (!t.version && j["_meta"].is_object() && j["_meta"].contains("fastmcp") &&
+            j["_meta"]["fastmcp"].is_object() && j["_meta"]["fastmcp"].contains("version"))
         {
             const auto& v = j["_meta"]["fastmcp"]["version"];
             if (v.is_string())
