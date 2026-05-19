@@ -27,11 +27,14 @@ void test_tool_timeout_triggers()
     Tool slow_tool("slow", Json::object(), Json::object(),
                    [](const Json&) -> Json
                    {
-                       sleep_for_at_least(50ms);
+                       // Large sleep margin so the timeout fires reliably even on
+                       // slow CI runners (macOS Debug) where scheduling jitter can
+                       // delay future::wait_for() past the worker's sleep duration.
+                       sleep_for_at_least(5s);
                        return Json{{"ok", true}};
                    });
 
-    slow_tool.set_timeout(10ms);
+    slow_tool.set_timeout(50ms);
 
     bool threw = false;
     try
@@ -72,11 +75,11 @@ void test_manager_timeout_toggle()
     Tool slow_tool("slow_manager", Json::object(), Json::object(),
                    [](const Json&) -> Json
                    {
-                       sleep_for_at_least(40ms);
+                       sleep_for_at_least(5s);
                        return Json{{"ok", true}};
                    });
 
-    slow_tool.set_timeout(10ms);
+    slow_tool.set_timeout(50ms);
 
     ToolManager tm;
     tm.register_tool(slow_tool);

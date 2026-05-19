@@ -157,7 +157,7 @@ build_transformed_schema(const Json& parent_schema,
                     if (k == "$defs" && v.is_object())
                     {
                         hoisted_defs = v;
-                        continue;  // do not also write it under the property
+                        continue; // do not also write it under the property
                     }
                     new_prop[k] = v;
                 }

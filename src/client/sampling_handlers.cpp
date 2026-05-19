@@ -261,8 +261,7 @@ static fastmcpp::Json build_openai_messages(const fastmcpp::Json& params)
                     "' content not yet supported (F16 / fastmcp #3550); cannot dispatch sampling "
                     "request");
             // Unknown type — surface clearly so callers don't get silent data loss.
-            throw std::runtime_error(
-                "OpenAI sampling handler: unhandled content type '" + t + "'");
+            throw std::runtime_error("OpenAI sampling handler: unhandled content type '" + t + "'");
         }
 
         std::string text = join_text_blocks(content);

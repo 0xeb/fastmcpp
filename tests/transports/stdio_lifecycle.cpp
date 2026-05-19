@@ -7,6 +7,10 @@
 #include <string>
 #include <vector>
 
+#ifndef _WIN32
+#include <csignal>
+#endif
+
 static std::string find_stdio_server_binary()
 {
     namespace fs = std::filesystem;
@@ -29,6 +33,15 @@ int main()
 {
     using fastmcpp::Json;
     using fastmcpp::client::StdioTransport;
+
+#ifndef _WIN32
+    // Ignore SIGPIPE: writing to a closed subprocess stdin (e.g. when the child
+    // has already exited, as in Test 1's `sh -c "exit 42"`) must produce
+    // EPIPE/return -1, not kill this test binary. macOS Debug runners under
+    // CI load can race the child's exit ahead of our first write, surfacing
+    // this as a SIGPIPE-induced test failure.
+    signal(SIGPIPE, SIG_IGN);
+#endif
 
     // Test 1: Server process crash surfaces TransportError with context
     std::cout << "Test: server crash surfaces TransportError...\n";
