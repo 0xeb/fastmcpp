@@ -76,6 +76,10 @@ int main()
     provider->add_tool(make_tool("legacy_tool", "1.9.0", 1));
     provider->add_tool(make_tool("v2_tool", "2.3.0", 2));
     provider->add_tool(make_tool("no_version_tool", "", 3));
+    // F1 (Python fastmcp #4058 / 24b594b1): a leading `v` prefix on a version
+    // string must compare equal to the same number without the prefix.
+    // `v2.5.0` therefore falls into the [2.0, 3.0) range below.
+    provider->add_tool(make_tool("v_prefixed_tool", "v2.5.0", 4));
     provider->add_resource(make_resource("res://legacy", "1.0"));
     provider->add_resource(make_resource("res://v2", "2.0"));
     provider->add_template(make_template("res://legacy/{id}", "1.0"));
@@ -91,21 +95,27 @@ int main()
     std::vector<std::string> tools;
     for (const auto& info : app.list_all_tools_info())
         tools.push_back(info.name);
-    assert(tools.size() == 2);
+    assert(tools.size() == 3); // v2_tool, v_prefixed_tool, no_version_tool
     bool saw_v2 = false;
+    bool saw_v_prefixed = false;
     bool saw_unversioned = false;
     for (const auto& tool_name : tools)
     {
         if (tool_name == "v2_tool")
             saw_v2 = true;
+        if (tool_name == "v_prefixed_tool")
+            saw_v_prefixed = true;
         if (tool_name == "no_version_tool")
             saw_unversioned = true;
     }
     assert(saw_v2);
+    assert(saw_v_prefixed);
     assert(saw_unversioned);
 
     auto result = app.invoke_tool("v2_tool", Json::object());
     assert(result == 2);
+    auto v_prefixed = app.invoke_tool("v_prefixed_tool", Json::object());
+    assert(v_prefixed == 4);
     auto no_version = app.invoke_tool("no_version_tool", Json::object());
     assert(no_version == 3);
     try

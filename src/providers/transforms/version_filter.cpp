@@ -23,11 +23,23 @@ std::string strip_leading_zeros(const std::string& s)
     return s.substr(i);
 }
 
+// Strip a leading 'v' or 'V' prefix when followed by a digit so versions
+// like "v1.2" compare equal to "1.2". Mirrors Python `parse_version_key`
+// behavior in fastmcp v3.4.0 (#4058 / commit 24b594b1).
+std::string strip_v_prefix(const std::string& version)
+{
+    if (version.size() >= 2 && (version[0] == 'v' || version[0] == 'V') &&
+        std::isdigit(static_cast<unsigned char>(version[1])))
+        return version.substr(1);
+    return version;
+}
+
 std::vector<std::string> split_version(const std::string& version)
 {
+    const std::string normalized = strip_v_prefix(version);
     std::vector<std::string> parts;
     std::string current;
-    for (char c : version)
+    for (char c : normalized)
     {
         if (c == '.' || c == '-' || c == '_')
         {

@@ -339,6 +339,12 @@ if(FASTMCPP_BUILD_TESTS)
   add_test(NAME fastmcpp_resources_template_query_params
            COMMAND fastmcpp_resources_template_query_params)
 
+  add_executable(fastmcpp_resources_template_metadata
+                 tests/resources/template_metadata.cpp)
+  target_link_libraries(fastmcpp_resources_template_metadata PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_resources_template_metadata
+           COMMAND fastmcpp_resources_template_metadata)
+
   add_executable(fastmcpp_server_basic tests/server/basic.cpp)
   target_link_libraries(fastmcpp_server_basic PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_basic COMMAND fastmcpp_server_basic)
