@@ -267,6 +267,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_schema_dereference_toggle PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_schema_dereference_toggle COMMAND fastmcpp_schema_dereference_toggle)
 
+  add_executable(fastmcpp_schema_root_ref_metadata tests/schema/root_ref_metadata.cpp)
+  target_link_libraries(fastmcpp_schema_root_ref_metadata PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_schema_root_ref_metadata COMMAND fastmcpp_schema_root_ref_metadata)
+
   add_executable(fastmcpp_content tests/content.cpp)
   target_link_libraries(fastmcpp_content PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_content COMMAND fastmcpp_content)
@@ -456,6 +460,12 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_client_api_icons tests/client/api_icons.cpp)
   target_link_libraries(fastmcpp_client_api_icons PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_client_api_icons COMMAND fastmcpp_client_api_icons)
+
+  add_executable(fastmcpp_client_tool_result_is_error
+                 tests/client/tool_result_is_error.cpp)
+  target_link_libraries(fastmcpp_client_tool_result_is_error PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_tool_result_is_error
+           COMMAND fastmcpp_client_tool_result_is_error)
 
   add_executable(fastmcpp_client_tasks tests/client/tasks.cpp)
   target_link_libraries(fastmcpp_client_tasks PRIVATE fastmcpp_core)      
