@@ -599,6 +599,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_proxy_basic PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_proxy_basic COMMAND fastmcpp_proxy_basic)
 
+  add_executable(fastmcpp_proxy_error_strategy tests/proxy/error_strategy.cpp)
+  target_link_libraries(fastmcpp_proxy_error_strategy PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_proxy_error_strategy COMMAND fastmcpp_proxy_error_strategy)
+
   # Main header compile test
   add_executable(fastmcpp_main_header tests/main_header/compile_test.cpp)
   target_link_libraries(fastmcpp_main_header PRIVATE fastmcpp_core)

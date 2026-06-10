@@ -15,6 +15,14 @@ ProxyApp::ProxyApp(ClientFactory client_factory, std::string name, std::string v
 {
 }
 
+ProxyApp::ProxyApp(ClientFactory client_factory, ProxyAppOptions options)
+    : client_factory_(std::move(client_factory)), name_(std::move(options.name)),
+      version_(std::move(options.version)), instructions_(std::move(options.instructions)),
+      error_strategy_(options.error_strategy),
+      validate_on_initialize_(options.validate_on_initialize)
+{
+}
+
 // =========================================================================
 // Conversion Helpers
 // =========================================================================
@@ -121,10 +129,15 @@ std::vector<client::ToolInfo> ProxyApp::list_all_tools() const
     }
     catch (const std::exception& e)
     {
-        // Surface bad URL/transport; otherwise fall back to local-only
+        // Surface bad URL/transport; otherwise apply error strategy.
         if (dynamic_cast<const std::invalid_argument*>(&e))
             throw;
-        // Remote not available, continue with local only
+        // F7 (Python fastmcp #4227 / 2bff3725): when configured to raise,
+        // propagate upstream failures so the caller can fail fast instead of
+        // silently degrading to local-only.
+        if (error_strategy_ == ProxyErrorStrategy::Raise)
+            throw;
+        // Default (Warn): remote not available, continue with local only.
     }
 
     return result;
@@ -155,6 +168,8 @@ std::vector<client::ResourceInfo> ProxyApp::list_all_resources() const
     catch (const std::exception& e)
     {
         if (dynamic_cast<const std::invalid_argument*>(&e))
+            throw;
+        if (error_strategy_ == ProxyErrorStrategy::Raise)
             throw;
         // Remote not available
     }
@@ -188,6 +203,8 @@ std::vector<client::ResourceTemplate> ProxyApp::list_all_resource_templates() co
     {
         if (dynamic_cast<const std::invalid_argument*>(&e))
             throw;
+        if (error_strategy_ == ProxyErrorStrategy::Raise)
+            throw;
         // Remote not available
     }
 
@@ -219,6 +236,8 @@ std::vector<client::PromptInfo> ProxyApp::list_all_prompts() const
     catch (const std::exception& e)
     {
         if (dynamic_cast<const std::invalid_argument*>(&e))
+            throw;
+        if (error_strategy_ == ProxyErrorStrategy::Raise)
             throw;
         // Remote not available
     }
