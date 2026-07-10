@@ -2581,6 +2581,25 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
             {
                 fastmcpp::Json serverInfo = {{"name", app.name()}, {"version", app.version()}};
 
+                // F8 (Python fastmcp #4228 / 140d96aa): when configured,
+                // forward the inbound MCP initialize to the upstream so an
+                // unreachable backend surfaces as a JSON-RPC error here
+                // instead of failing later on the first tools/list. fastmcpp
+                // keeps this opt-in via ProxyAppOptions::validate_on_initialize
+                // (Python made it always-on; we preserve back-compat).
+                if (app.validate_on_initialize())
+                {
+                    try
+                    {
+                        auto upstream = app.get_client();
+                        upstream.initialize();
+                    }
+                    catch (const std::exception& e)
+                    {
+                        return jsonrpc_error(id, kJsonRpcInternalError, e.what());
+                    }
+                }
+
                 // Advertise capabilities
                 fastmcpp::Json capabilities = {{"tools", fastmcpp::Json::object()}};
                 if (!app.list_all_resources().empty() || !app.list_all_resource_templates().empty())

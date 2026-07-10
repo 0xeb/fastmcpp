@@ -469,6 +469,15 @@ ResourceTemplate::create_resource(const std::string& uri,
     resource.mime_type = mime_type;
     resource.app = app;
 
+    // Mirror Python fastmcp #4061 (commit 01b971d8): preserve template-level
+    // metadata so resources instantiated from a template carry the template's
+    // display annotations rather than appearing unstyled/unannotated.
+    resource.title = title;
+    resource.annotations = annotations;
+    resource.icons = icons;
+    resource.version = version;
+    resource.task_support = task_support;
+
     // Create a provider that captures the extracted params and delegates to the template provider
     if (provider)
     {

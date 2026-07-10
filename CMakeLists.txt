@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 if(POLICY CMP0169)
   cmake_policy(SET CMP0169 OLD)
 endif()
-project(fastmcpp VERSION 3.3.1 LANGUAGES CXX)
+project(fastmcpp VERSION 3.4.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -267,6 +267,10 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_schema_dereference_toggle PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_schema_dereference_toggle COMMAND fastmcpp_schema_dereference_toggle)
 
+  add_executable(fastmcpp_schema_root_ref_metadata tests/schema/root_ref_metadata.cpp)
+  target_link_libraries(fastmcpp_schema_root_ref_metadata PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_schema_root_ref_metadata COMMAND fastmcpp_schema_root_ref_metadata)
+
   add_executable(fastmcpp_content tests/content.cpp)
   target_link_libraries(fastmcpp_content PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_content COMMAND fastmcpp_content)
@@ -338,6 +342,12 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_resources_template_query_params PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_resources_template_query_params
            COMMAND fastmcpp_resources_template_query_params)
+
+  add_executable(fastmcpp_resources_template_metadata
+                 tests/resources/template_metadata.cpp)
+  target_link_libraries(fastmcpp_resources_template_metadata PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_resources_template_metadata
+           COMMAND fastmcpp_resources_template_metadata)
 
   add_executable(fastmcpp_server_basic tests/server/basic.cpp)
   target_link_libraries(fastmcpp_server_basic PRIVATE fastmcpp_core)
@@ -450,6 +460,12 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_client_api_icons tests/client/api_icons.cpp)
   target_link_libraries(fastmcpp_client_api_icons PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_client_api_icons COMMAND fastmcpp_client_api_icons)
+
+  add_executable(fastmcpp_client_tool_result_is_error
+                 tests/client/tool_result_is_error.cpp)
+  target_link_libraries(fastmcpp_client_tool_result_is_error PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_tool_result_is_error
+           COMMAND fastmcpp_client_tool_result_is_error)
 
   add_executable(fastmcpp_client_tasks tests/client/tasks.cpp)
   target_link_libraries(fastmcpp_client_tasks PRIVATE fastmcpp_core)      
@@ -582,6 +598,10 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_proxy_basic tests/proxy/basic.cpp)
   target_link_libraries(fastmcpp_proxy_basic PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_proxy_basic COMMAND fastmcpp_proxy_basic)
+
+  add_executable(fastmcpp_proxy_error_strategy tests/proxy/error_strategy.cpp)
+  target_link_libraries(fastmcpp_proxy_error_strategy PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_proxy_error_strategy COMMAND fastmcpp_proxy_error_strategy)
 
   # Main header compile test
   add_executable(fastmcpp_main_header tests/main_header/compile_test.cpp)
