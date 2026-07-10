@@ -458,8 +458,8 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
         // Python fastmcp commits 6f30e89d (#3595) + 16eb2ffc (#3662): honor OpenAPI default
         // `style=form, explode=true` for arrays and objects. RouteDefinition does not yet
         // capture per-param style/explode metadata, so this implements the spec defaults
-        // (which match upstream's pre-customization behavior). Per-param overrides remain a
-        // follow-up (see kb/sync/review_result.md F20 partial-implementation note).
+        // (which match upstream's pre-customization behavior). Per-param style/explode
+        // overrides remain a follow-up.
         if (val.is_array())
         {
             // explode=true (default form): emit each element as a separate key=value pair.
