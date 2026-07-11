@@ -292,6 +292,62 @@ void test_tool_list_operations()
     std::cout << "  [PASS] Multiple tool management works correctly\n";
 }
 
+void test_opt_in_arg_validation()
+{
+    std::cout << "Test 9: Opt-in argument validation (P2/P3)...\n";
+
+    tools::ToolManager tm;
+
+    Json schema = {{"type", "object"},
+                   {"properties", Json{{"a", Json{{"type", "number"}}},
+                                       {"n", Json{{"type", "string"}}}}},
+                   {"required", Json::array({"a", "n"})}};
+
+    tools::Tool strict{"strict", schema, Json{{"type", "number"}},
+                       [](const Json& in) { return in.at("a").get<double>(); }};
+    strict.set_validate_args(true);
+    assert(strict.validate_args());
+    tm.register_tool(strict);
+
+    // Valid args pass and invoke normally.
+    assert(tm.invoke("strict", Json{{"a", 5.0}, {"n", "x"}}).get<double>() == 5.0);
+
+    // Missing a required field -> ValidationError.
+    bool threw = false;
+    try
+    {
+        tm.invoke("strict", Json{{"a", 5.0}});
+    }
+    catch (const ValidationError&)
+    {
+        threw = true;
+    }
+    assert(threw);
+
+    // Wrong-typed field -> ValidationError.
+    threw = false;
+    try
+    {
+        tm.invoke("strict", Json{{"a", "not-a-number"}, {"n", "x"}});
+    }
+    catch (const ValidationError&)
+    {
+        threw = true;
+    }
+    assert(threw);
+
+    // Default-off tool (contract preserved): anything passes, even missing required.
+    tools::Tool lax{"lax", schema, Json{{"type", "number"}}, [](const Json&) { return 0; }};
+    assert(!lax.validate_args());
+    tm.register_tool(lax);
+    assert(tm.invoke("lax", Json::object()).get<int>() == 0);
+
+    // validate_input_if_enabled is a no-op when disabled (no throw on bad args).
+    lax.validate_input_if_enabled(Json::object());
+
+    std::cout << "  [PASS] Opt-in validation rejects bad args; default-off passes anything\n";
+}
+
 int main()
 {
     std::cout << "Running tool validation tests...\n\n";
@@ -305,7 +361,8 @@ int main()
         test_tool_replacement();
         test_tool_with_complex_schema();
         test_tool_list_operations();
-        std::cout << "\n[OK] All tool validation tests passed! (8 tests)\n";
+        test_opt_in_arg_validation();
+        std::cout << "\n[OK] All tool validation tests passed! (9 tests)\n";
         return 0;
     }
     catch (const std::exception& e)

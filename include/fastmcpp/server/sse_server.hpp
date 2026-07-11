@@ -1,4 +1,5 @@
 #pragma once
+#include "fastmcpp/server/host_origin_guard.hpp"
 #include "fastmcpp/server/session.hpp"
 #include "fastmcpp/types.hpp"
 
@@ -72,6 +73,13 @@ class SseServerWrapper
      *
      * @return true if server started successfully
      */
+    /// Enable the Host/Origin request guard (DNS-rebinding protection).
+    /// Call before start(). Default Off. PYTHON REFERENCE: host_origin_protection.
+    void set_host_origin_guard(HostOriginGuardOptions options)
+    {
+        host_origin_guard_options_ = std::move(options);
+    }
+
     bool start();
 
     /**
@@ -187,6 +195,7 @@ class SseServerWrapper
 
     McpHandler handler_;
     std::string host_;
+    HostOriginGuardOptions host_origin_guard_options_{};
     int requested_port_;
     std::atomic<int> bound_port_ = 0;
     std::string sse_path_;

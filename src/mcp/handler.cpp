@@ -3,6 +3,7 @@
 #include "fastmcpp/app.hpp"
 #include "fastmcpp/mcp/tasks.hpp"
 #include "fastmcpp/proxy.hpp"
+#include "fastmcpp/server/middleware_pipeline.hpp"
 #include "fastmcpp/server/sse_server.hpp"
 #include "fastmcpp/telemetry.hpp"
 #include "fastmcpp/util/pagination.hpp"
@@ -145,6 +146,10 @@ static fastmcpp::Json jsonrpc_tool_error(const fastmcpp::Json& id, const std::ex
     if (dynamic_cast<const fastmcpp::ToolTimeoutError*>(&e))
         return jsonrpc_error(id, kMcpToolTimeout, e.what());
     if (dynamic_cast<const fastmcpp::NotFoundError*>(&e))
+        return jsonrpc_error(id, kJsonRpcInvalidParams, e.what());
+    // P2/P3: opt-in argument validation surfaces ValidationError; map it to JSON-RPC
+    // -32602 (invalid params), matching fastmcp.ValidationError semantics.
+    if (dynamic_cast<const fastmcpp::ValidationError*>(&e))
         return jsonrpc_error(id, kJsonRpcInvalidParams, e.what());
     return jsonrpc_error(id, kJsonRpcInternalError, e.what());
 }
@@ -1839,7 +1844,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
 {
     auto task_session_accessor = session_accessor;
     auto tasks = std::make_shared<TaskRegistry>(std::move(task_session_accessor));
-    return [&app, tasks, session_accessor](const fastmcpp::Json& message) -> fastmcpp::Json
+    auto core = [&app, tasks, session_accessor](const fastmcpp::Json& message) -> fastmcpp::Json
     {
         try
         {
@@ -2005,6 +2010,26 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
 
                     if (has_task_meta)
                     {
+                        // P2/P3: validate args BEFORE creating task state so invalid args return
+                        // -32602 immediately rather than spawning an orphaned task that only fails
+                        // asynchronously (parity with Python coerce_task_arguments ordering).
+                        for (const auto& np : app.list_all_tools())
+                        {
+                            if (np.first != name || !np.second)
+                                continue;
+                            try
+                            {
+                                np.second->validate_input_if_enabled(args);
+                            }
+                            catch (const std::exception& e)
+                            {
+                                if (span.active())
+                                    span.span().record_exception(e.what());
+                                return jsonrpc_tool_error(id, e);
+                            }
+                            break;
+                        }
+
                         auto created =
                             tasks->create_task("tool", name, ttl_ms, extract_session_id(params));
                         std::string task_id = created.task_id;
@@ -2562,6 +2587,38 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
             return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError,
                                  e.what());
         }
+    };
+
+    // Phase 4: run the registered Middleware pipeline around dispatch. With no middleware
+    // registered (the default), `core` is invoked directly — byte-identical, zero overhead.
+    return [&app, core = std::move(core), session_accessor](
+               const fastmcpp::Json& message) -> fastmcpp::Json
+    {
+        if (!app.has_middleware())
+            return core(message);
+
+        server::MiddlewareContext ctx;
+        ctx.message = message;
+        ctx.method = message.value("method", "");
+        ctx.type = message.contains("id") ? "request" : "notification";
+        ctx.timestamp = std::chrono::steady_clock::now();
+        if (message.contains("id"))
+            ctx.request_id = message.at("id").is_string() ? message.at("id").get<std::string>()
+                                                          : message.at("id").dump();
+
+        fastmcpp::Json params = message.value("params", fastmcpp::Json::object());
+        const std::string sid = extract_session_id(params);
+        if (!sid.empty() && session_accessor)
+            ctx.session = session_accessor(sid);
+        if (ctx.method == "tools/call")
+            ctx.tool_name = params.value("name", "");
+        else if (ctx.method == "resources/read")
+            ctx.resource_uri = params.value("uri", "");
+        else if (ctx.method == "prompts/get")
+            ctx.prompt_name = params.value("name", "");
+
+        return app.middleware_pipeline()->execute(
+            ctx, [&core](const server::MiddlewareContext& c) { return core(c.message); });
     };
 }
 

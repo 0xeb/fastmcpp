@@ -31,6 +31,14 @@ class OpenAPIProvider : public Provider
     std::optional<tools::Tool> get_tool(const std::string& name) const override;
 
   private:
+    // Per-parameter OpenAPI serialization overrides (F20 / fastmcp #3595, #3662).
+    // Absent style => "form"; absent explode => true (the OpenAPI query defaults).
+    struct ParameterMeta
+    {
+        std::string style;             // "form" | "spaceDelimited" | "pipeDelimited"
+        std::optional<bool> explode;   // nullopt => default (true)
+    };
+
     struct RouteDefinition
     {
         std::string tool_name;
@@ -40,7 +48,9 @@ class OpenAPIProvider : public Provider
         Json output_schema;
         std::vector<std::string> path_params;
         std::vector<std::string> query_params;
+        std::map<std::string, ParameterMeta> query_param_meta; // query name -> style/explode
         bool has_json_body{false};
+        bool has_multipart_body{false};
         std::string request_content_type{"application/json"};
         std::optional<std::string> description;
     };

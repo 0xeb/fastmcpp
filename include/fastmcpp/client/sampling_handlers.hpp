@@ -48,4 +48,14 @@ struct AnthropicOptions
 std::function<fastmcpp::Json(const fastmcpp::Json&)>
 create_anthropic_sampling_callback(AnthropicOptions options);
 
+namespace detail
+{
+/// Convert MCP sampling `params` into the provider `messages` array. Exposed for
+/// unit testing the wire encoding (incl. F16 image/audio) independently of the
+/// HTTP transport. Throws on unsupported content (assistant-multimodal, bad MIME,
+/// unknown block types) exactly as the live handlers do.
+fastmcpp::Json build_openai_messages_for_test(const fastmcpp::Json& params);
+fastmcpp::Json build_anthropic_messages_for_test(const fastmcpp::Json& params);
+} // namespace detail
+
 } // namespace fastmcpp::client::sampling::handlers

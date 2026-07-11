@@ -221,7 +221,39 @@ static void strip_discriminator(Json& node)
         return;
     bool has_union = node.contains("anyOf") || node.contains("oneOf");
     if (has_union && node.contains("discriminator"))
+    {
+        // Before dropping the discriminator hint, keep its property REQUIRED in each variant.
+        // Mirrors Python `_require_property` (commits 9b1a1a04 / 5fa4f32c, #4297 / #4362): strict
+        // validators would otherwise no longer enforce the discriminator field once the hint is gone.
+        const Json& disc = node["discriminator"];
+        if (disc.is_object() && disc.contains("propertyName") && disc["propertyName"].is_string())
+        {
+            const std::string property_name = disc["propertyName"].get<std::string>();
+            for (const char* union_key : {"anyOf", "oneOf"})
+            {
+                if (!node.contains(union_key) || !node[union_key].is_array())
+                    continue;
+                for (auto& variant : node[union_key])
+                {
+                    if (!variant.is_object())
+                        continue;
+                    Json& required = variant["required"];
+                    if (!required.is_array())
+                        required = Json::array();
+                    bool present = false;
+                    for (const auto& r : required)
+                        if (r.is_string() && r.get<std::string>() == property_name)
+                        {
+                            present = true;
+                            break;
+                        }
+                    if (!present)
+                        required.push_back(property_name);
+                }
+            }
+        }
         node.erase("discriminator");
+    }
     for (auto& [key, value] : node.items())
     {
         if (key == "properties" && value.is_object())

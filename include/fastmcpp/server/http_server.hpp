@@ -1,4 +1,5 @@
 #pragma once
+#include "fastmcpp/server/host_origin_guard.hpp"
 #include "fastmcpp/server/server.hpp"
 
 #include <atomic>
@@ -48,6 +49,13 @@ class HttpServerWrapper
     /// hook for Python `FastMCP.custom_route()` aggregation (commit 68e76fea).
     void set_custom_routes(std::vector<fastmcpp::CustomRoute> routes);
 
+    /// Enable the Host/Origin request guard (DNS-rebinding protection).
+    /// Call before start(). Default Off. PYTHON REFERENCE: host_origin_protection.
+    void set_host_origin_guard(HostOriginGuardOptions options)
+    {
+        host_origin_guard_options_ = std::move(options);
+    }
+
     bool start();
     void stop();
     bool running() const
@@ -77,6 +85,7 @@ class HttpServerWrapper
 
     std::shared_ptr<Server> core_;
     std::string host_;
+    HostOriginGuardOptions host_origin_guard_options_{};
     int requested_port_;
     std::atomic<int> bound_port_ = 0;
     std::string auth_token_; // Optional Bearer token for authentication

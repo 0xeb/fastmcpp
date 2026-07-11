@@ -307,6 +307,7 @@ bool SseServerWrapper::start()
 
     bound_port_.store(0); // Reset the bound port's value.
     svr_ = std::make_unique<httplib::Server>();
+    install_host_origin_guard(*svr_, HostOriginGuard(host_origin_guard_options_), host_);
 
     // Security: Set payload and timeout limits to prevent DoS
     svr_->set_payload_max_length(10 * 1024 * 1024); // 10MB max payload

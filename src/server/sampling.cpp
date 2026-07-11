@@ -1,6 +1,7 @@
 #include "fastmcpp/server/sampling.hpp"
 
 #include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/telemetry.hpp"
 
 #include <sstream>
 #include <stdexcept>
@@ -143,8 +144,21 @@ Step sample_step(std::shared_ptr<ServerSession> session, const std::vector<Messa
     if (options.tool_choice && !options.tool_choice->empty())
         params["toolChoice"] = fastmcpp::Json{{"mode", *options.tool_choice}};
 
-    fastmcpp::Json response =
-        session->send_request("sampling/createMessage", params, options.timeout);
+    // PYTHON REFERENCE: fastmcp #4059 (2d61d8a4) — trace the sampling step (the
+    // server->client LLM round-trip) with OTEL semantic-convention attributes.
+    auto span = telemetry::client_span("sampling.createMessage", "sampling/createMessage",
+                                       "sampling", std::nullopt);
+    fastmcpp::Json response;
+    try
+    {
+        response = session->send_request("sampling/createMessage", params, options.timeout);
+    }
+    catch (const std::exception& e)
+    {
+        if (span.active())
+            span.span().record_exception(e.what());
+        throw;
+    }
 
     Step step;
     step.response = response;

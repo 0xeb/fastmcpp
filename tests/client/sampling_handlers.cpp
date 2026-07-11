@@ -206,6 +206,159 @@ int main()
         assert(saw_anthropic);
     }
 
+    // ------------------------------------------------------------------
+    // F16 (fastmcp #3550 / commit 734b93b9): multimodal request-body encoding.
+    // Exercised via the detail encoders so the wire shape is asserted deterministically
+    // and independently of libcurl/network availability.
+    // ------------------------------------------------------------------
+    namespace handlers = fastmcpp::client::sampling::handlers;
+
+    auto expect_throw = [](const char* what, auto&& fn)
+    {
+        bool threw = false;
+        try
+        {
+            fn();
+        }
+        catch (const std::exception&)
+        {
+            threw = true;
+        }
+        assert(threw && "expected exception");
+        std::cout << "[OK] raises: " << what << "\n";
+    };
+
+    // OpenAI: user message with text + image(png) + audio(wav) => multimodal parts array.
+    {
+        Json params = {
+            {"messages",
+             Json::array({Json{
+                 {"role", "user"},
+                 {"content", Json::array({
+                                 Json{{"type", "text"}, {"text", "look"}},
+                                 Json{{"type", "image"},
+                                      {"mimeType", "image/png"},
+                                      {"data", "AAAA"}},
+                                 Json{{"type", "audio"},
+                                      {"mimeType", "audio/wav"},
+                                      {"data", "BBBB"}},
+                             })}}})}};
+        Json msgs = handlers::detail::build_openai_messages_for_test(params);
+        assert(msgs.is_array() && msgs.size() == 1);
+        const Json& m = msgs[0];
+        assert(m.value("role", "") == "user");
+        assert(m.contains("content") && m["content"].is_array());
+        const Json& parts = m["content"];
+        assert(parts.size() == 3);
+        assert(parts[0].value("type", "") == "text" && parts[0].value("text", "") == "look");
+        assert(parts[1].value("type", "") == "image_url");
+        assert(parts[1]["image_url"].value("url", "") == "data:image/png;base64,AAAA");
+        assert(parts[2].value("type", "") == "input_audio");
+        assert(parts[2]["input_audio"].value("data", "") == "BBBB");
+        assert(parts[2]["input_audio"].value("format", "") == "wav");
+        std::cout << "[OK] OpenAI multimodal user parts\n";
+    }
+
+    // OpenAI: audio/mpeg maps to format "mp3".
+    {
+        Json params = {
+            {"messages",
+             Json::array({Json{{"role", "user"},
+                               {"content", Json::array({Json{{"type", "audio"},
+                                                             {"mimeType", "audio/mpeg"},
+                                                             {"data", "CCCC"}}})}}})}};
+        Json msgs = handlers::detail::build_openai_messages_for_test(params);
+        assert(msgs[0]["content"][0]["input_audio"].value("format", "") == "mp3");
+        std::cout << "[OK] OpenAI audio/mpeg -> mp3\n";
+    }
+
+    // OpenAI: text-only user message stays a plain string content (no parts array).
+    {
+        Json params = {
+            {"messages",
+             Json::array({Json{{"role", "user"},
+                               {"content", Json{{"type", "text"}, {"text", "hi"}}}}})}};
+        Json msgs = handlers::detail::build_openai_messages_for_test(params);
+        assert(msgs[0]["content"].is_string() && msgs[0].value("content", "") == "hi");
+        std::cout << "[OK] OpenAI text-only unchanged\n";
+    }
+
+    // OpenAI: media in an assistant message is rejected (OpenAI accepts media only in user msgs).
+    expect_throw("OpenAI assistant-multimodal",
+                 [&]
+                 {
+                     Json params = {{"messages",
+                                     Json::array({Json{{"role", "assistant"},
+                                                       {"content", Json::array({Json{
+                                                                       {"type", "image"},
+                                                                       {"mimeType", "image/png"},
+                                                                       {"data", "AAAA"}}})}}})}};
+                     handlers::detail::build_openai_messages_for_test(params);
+                 });
+
+    // OpenAI: unsupported image MIME is rejected.
+    expect_throw("OpenAI bad image MIME",
+                 [&]
+                 {
+                     Json params = {{"messages",
+                                     Json::array({Json{{"role", "user"},
+                                                       {"content", Json::array({Json{
+                                                                       {"type", "image"},
+                                                                       {"mimeType", "image/tiff"},
+                                                                       {"data", "AAAA"}}})}}})}};
+                     handlers::detail::build_openai_messages_for_test(params);
+                 });
+
+    // Anthropic: user image => base64 source block.
+    {
+        Json params = {
+            {"messages",
+             Json::array({Json{{"role", "user"},
+                               {"content", Json::array({
+                                               Json{{"type", "text"}, {"text", "see"}},
+                                               Json{{"type", "image"},
+                                                    {"mimeType", "image/jpeg"},
+                                                    {"data", "ZZZZ"}},
+                                           })}}})}};
+        Json msgs = handlers::detail::build_anthropic_messages_for_test(params);
+        assert(msgs.is_array() && msgs.size() == 1);
+        const Json& blocks = msgs[0]["content"];
+        assert(blocks.is_array() && blocks.size() == 2);
+        assert(blocks[0].value("type", "") == "text");
+        assert(blocks[1].value("type", "") == "image");
+        const Json& src = blocks[1]["source"];
+        assert(src.value("type", "") == "base64");
+        assert(src.value("media_type", "") == "image/jpeg");
+        assert(src.value("data", "") == "ZZZZ");
+        std::cout << "[OK] Anthropic image base64 source\n";
+    }
+
+    // Anthropic: audio is unsupported by the Messages API.
+    expect_throw("Anthropic audio",
+                 [&]
+                 {
+                     Json params = {{"messages",
+                                     Json::array({Json{{"role", "user"},
+                                                       {"content", Json::array({Json{
+                                                                       {"type", "audio"},
+                                                                       {"mimeType", "audio/wav"},
+                                                                       {"data", "BBBB"}}})}}})}};
+                     handlers::detail::build_anthropic_messages_for_test(params);
+                 });
+
+    // Anthropic: image in an assistant message is rejected.
+    expect_throw("Anthropic assistant image",
+                 [&]
+                 {
+                     Json params = {{"messages",
+                                     Json::array({Json{{"role", "assistant"},
+                                                       {"content", Json::array({Json{
+                                                                       {"type", "image"},
+                                                                       {"mimeType", "image/png"},
+                                                                       {"data", "AAAA"}}})}}})}};
+                     handlers::detail::build_anthropic_messages_for_test(params);
+                 });
+
     std::cout << "\n[OK] sampling handlers tests complete\n";
     return 0;
 }

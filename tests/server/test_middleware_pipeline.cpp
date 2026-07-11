@@ -426,6 +426,122 @@ void test_method_specific_hooks()
     std::cout << "PASSED\n";
 }
 
+// Phase 4 / commit 257fe325: full response caching — cache tools/call keyed by args, replay
+// without re-invoking the handler, and rewrite the cached envelope's id per request.
+void test_caching_call_tool_by_args()
+{
+    std::cout << "  test_caching_call_tool_by_args... " << std::flush;
+
+    auto caching = std::make_shared<CachingMiddleware>();
+    MiddlewarePipeline pipeline;
+    pipeline.add(caching);
+
+    int calls = 0;
+    auto make_ctx = [](const Json& args, const Json& id)
+    {
+        MiddlewareContext ctx;
+        ctx.method = "tools/call";
+        ctx.message = Json{{"jsonrpc", "2.0"},
+                           {"id", id},
+                           {"method", "tools/call"},
+                           {"params", Json{{"name", "add"}, {"arguments", args}}}};
+        return ctx;
+    };
+    auto handler = [&calls](const MiddlewareContext& c)
+    {
+        calls++;
+        return Json{{"jsonrpc", "2.0"}, {"id", c.message.at("id")}, {"result", Json{{"sum", 5}}}};
+    };
+
+    // Same args, different ids: second is a cache hit (handler runs once), and the cached
+    // envelope's id is rewritten to the current request.
+    auto r1 = pipeline.execute(make_ctx(Json{{"a", 2}, {"b", 3}}, 1), handler);
+    auto r2 = pipeline.execute(make_ctx(Json{{"a", 2}, {"b", 3}}, 2), handler);
+    assert(calls == 1);
+    assert(r1["result"] == r2["result"]);
+    assert(r1["id"] == 1 && r2["id"] == 2);
+
+    // Different args: cache miss, handler runs again.
+    auto r3 = pipeline.execute(make_ctx(Json{{"a", 9}, {"b", 9}}, 3), handler);
+    assert(calls == 2);
+    assert(r3["id"] == 3);
+
+    std::cout << "PASSED\n";
+}
+
+// Cached responses must be partitioned per client/user (no cross-client leakage).
+void test_caching_partition()
+{
+    std::cout << "  test_caching_partition... " << std::flush;
+
+    auto caching = std::make_shared<CachingMiddleware>();
+    caching->set_partition_fn([](const MiddlewareContext& c)
+                              { return c.message.value("client", std::string()); });
+    MiddlewarePipeline pipeline;
+    pipeline.add(caching);
+
+    int calls = 0;
+    auto ctx_for = [](const char* client)
+    {
+        MiddlewareContext ctx;
+        ctx.method = "tools/call";
+        ctx.message = Json{{"client", client},
+                           {"params", Json{{"name", "x"}, {"arguments", Json::object()}}}};
+        return ctx;
+    };
+    auto handler = [&calls](const MiddlewareContext&)
+    { calls++; return Json{{"result", Json::object()}}; };
+
+    pipeline.execute(ctx_for("A"), handler); // miss
+    pipeline.execute(ctx_for("A"), handler); // hit (same client + params)
+    pipeline.execute(ctx_for("B"), handler); // miss (different partition)
+    assert(calls == 2);
+
+    std::cout << "PASSED\n";
+}
+
+// Phase 4 / commit 4ce8e2a5: per-client rate limiting — each client gets its own bucket.
+void test_rate_limiting_per_client()
+{
+    std::cout << "  test_rate_limiting_per_client... " << std::flush;
+
+    RateLimitingMiddleware::Config config;
+    config.tokens_per_second = 0.0; // no refill mid-test -> deterministic
+    config.max_tokens = 2.0;
+    auto rl = std::make_shared<RateLimitingMiddleware>(config);
+    rl->set_client_id_fn([](const MiddlewareContext& c)
+                         { return c.message.value("client", std::string()); });
+    MiddlewarePipeline pipeline;
+    pipeline.add(rl);
+
+    auto ctx_for = [](const char* client)
+    {
+        MiddlewareContext ctx;
+        ctx.method = "tools/call";
+        ctx.message = Json{{"client", client}};
+        return ctx;
+    };
+    auto ok = [](const MiddlewareContext&) { return Json::object(); };
+
+    // Client A exhausts its 2-token bucket; the 3rd call is rejected.
+    pipeline.execute(ctx_for("A"), ok);
+    pipeline.execute(ctx_for("A"), ok);
+    bool a_throw = false;
+    try { pipeline.execute(ctx_for("A"), ok); }
+    catch (const std::runtime_error&) { a_throw = true; }
+    assert(a_throw);
+
+    // Client B is unaffected — it has its own full bucket.
+    pipeline.execute(ctx_for("B"), ok);
+    pipeline.execute(ctx_for("B"), ok);
+    bool b_throw = false;
+    try { pipeline.execute(ctx_for("B"), ok); }
+    catch (const std::runtime_error&) { b_throw = true; }
+    assert(b_throw);
+
+    std::cout << "PASSED\n";
+}
+
 int main()
 {
     std::cout << "Middleware Pipeline Tests\n";
@@ -440,7 +556,10 @@ int main()
         test_logging_middleware();
         test_timing_middleware();
         test_caching_middleware();
+        test_caching_call_tool_by_args();
+        test_caching_partition();
         test_rate_limiting_middleware();
+        test_rate_limiting_per_client();
         test_ping_middleware();
         test_error_handling_middleware();
         test_combined_pipeline();

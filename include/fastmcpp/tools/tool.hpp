@@ -1,6 +1,7 @@
 #pragma once
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/types.hpp"
+#include "fastmcpp/util/json_schema.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -77,8 +78,21 @@ class Tool
     {
         return output_schema_;
     }
+    // P2/P3 (v3.4.4): run opt-in argument validation against the tool's inputSchema.
+    // No-op when disabled (default), so the existing contract is preserved. When enabled,
+    // mismatched/missing-required args raise ValidationError, which the MCP handler maps to
+    // JSON-RPC -32602 (invalid params), matching fastmcp.ValidationError semantics. Exposed so
+    // the task path can validate BEFORE creating task state (avoids orphaned tasks).
+    void validate_input_if_enabled(const fastmcpp::Json& input) const
+    {
+        if (validate_args_)
+            util::schema::validate(input_schema_, input);
+    }
+
     fastmcpp::Json invoke(const fastmcpp::Json& input, bool enforce_timeout = true) const
     {
+        validate_input_if_enabled(input);
+
         if (!enforce_timeout || !timeout_.has_value() || timeout_->count() <= 0)
             return fn_(input);
 
@@ -189,6 +203,16 @@ class Tool
         sequential_ = seq;
         return *this;
     }
+    // P2/P3: opt-in argument validation against inputSchema (default off).
+    bool validate_args() const
+    {
+        return validate_args_;
+    }
+    Tool& set_validate_args(bool v)
+    {
+        validate_args_ = v;
+        return *this;
+    }
     const std::optional<fastmcpp::Json>& annotations() const
     {
         return annotations_;
@@ -273,6 +297,7 @@ class Tool
     std::optional<std::chrono::milliseconds> timeout_;
     bool hidden_{false};
     bool sequential_{false};
+    bool validate_args_{false};
     std::optional<fastmcpp::Json> annotations_;
     std::optional<fastmcpp::AppConfig> app_;
     std::optional<std::string> version_;

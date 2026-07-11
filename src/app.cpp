@@ -5,6 +5,7 @@
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/mcp/handler.hpp"
 #include "fastmcpp/providers/provider.hpp"
+#include "fastmcpp/server/middleware_pipeline.hpp"
 #include "fastmcpp/resources/template.hpp"
 #include "fastmcpp/util/http_methods.hpp"
 #include "fastmcpp/util/json_schema.hpp"
@@ -282,6 +283,20 @@ void FastMCP::add_provider(std::shared_ptr<providers::Provider> provider)
     if (!provider)
         throw ValidationError("provider cannot be null");
     providers_.push_back(std::move(provider));
+}
+
+void FastMCP::add_middleware(std::shared_ptr<server::Middleware> mw)
+{
+    if (!mw)
+        throw ValidationError("middleware cannot be null");
+    if (!middleware_)
+        middleware_ = std::make_shared<server::MiddlewarePipeline>();
+    middleware_->add(std::move(mw));
+}
+
+bool FastMCP::has_middleware() const
+{
+    return middleware_ && !middleware_->empty();
 }
 
 FastMCP& FastMCP::add_custom_route(CustomRoute route)

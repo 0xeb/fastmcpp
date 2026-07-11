@@ -212,6 +212,82 @@ static fastmcpp::Json convert_mcp_tool_choice_to_openai(const fastmcpp::Json& to
     return fastmcpp::Json();
 }
 
+// F16 (fastmcp #3550 / commit 734b93b9): multimodal content in the sampling request body.
+// Map an MCP image/audio content block to an OpenAI chat content part.
+static std::string openai_audio_format(const std::string& mime)
+{
+    if (mime == "audio/wav" || mime == "audio/x-wav")
+        return "wav";
+    if (mime == "audio/mp3" || mime == "audio/mpeg")
+        return "mp3";
+    throw std::runtime_error("OpenAI sampling handler: unsupported audio MIME '" + mime + "'");
+}
+
+static bool openai_image_mime_ok(const std::string& mime)
+{
+    return mime == "image/jpeg" || mime == "image/png" || mime == "image/gif" ||
+           mime == "image/webp";
+}
+
+// Anthropic Messages API accepts the same base image MIME set.
+static bool anthropic_image_mime_ok(const std::string& mime)
+{
+    return mime == "image/jpeg" || mime == "image/png" || mime == "image/gif" ||
+           mime == "image/webp";
+}
+
+// Returns true if `content` carries any image/audio block.
+static bool content_has_media(const fastmcpp::Json& content)
+{
+    for (const auto& block : normalize_content_to_array(content))
+    {
+        if (!block.is_object())
+            continue;
+        const std::string t = block.value("type", "");
+        if (t == "image" || t == "audio")
+            return true;
+    }
+    return false;
+}
+
+// Build an OpenAI multimodal `content` parts array (text + image_url + input_audio).
+static fastmcpp::Json build_openai_content_parts(const fastmcpp::Json& content)
+{
+    fastmcpp::Json parts = fastmcpp::Json::array();
+    for (const auto& block : normalize_content_to_array(content))
+    {
+        if (!block.is_object())
+            continue;
+        const std::string t = block.value("type", "");
+        if (t == "text")
+        {
+            parts.push_back(
+                fastmcpp::Json{{"type", "text"}, {"text", block.value("text", "")}});
+        }
+        else if (t == "image")
+        {
+            const std::string mime = block.value("mimeType", "");
+            if (!openai_image_mime_ok(mime))
+                throw std::runtime_error("OpenAI sampling handler: unsupported image MIME '" +
+                                         mime + "'");
+            parts.push_back(fastmcpp::Json{
+                {"type", "image_url"},
+                {"image_url",
+                 fastmcpp::Json{{"url", "data:" + mime + ";base64," + block.value("data", "")}}}});
+        }
+        else if (t == "audio")
+        {
+            const std::string mime = block.value("mimeType", "");
+            parts.push_back(fastmcpp::Json{
+                {"type", "input_audio"},
+                {"input_audio", fastmcpp::Json{{"data", block.value("data", "")},
+                                               {"format", openai_audio_format(mime)}}}});
+        }
+        // tool_use / tool_result are handled as separate messages, not inline parts.
+    }
+    return parts;
+}
+
 static fastmcpp::Json build_openai_messages(const fastmcpp::Json& params)
 {
     fastmcpp::Json messages = fastmcpp::Json::array();
@@ -244,24 +320,31 @@ static fastmcpp::Json build_openai_messages(const fastmcpp::Json& params)
         }
 
         // Python fastmcp commit d6b55c0b (#3857): raise on unhandled content types instead of
-        // silently dropping. The OpenAI compatible handler currently supports text + tool_use +
-        // tool_result; image/audio request-body conversion (F16 / commit 734b93b9) is not yet
-        // implemented in C++, so raise a clear error rather than producing an empty assistant
-        // message that misleads upstream code.
+        // silently dropping. The OpenAI compatible handler supports text + tool_use + tool_result
+        // and (F16 / commit 734b93b9) image/audio request-body conversion. Any other type is a
+        // hard error so callers don't get silent data loss.
         for (const auto& block : normalize_content_to_array(content))
         {
             if (!block.is_object())
                 continue;
             const std::string t = block.value("type", "");
-            if (t == "text" || t == "tool_use" || t == "tool_result" || t.empty())
+            if (t == "text" || t == "tool_use" || t == "tool_result" || t == "image" ||
+                t == "audio" || t.empty())
                 continue;
-            if (t == "image" || t == "audio")
-                throw std::runtime_error(
-                    "OpenAI sampling handler: '" + t +
-                    "' content not yet supported (F16 / fastmcp #3550); cannot dispatch sampling "
-                    "request");
-            // Unknown type — surface clearly so callers don't get silent data loss.
             throw std::runtime_error("OpenAI sampling handler: unhandled content type '" + t + "'");
+        }
+
+        // F16: a user message carrying image/audio is emitted as a multimodal `content` parts
+        // array (data-URL image_url + input_audio). OpenAI only accepts media in user messages.
+        if (content_has_media(content))
+        {
+            if (role != "user")
+                throw std::runtime_error(
+                    "OpenAI sampling handler: image/audio content is only supported in user "
+                    "messages (got role '" + role + "')");
+            messages.push_back(
+                fastmcpp::Json{{"role", "user"}, {"content", build_openai_content_parts(content)}});
+            continue;
         }
 
         std::string text = join_text_blocks(content);
@@ -410,13 +493,26 @@ static fastmcpp::Json build_anthropic_messages(const fastmcpp::Json& params)
                 continue;
             }
             // Python fastmcp commit d6b55c0b (#3857): raise on unhandled content types.
-            // Anthropic handler does not support audio inputs at all (Anthropic API doesn't
-            // accept audio); image is acknowledged but request-body conversion is part of F16
-            // (commit 734b93b9) and not yet implemented in C++.
+            // F16 (commit 734b93b9): image request-body conversion to Anthropic's base64 source
+            // block. Anthropic accepts images only in user messages, and does not accept audio at
+            // all (the Messages API has no audio input).
             if (type == "image")
-                throw std::runtime_error(
-                    "Anthropic sampling handler: 'image' content not yet supported "
-                    "(F16 / fastmcp #3550); cannot dispatch sampling request");
+            {
+                if (role != "user")
+                    throw std::runtime_error(
+                        "Anthropic sampling handler: image content is only supported in user "
+                        "messages (got role '" + role + "')");
+                const std::string mime = block.value("mimeType", "");
+                if (!anthropic_image_mime_ok(mime))
+                    throw std::runtime_error(
+                        "Anthropic sampling handler: unsupported image MIME '" + mime + "'");
+                blocks.push_back(fastmcpp::Json{
+                    {"type", "image"},
+                    {"source", fastmcpp::Json{{"type", "base64"},
+                                              {"media_type", mime},
+                                              {"data", block.value("data", "")}}}});
+                continue;
+            }
             if (type == "audio")
                 throw std::runtime_error(
                     "Anthropic sampling handler: 'audio' content is not supported by the "
@@ -651,5 +747,18 @@ create_anthropic_sampling_callback(AnthropicOptions options)
     };
 #endif
 }
+
+namespace detail
+{
+fastmcpp::Json build_openai_messages_for_test(const fastmcpp::Json& params)
+{
+    return build_openai_messages(params);
+}
+
+fastmcpp::Json build_anthropic_messages_for_test(const fastmcpp::Json& params)
+{
+    return build_anthropic_messages(params);
+}
+} // namespace detail
 
 } // namespace fastmcpp::client::sampling::handlers

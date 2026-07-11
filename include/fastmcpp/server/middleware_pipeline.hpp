@@ -325,7 +325,13 @@ class TimingMiddleware : public Middleware
     std::unordered_map<std::string, TimingStats> stats_;
 };
 
-/// Response caching middleware
+/// Response caching middleware (parity with Python `ResponseCachingMiddleware`, commit 257fe325).
+///
+/// Caches read-style operations keyed by method + the request params (so paginated lists and
+/// distinct tool arguments don't collide), optionally partitioned per client/user. In addition to
+/// the list operations, it caches `tools/call`, `resources/read`, and `prompts/get` — the request
+/// only reaches the wrapped handler on a cache miss, so a repeated identical call is served from
+/// the cache without re-invoking the tool/resource/prompt.
 class CachingMiddleware : public Middleware
 {
   public:
@@ -338,15 +344,28 @@ class CachingMiddleware : public Middleware
     struct CacheConfig
     {
         std::chrono::seconds list_ttl{300};  // 5 minutes for list operations
-        std::chrono::seconds item_ttl{3600}; // 1 hour for individual items
+        std::chrono::seconds item_ttl{3600}; // 1 hour for call/read/get results
         size_t max_entries{1000};            // Max cache entries
         size_t max_entry_size{1024 * 1024};  // Max 1MB per entry
+        bool cache_calls{true};              // Cache tools/call + resources/read + prompts/get
 
         CacheConfig() = default;
     };
 
+    /// Partition function: derive a per-client/user cache namespace from the context.
+    /// Default partitions by session id (so caches never leak across sessions/users). Provide a
+    /// custom function (e.g. keyed on an auth token) for finer-grained partitioning.
+    using PartitionFn = std::function<std::string(const MiddlewareContext&)>;
+
     CachingMiddleware() : config_() {}
     explicit CachingMiddleware(CacheConfig config) : config_(std::move(config)) {}
+
+    /// Override the per-client cache partitioning function (default: session id).
+    CachingMiddleware& set_partition_fn(PartitionFn fn)
+    {
+        partition_fn_ = std::move(fn);
+        return *this;
+    }
 
     /// Clear all cache entries
     void clear()
@@ -378,23 +397,60 @@ class CachingMiddleware : public Middleware
   protected:
     Json on_list_tools(const MiddlewareContext& ctx, CallNext call_next) override
     {
-        return cached_call("tools/list", ctx, call_next, config_.list_ttl);
+        return cached_call(ctx, call_next, config_.list_ttl);
     }
 
     Json on_list_resources(const MiddlewareContext& ctx, CallNext call_next) override
     {
-        return cached_call("resources/list", ctx, call_next, config_.list_ttl);
+        return cached_call(ctx, call_next, config_.list_ttl);
     }
 
     Json on_list_prompts(const MiddlewareContext& ctx, CallNext call_next) override
     {
-        return cached_call("prompts/list", ctx, call_next, config_.list_ttl);
+        return cached_call(ctx, call_next, config_.list_ttl);
+    }
+
+    Json on_call_tool(const MiddlewareContext& ctx, CallNext call_next) override
+    {
+        if (!config_.cache_calls)
+            return call_next(ctx);
+        return cached_call(ctx, call_next, config_.item_ttl);
+    }
+
+    Json on_read_resource(const MiddlewareContext& ctx, CallNext call_next) override
+    {
+        if (!config_.cache_calls)
+            return call_next(ctx);
+        return cached_call(ctx, call_next, config_.item_ttl);
+    }
+
+    Json on_get_prompt(const MiddlewareContext& ctx, CallNext call_next) override
+    {
+        if (!config_.cache_calls)
+            return call_next(ctx);
+        return cached_call(ctx, call_next, config_.item_ttl);
     }
 
   private:
-    Json cached_call(const std::string& key, const MiddlewareContext& ctx, CallNext& call_next,
-                     std::chrono::seconds ttl)
+    // Key = partition (per client) + method + canonical params signature. nlohmann::json objects
+    // are key-ordered, so dump() is a stable canonical form for the arguments/cursor/uri.
+    std::string cache_key(const MiddlewareContext& ctx) const
     {
+        std::string partition;
+        if (partition_fn_)
+            partition = partition_fn_(ctx);
+        else if (ctx.session)
+            partition = ctx.session->session_id();
+
+        std::string params_sig;
+        if (ctx.message.is_object() && ctx.message.contains("params"))
+            params_sig = ctx.message.at("params").dump();
+        return partition + "\x1f" + ctx.method + "\x1f" + params_sig;
+    }
+
+    Json cached_call(const MiddlewareContext& ctx, CallNext& call_next, std::chrono::seconds ttl)
+    {
+        const std::string key = cache_key(ctx);
         auto now = std::chrono::steady_clock::now();
 
         // Check cache
@@ -404,7 +460,13 @@ class CachingMiddleware : public Middleware
             if (it != cache_.end() && it->second.expires_at > now)
             {
                 hits_++;
-                return it->second.response;
+                Json resp = it->second.response;
+                // The cached value is a full JSON-RPC envelope; rewrite its `id` to the current
+                // request's so a cache hit for a different request id still replies correctly.
+                if (resp.is_object() && resp.contains("id") && ctx.message.is_object() &&
+                    ctx.message.contains("id"))
+                    resp["id"] = ctx.message.at("id");
+                return resp;
             }
             misses_++;
         }
@@ -438,13 +500,21 @@ class CachingMiddleware : public Middleware
     }
 
     CacheConfig config_;
+    PartitionFn partition_fn_;
     mutable std::mutex mutex_;
     std::unordered_map<std::string, CacheEntry> cache_;
     size_t hits_{0};
     size_t misses_{0};
 };
 
-/// Rate limiting middleware using token bucket algorithm
+/// Parity alias for the Python middleware name.
+using ResponseCachingMiddleware = CachingMiddleware;
+
+/// Rate limiting middleware using token bucket algorithm.
+///
+/// Global by default. Provide a `get_client_id` function (parity with Python commit 4ce8e2a5) to
+/// maintain an independent token bucket per client/user, so one noisy client can't exhaust the
+/// budget for everyone.
 class RateLimitingMiddleware : public Middleware
 {
   public:
@@ -457,56 +527,81 @@ class RateLimitingMiddleware : public Middleware
         Config() = default;
     };
 
+    /// Derive a per-client identity from the context (default: none = one global bucket).
+    using ClientIdFn = std::function<std::string(const MiddlewareContext&)>;
+
     RateLimitingMiddleware()
-        : config_(), tokens_(config_.max_tokens), last_refill_(std::chrono::steady_clock::now())
+        : config_(), global_{config_.max_tokens, std::chrono::steady_clock::now()}
     {
     }
     explicit RateLimitingMiddleware(Config config)
-        : config_(std::move(config)), tokens_(config_.max_tokens),
-          last_refill_(std::chrono::steady_clock::now())
+        : config_(std::move(config)),
+          global_{config_.max_tokens, std::chrono::steady_clock::now()}
     {
     }
 
-    /// Check if rate limited (without consuming a token)
+    /// Enable per-client rate limiting: each distinct id gets its own bucket.
+    RateLimitingMiddleware& set_client_id_fn(ClientIdFn fn)
+    {
+        get_client_id_ = std::move(fn);
+        return *this;
+    }
+
+    /// Check if the global bucket is currently limited (without consuming a token).
     bool is_rate_limited() const
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        return tokens_ < 1.0;
+        return global_.tokens < 1.0;
     }
 
     /// Override operator() to intercept all requests (bypasses dispatch)
     Json operator()(const MiddlewareContext& ctx, CallNext call_next) override
     {
-        if (!try_acquire())
+        if (!try_acquire(ctx))
             throw std::runtime_error("Rate limit exceeded");
         return call_next(ctx);
     }
 
   private:
-    bool try_acquire()
+    struct Bucket
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        double tokens;
+        std::chrono::steady_clock::time_point last_refill;
+    };
 
-        // Refill tokens
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration<double>(now - last_refill_);
-        tokens_ =
-            std::min(config_.max_tokens, tokens_ + elapsed.count() * config_.tokens_per_second);
-        last_refill_ = now;
-
-        // Try to consume a token
-        if (tokens_ >= 1.0)
+    bool consume(Bucket& b, std::chrono::steady_clock::time_point now)
+    {
+        auto elapsed = std::chrono::duration<double>(now - b.last_refill);
+        b.tokens = std::min(config_.max_tokens, b.tokens + elapsed.count() * config_.tokens_per_second);
+        b.last_refill = now;
+        if (b.tokens >= 1.0)
         {
-            tokens_ -= 1.0;
+            b.tokens -= 1.0;
             return true;
         }
         return false;
     }
 
+    bool try_acquire(const MiddlewareContext& ctx)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto now = std::chrono::steady_clock::now();
+
+        if (!get_client_id_)
+            return consume(global_, now);
+
+        std::string client_id = get_client_id_(ctx);
+        auto it = client_buckets_.find(client_id);
+        if (it == client_buckets_.end())
+            it = client_buckets_.emplace(client_id, Bucket{config_.max_tokens, now}).first;
+        return consume(it->second, now);
+    }
+
     Config config_;
+    ClientIdFn get_client_id_;
     mutable std::mutex mutex_;
-    double tokens_;
-    std::chrono::steady_clock::time_point last_refill_;
+    Bucket global_;
+    std::unordered_map<std::string, Bucket> client_buckets_;
 };
 
 /// Error handling middleware - catches exceptions and converts to MCP errors

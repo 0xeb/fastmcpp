@@ -273,6 +273,8 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
                 std::string location;
                 Json schema;
                 bool required{false};
+                std::string style;           // F20: OpenAPI serialization style
+                std::optional<bool> explode; // F20: OpenAPI explode override
             };
 
             std::vector<ParsedParameter> parsed_parameters;
@@ -324,6 +326,11 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
                         schema,
                         param.value("required", false),
                     };
+                    // F20 (fastmcp #3595 / #3662): capture per-param style/explode overrides.
+                    if (param.contains("style") && param["style"].is_string())
+                        parsed_param.style = param["style"].get<std::string>();
+                    if (param.contains("explode") && param["explode"].is_boolean())
+                        parsed_param.explode = param["explode"].get<bool>();
 
                     const std::string key = location + ":" + param_name;
                     auto existing = parameter_indices.find(key);
@@ -356,7 +363,12 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
                 if (parsed_param.location == "path")
                     route.path_params.push_back(parsed_param.name);
                 else
+                {
                     route.query_params.push_back(parsed_param.name);
+                    if (!parsed_param.style.empty() || parsed_param.explode.has_value())
+                        route.query_param_meta[parsed_param.name] =
+                            ParameterMeta{parsed_param.style, parsed_param.explode};
+                }
             }
 
             if (op.contains("requestBody") && op["requestBody"].is_object())
@@ -378,6 +390,7 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
                         properties["body"] = content[ct]["schema"];
                         route.request_content_type = ct;
                         route.has_json_body = true;
+                        route.has_multipart_body = (ct == "multipart/form-data");
                         if (request_body.value("required", false))
                             required.push_back("body");
                         return true;
@@ -450,28 +463,87 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
         first = false;
         query << url_encode_component(key) << "=" << url_encode_component(val);
     };
+    // Python fastmcp commits 6f30e89d (#3595) + 16eb2ffc (#3662): honor per-parameter OpenAPI
+    // style/explode. Defaults are style=form, explode=true (repeat the key for arrays; expand
+    // properties for objects). With explode=false, values are joined by the style delimiter:
+    // form=',', spaceDelimited=' ', pipeDelimited='|' (parity with director.py _STYLE_DELIMITERS).
+    auto style_delimiter = [](const std::string& style) -> std::string
+    {
+        if (style == "spaceDelimited")
+            return " ";
+        if (style == "pipeDelimited")
+            return "|";
+        return ","; // form + default
+    };
     for (const auto& param : route.query_params)
     {
         if (!arguments.contains(param))
             continue;
         const auto& val = arguments.at(param);
-        // Python fastmcp commits 6f30e89d (#3595) + 16eb2ffc (#3662): honor OpenAPI default
-        // `style=form, explode=true` for arrays and objects. RouteDefinition does not yet
-        // capture per-param style/explode metadata, so this implements the spec defaults
-        // (which match upstream's pre-customization behavior). Per-param style/explode
-        // overrides remain a follow-up.
+
+        bool explode = true;
+        std::string style = "form";
+        auto meta_it = route.query_param_meta.find(param);
+        if (meta_it != route.query_param_meta.end())
+        {
+            if (!meta_it->second.style.empty())
+                style = meta_it->second.style;
+            if (meta_it->second.explode.has_value())
+                explode = *meta_it->second.explode;
+        }
+        const std::string delim = style_delimiter(style);
+
         if (val.is_array())
         {
-            // explode=true (default form): emit each element as a separate key=value pair.
-            for (const auto& el : val)
-                append_pair(param, to_string_value(el));
+            if (val.empty())
+                continue;
+            if (explode)
+            {
+                // explode=true: emit each element as a separate key=value pair.
+                for (const auto& el : val)
+                    append_pair(param, to_string_value(el));
+            }
+            else
+            {
+                // explode=false: join elements with the style delimiter (single pair).
+                std::string joined;
+                bool joined_first = true;
+                for (const auto& el : val)
+                {
+                    if (!joined_first)
+                        joined += delim;
+                    joined_first = false;
+                    joined += to_string_value(el);
+                }
+                append_pair(param, joined);
+            }
         }
         else if (val.is_object())
         {
-            // explode=true (default form): emit each property as a separate prop=value pair
-            // (the param name is dropped).
-            for (auto it = val.cbegin(); it != val.cend(); ++it)
-                append_pair(it.key(), to_string_value(it.value()));
+            if (val.empty())
+                continue;
+            if (explode)
+            {
+                // explode=true: each property becomes its own prop=value pair (name dropped).
+                for (auto it = val.cbegin(); it != val.cend(); ++it)
+                    append_pair(it.key(), to_string_value(it.value()));
+            }
+            else
+            {
+                // explode=false: flatten to "k<delim>v<delim>k<delim>v" under the param name.
+                std::string joined;
+                bool joined_first = true;
+                for (auto it = val.cbegin(); it != val.cend(); ++it)
+                {
+                    if (!joined_first)
+                        joined += delim;
+                    joined_first = false;
+                    joined += it.key();
+                    joined += delim;
+                    joined += to_string_value(it.value());
+                }
+                append_pair(param, joined);
+            }
         }
         else
         {
@@ -484,13 +556,38 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
         target = "/" + target;
 
     std::string body;
+    httplib::MultipartFormDataItems mp_items;
     // Python fastmcp commits 7dd57398 (#3932) + ca76b828 (#3611): dispatch on declared
     // request-body content type. application/x-www-form-urlencoded → form-encode body
-    // arguments (object only); multipart/form-data not yet implemented (defaults to JSON
-    // dump with the multipart content-type header so callers see a clear server-side
-    // error rather than silent garbage). JSON path unchanged.
+    // arguments (object only); multipart/form-data (F21) → build multipart parts and let
+    // httplib own the boundary + Content-Type. JSON path unchanged.
     const std::string& ct = route.request_content_type;
-    if (route.has_json_body && arguments.contains("body"))
+    if (route.has_multipart_body && arguments.contains("body") && arguments["body"].is_object())
+    {
+        // F21 (parity with director.py multipart branch): scalars become plain form fields
+        // (stringified — booleans as true/false); {filename, content} objects (optionally
+        // {contentType}) become file parts. httplib generates the multipart/form-data boundary.
+        for (auto it = arguments["body"].cbegin(); it != arguments["body"].cend(); ++it)
+        {
+            const auto& v = it.value();
+            httplib::MultipartFormData part;
+            part.name = it.key();
+            if (v.is_object() && v.contains("content") && v.contains("filename"))
+            {
+                part.filename = to_string_value(v["filename"]);
+                part.content = v["content"].is_string() ? v["content"].get<std::string>()
+                                                         : to_string_value(v["content"]);
+                if (v.contains("contentType") && v["contentType"].is_string())
+                    part.content_type = v["contentType"].get<std::string>();
+            }
+            else
+            {
+                part.content = to_string_value(v);
+            }
+            mp_items.push_back(std::move(part));
+        }
+    }
+    else if (route.has_json_body && arguments.contains("body"))
     {
         if (ct == "application/x-www-form-urlencoded" && arguments["body"].is_object())
         {
@@ -512,51 +609,47 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
         }
     }
 
+    // Single dispatch shared by http/https (generic over Client/SSLClient). When the route
+    // declares multipart/form-data (F21) and there is a body, use httplib's multipart Post/Put
+    // overload so it owns the boundary; otherwise the string-body overloads (JSON / form / GET).
+    const bool use_multipart = route.has_multipart_body && !mp_items.empty();
+    auto dispatch = [&](auto& client) -> httplib::Result
+    {
+        client.set_follow_location(true);
+        client.set_connection_timeout(30, 0);
+        client.set_read_timeout(30, 0);
+
+        const auto& m = route.method;
+        if (use_multipart && (m == "POST" || m == "PUT"))
+        {
+            if (m == "POST")
+                return client.Post(target.c_str(), mp_items);
+            return client.Put(target.c_str(), mp_items);
+        }
+        if (m == "GET")
+            return client.Get(target.c_str());
+        else if (m == "POST")
+            return client.Post(target.c_str(), body, ct.c_str());
+        else if (m == "PUT")
+            return client.Put(target.c_str(), body, ct.c_str());
+        else if (m == "PATCH")
+            return client.Patch(target.c_str(), body, ct.c_str());
+        else if (m == "DELETE")
+            return client.Delete(target.c_str(), body, ct.c_str());
+        throw ValidationError("Unsupported OpenAPI HTTP method: " + route.method);
+    };
+
     httplib::Result response;
     if (parsed.scheme == "http")
     {
-        std::unique_ptr<httplib::Client> client =
-            std::make_unique<httplib::Client>(parsed.host, parsed.port);
-        client->set_follow_location(true);
-        client->set_connection_timeout(30, 0);
-        client->set_read_timeout(30, 0);
-
-        const auto& m = route.method;
-        if (m == "GET")
-            response = client->Get(target.c_str());
-        else if (m == "POST")
-            response = client->Post(target.c_str(), body, ct.c_str());
-        else if (m == "PUT")
-            response = client->Put(target.c_str(), body, ct.c_str());
-        else if (m == "PATCH")
-            response = client->Patch(target.c_str(), body, ct.c_str());
-        else if (m == "DELETE")
-            response = client->Delete(target.c_str(), body, ct.c_str());
-        else
-            throw ValidationError("Unsupported OpenAPI HTTP method: " + route.method);
+        httplib::Client client(parsed.host, parsed.port);
+        response = dispatch(client);
     }
     else
     {
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-        std::unique_ptr<httplib::SSLClient> client =
-            std::make_unique<httplib::SSLClient>(parsed.host, parsed.port);
-        client->set_follow_location(true);
-        client->set_connection_timeout(30, 0);
-        client->set_read_timeout(30, 0);
-
-        const auto& m = route.method;
-        if (m == "GET")
-            response = client->Get(target.c_str());
-        else if (m == "POST")
-            response = client->Post(target.c_str(), body, ct.c_str());
-        else if (m == "PUT")
-            response = client->Put(target.c_str(), body, ct.c_str());
-        else if (m == "PATCH")
-            response = client->Patch(target.c_str(), body, ct.c_str());
-        else if (m == "DELETE")
-            response = client->Delete(target.c_str(), body, ct.c_str());
-        else
-            throw ValidationError("Unsupported OpenAPI HTTP method: " + route.method);
+        httplib::SSLClient client(parsed.host, parsed.port);
+        response = dispatch(client);
 #else
         throw ValidationError(
             "OpenAPIProvider https:// requires CPPHTTPLIB_OPENSSL_SUPPORT at build time");

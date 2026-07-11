@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.16)
 if(POLICY CMP0169)
   cmake_policy(SET CMP0169 OLD)
 endif()
-project(fastmcpp VERSION 3.4.2 LANGUAGES CXX)
+project(fastmcpp VERSION 3.4.4 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,6 +44,7 @@ add_library(fastmcpp_core STATIC
     src/server/context.cpp
     src/server/middleware.cpp
     src/server/security_middleware.cpp
+    src/server/host_origin_guard.cpp
     src/server/response_limiting_middleware.cpp
     src/server/ping_middleware.cpp
     src/server/sampling.cpp
@@ -271,6 +272,14 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_schema_root_ref_metadata PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_schema_root_ref_metadata COMMAND fastmcpp_schema_root_ref_metadata)
 
+  add_executable(fastmcpp_schema_recursive_ref_guard tests/schema/recursive_ref_guard.cpp)
+  target_link_libraries(fastmcpp_schema_recursive_ref_guard PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_schema_recursive_ref_guard COMMAND fastmcpp_schema_recursive_ref_guard)
+
+  add_executable(fastmcpp_schema_discriminator_required tests/schema/discriminator_required.cpp)
+  target_link_libraries(fastmcpp_schema_discriminator_required PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_schema_discriminator_required COMMAND fastmcpp_schema_discriminator_required)
+
   add_executable(fastmcpp_content tests/content.cpp)
   target_link_libraries(fastmcpp_content PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_content COMMAND fastmcpp_content)
@@ -349,6 +358,12 @@ if(FASTMCPP_BUILD_TESTS)
   add_test(NAME fastmcpp_resources_template_metadata
            COMMAND fastmcpp_resources_template_metadata)
 
+  add_executable(fastmcpp_resources_template_reserved_chars
+                 tests/resources/template_reserved_chars.cpp)
+  target_link_libraries(fastmcpp_resources_template_reserved_chars PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_resources_template_reserved_chars
+           COMMAND fastmcpp_resources_template_reserved_chars)
+
   add_executable(fastmcpp_server_basic tests/server/basic.cpp)
   target_link_libraries(fastmcpp_server_basic PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_basic COMMAND fastmcpp_server_basic)
@@ -356,6 +371,18 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_server_patterns tests/server/patterns.cpp)
   target_link_libraries(fastmcpp_server_patterns PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_patterns COMMAND fastmcpp_server_patterns)
+
+  add_executable(fastmcpp_host_origin_guard tests/server/host_origin_guard.cpp)
+  target_link_libraries(fastmcpp_host_origin_guard PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_host_origin_guard COMMAND fastmcpp_host_origin_guard)
+
+  add_executable(fastmcpp_host_origin_guard_fuzz tests/server/host_origin_guard_fuzz.cpp)
+  target_link_libraries(fastmcpp_host_origin_guard_fuzz PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_host_origin_guard_fuzz COMMAND fastmcpp_host_origin_guard_fuzz)
+
+  add_executable(fastmcpp_host_origin_guard_http tests/server/host_origin_guard_http.cpp)
+  target_link_libraries(fastmcpp_host_origin_guard_http PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_host_origin_guard_http COMMAND fastmcpp_host_origin_guard_http)
 
   # Split into 4 parts to avoid MSVC heap exhaustion on CI (C1060 + OutOfMemoryException)
   add_executable(fastmcpp_server_interactions_part1 tests/server/interactions_part1.cpp)
@@ -487,9 +514,17 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_server_middleware_pipeline PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_server_middleware_pipeline COMMAND fastmcpp_server_middleware_pipeline)
 
+  add_executable(fastmcpp_server_middleware_handler_integration tests/server/middleware_handler_integration.cpp)
+  target_link_libraries(fastmcpp_server_middleware_handler_integration PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_server_middleware_handler_integration COMMAND fastmcpp_server_middleware_handler_integration)
+
   add_executable(fastmcpp_telemetry tests/telemetry/tracing.cpp)
   target_link_libraries(fastmcpp_telemetry PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_telemetry COMMAND fastmcpp_telemetry)
+
+  add_executable(fastmcpp_telemetry_span_attributes tests/telemetry/span_attributes.cpp)
+  target_link_libraries(fastmcpp_telemetry_span_attributes PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_telemetry_span_attributes COMMAND fastmcpp_telemetry_span_attributes)
 
   add_executable(fastmcpp_stdio_client tests/transports/stdio_client.cpp)
   target_link_libraries(fastmcpp_stdio_client PRIVATE fastmcpp_core)

@@ -25,6 +25,12 @@ namespace providers
 class Provider;
 } // namespace providers
 
+namespace server
+{
+class Middleware;
+class MiddlewarePipeline;
+} // namespace server
+
 /// HTTP request snapshot passed to a custom-route handler.
 /// Kept transport-agnostic so HttpServerWrapper can populate it from
 /// cpp-httplib without leaking that dependency into app.hpp.
@@ -347,6 +353,23 @@ class FastMCP
     }
 
     // =========================================================================
+    // Middleware pipeline (Phase 4: full Middleware/MiddlewareContext unification)
+    // =========================================================================
+
+    /// Register a middleware. Middlewares run in registration order around request dispatch
+    /// (call-next semantics). With none registered, dispatch is unchanged (zero overhead).
+    void add_middleware(std::shared_ptr<server::Middleware> mw);
+
+    /// The pipeline (may be null if none registered). Handlers execute it around dispatch.
+    server::MiddlewarePipeline* middleware_pipeline() const
+    {
+        return middleware_.get();
+    }
+
+    /// True when at least one middleware is registered.
+    bool has_middleware() const;
+
+    // =========================================================================
     // Aggregated Lists (includes mounted apps)
     // =========================================================================
 
@@ -390,6 +413,7 @@ class FastMCP
     resources::ResourceManager resources_;
     prompts::PromptManager prompts_;
     std::vector<std::shared_ptr<providers::Provider>> providers_;
+    std::shared_ptr<server::MiddlewarePipeline> middleware_;
     std::vector<MountedApp> mounted_;
     std::vector<ProxyMountedApp> proxy_mounted_;
     std::vector<CustomRoute> custom_routes_;
