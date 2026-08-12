@@ -88,7 +88,6 @@ int main()
     const telemetry::Span* client_span = nullptr;
     const telemetry::Span* sampling_span = nullptr;
     for (const auto& s : spans)
-    {
         if (s.name == "tool add" && !tool_span)
             tool_span = &s;
         else if (s.name == "resource cfg")
@@ -97,7 +96,6 @@ int main()
             client_span = &s;
         else if (s.name == "sampling.createMessage")
             sampling_span = &s;
-    }
 
     CHECK(tool_span, "tool span recorded");
     if (tool_span)

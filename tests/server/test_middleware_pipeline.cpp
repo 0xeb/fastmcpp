@@ -490,7 +490,10 @@ void test_caching_partition()
         return ctx;
     };
     auto handler = [&calls](const MiddlewareContext&)
-    { calls++; return Json{{"result", Json::object()}}; };
+    {
+        calls++;
+        return Json{{"result", Json::object()}};
+    };
 
     pipeline.execute(ctx_for("A"), handler); // miss
     pipeline.execute(ctx_for("A"), handler); // hit (same client + params)
@@ -527,16 +530,28 @@ void test_rate_limiting_per_client()
     pipeline.execute(ctx_for("A"), ok);
     pipeline.execute(ctx_for("A"), ok);
     bool a_throw = false;
-    try { pipeline.execute(ctx_for("A"), ok); }
-    catch (const std::runtime_error&) { a_throw = true; }
+    try
+    {
+        pipeline.execute(ctx_for("A"), ok);
+    }
+    catch (const std::runtime_error&)
+    {
+        a_throw = true;
+    }
     assert(a_throw);
 
     // Client B is unaffected — it has its own full bucket.
     pipeline.execute(ctx_for("B"), ok);
     pipeline.execute(ctx_for("B"), ok);
     bool b_throw = false;
-    try { pipeline.execute(ctx_for("B"), ok); }
-    catch (const std::runtime_error&) { b_throw = true; }
+    try
+    {
+        pipeline.execute(ctx_for("B"), ok);
+    }
+    catch (const std::runtime_error&)
+    {
+        b_throw = true;
+    }
     assert(b_throw);
 
     std::cout << "PASSED\n";

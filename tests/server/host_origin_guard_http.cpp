@@ -75,8 +75,7 @@ int main()
         CHECK(http.start(), "auto: server starts");
         int p = http.port();
         CHECK(post_status(p, "", "") == 200, "auto: default loopback host allowed");
-        CHECK(post_status(p, "attacker.example", "") == 421,
-              "auto: rebinding host rejected 421");
+        CHECK(post_status(p, "attacker.example", "") == 421, "auto: rebinding host rejected 421");
         CHECK(post_status(p, "localhost:12345", "") == 200, "auto: localhost host allowed");
         CHECK(post_status(p, "", "http://localhost:3000") == 200,
               "auto: loopback origin for loopback host allowed");
@@ -118,7 +117,10 @@ int main()
     // ---- Streamable HTTP: guard fires BEFORE session handling ----
     {
         auto handler = [](const Json& req) -> Json
-        { return Json{{"jsonrpc", "2.0"}, {"id", req.value("id", Json())}, {"result", Json::object()}}; };
+        {
+            return Json{
+                {"jsonrpc", "2.0"}, {"id", req.value("id", Json())}, {"result", Json::object()}};
+        };
         server::StreamableHttpServerWrapper streamable{handler, "127.0.0.1", 0};
         HostOriginGuardOptions o;
         o.mode = HostOriginProtectionMode::Auto;
@@ -127,7 +129,8 @@ int main()
 
         httplib::Client cli("127.0.0.1", streamable.port());
         cli.set_connection_timeout(std::chrono::seconds(2));
-        httplib::Headers headers{{"Host", "attacker.example"}, {"Accept", "application/json, text/event-stream"}};
+        httplib::Headers headers{{"Host", "attacker.example"},
+                                 {"Accept", "application/json, text/event-stream"}};
         auto res = cli.Post(
             "/mcp", headers,
             R"({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"0"}}})",

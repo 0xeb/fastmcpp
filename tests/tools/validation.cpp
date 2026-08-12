@@ -298,10 +298,10 @@ void test_opt_in_arg_validation()
 
     tools::ToolManager tm;
 
-    Json schema = {{"type", "object"},
-                   {"properties", Json{{"a", Json{{"type", "number"}}},
-                                       {"n", Json{{"type", "string"}}}}},
-                   {"required", Json::array({"a", "n"})}};
+    Json schema = {
+        {"type", "object"},
+        {"properties", Json{{"a", Json{{"type", "number"}}}, {"n", Json{{"type", "string"}}}}},
+        {"required", Json::array({"a", "n"})}};
 
     tools::Tool strict{"strict", schema, Json{{"type", "number"}},
                        [](const Json& in) { return in.at("a").get<double>(); }};

@@ -35,8 +35,8 @@ class OpenAPIProvider : public Provider
     // Absent style => "form"; absent explode => true (the OpenAPI query defaults).
     struct ParameterMeta
     {
-        std::string style;             // "form" | "spaceDelimited" | "pipeDelimited"
-        std::optional<bool> explode;   // nullopt => default (true)
+        std::string style;           // "form" | "spaceDelimited" | "pipeDelimited"
+        std::optional<bool> explode; // nullopt => default (true)
     };
 
     struct RouteDefinition

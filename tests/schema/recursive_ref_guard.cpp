@@ -21,13 +21,15 @@ int main()
     Json schema = {
         {"type", "object"},
         {"properties", Json{{"root", Json{{"$ref", "#/$defs/Node"}}}}},
-        {"$defs", Json{{"Node", Json{
-                                    {"type", "object"},
-                                    {"properties", Json{
-                                                       {"value", Json{{"type", "integer"}}},
-                                                       {"next", Json{{"$ref", "#/$defs/Node"}}},
-                                                   }},
-                                }}}},
+        {"$defs", Json{{"Node",
+                        Json{
+                            {"type", "object"},
+                            {"properties",
+                             Json{
+                                 {"value", Json{{"type", "integer"}}},
+                                 {"next", Json{{"$ref", "#/$defs/Node"}}},
+                             }},
+                        }}}},
     };
 
     // Must terminate (the cycle guard prevents infinite recursion / stack overflow).

@@ -224,7 +224,8 @@ static void strip_discriminator(Json& node)
     {
         // Before dropping the discriminator hint, keep its property REQUIRED in each variant.
         // Mirrors Python `_require_property` (commits 9b1a1a04 / 5fa4f32c, #4297 / #4362): strict
-        // validators would otherwise no longer enforce the discriminator field once the hint is gone.
+        // validators would otherwise no longer enforce the discriminator field once the hint is
+        // gone.
         const Json& disc = node["discriminator"];
         if (disc.is_object() && disc.contains("propertyName") && disc["propertyName"].is_string())
         {

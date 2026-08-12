@@ -576,7 +576,7 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
             {
                 part.filename = to_string_value(v["filename"]);
                 part.content = v["content"].is_string() ? v["content"].get<std::string>()
-                                                         : to_string_value(v["content"]);
+                                                        : to_string_value(v["content"]);
                 if (v.contains("contentType") && v["contentType"].is_string())
                     part.content_type = v["contentType"].get<std::string>();
             }

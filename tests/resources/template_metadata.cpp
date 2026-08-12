@@ -3,9 +3,8 @@
 // from a ResourceTemplate, the template-level title/annotations/icons/version
 // must propagate to the resulting Resource instead of being dropped.
 
-#include "fastmcpp/resources/template.hpp"
-
 #include "fastmcpp/resources/resource.hpp"
+#include "fastmcpp/resources/template.hpp"
 #include "fastmcpp/types.hpp"
 
 #include <cassert>

@@ -81,8 +81,14 @@ class HostOriginGuard
                             const std::optional<std::string>& origin_header,
                             const std::string& scheme, const std::string& bound_host) const;
 
-    bool enabled() const { return options_.mode != HostOriginProtectionMode::Off; }
-    const HostOriginGuardOptions& options() const { return options_; }
+    bool enabled() const
+    {
+        return options_.mode != HostOriginProtectionMode::Off;
+    }
+    const HostOriginGuardOptions& options() const
+    {
+        return options_;
+    }
 
   private:
     bool should_validate_host(const std::string& bound_host) const;
@@ -100,7 +106,6 @@ class HostOriginGuard
 /// Install the guard as an httplib pre-routing handler: it runs before ALL routes
 /// (including OPTIONS), before auth and session handling. No-op when mode == Off.
 /// `bound_host` should be the wrapper's bound address (drives Auto-mode decisions).
-void install_host_origin_guard(httplib::Server& svr, HostOriginGuard guard,
-                               std::string bound_host);
+void install_host_origin_guard(httplib::Server& svr, HostOriginGuard guard, std::string bound_host);
 
 } // namespace fastmcpp::server

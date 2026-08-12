@@ -138,7 +138,8 @@ void test_initialize_without_validation_succeeds_when_upstream_down()
 
 void test_initialize_with_validation_surfaces_upstream_failure()
 {
-    std::cout << "Test: MCP initialize surfaces upstream failure under validate_on_initialize (F8)...\n";
+    std::cout
+        << "Test: MCP initialize surfaces upstream failure under validate_on_initialize (F8)...\n";
     ProxyAppOptions opts;
     opts.name = "p3";
     opts.validate_on_initialize = true;

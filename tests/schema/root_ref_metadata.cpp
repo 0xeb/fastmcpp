@@ -23,10 +23,11 @@ int main()
         {"$ref", "#/$defs/Person"},
         {"title", "PersonRoot"},
         {"description", "A person at the root"},
-        {"$defs", Json{{"Person", Json{
-                                      {"type", "object"},
-                                      {"properties", Json{{"name", Json{{"type", "string"}}}}},
-                                  }}}},
+        {"$defs", Json{{"Person",
+                        Json{
+                            {"type", "object"},
+                            {"properties", Json{{"name", Json{{"type", "string"}}}}},
+                        }}}},
     };
 
     Json deref = util::schema::dereference_refs(schema);

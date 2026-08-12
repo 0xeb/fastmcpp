@@ -232,17 +232,14 @@ int main()
     {
         Json params = {
             {"messages",
-             Json::array({Json{
-                 {"role", "user"},
-                 {"content", Json::array({
-                                 Json{{"type", "text"}, {"text", "look"}},
-                                 Json{{"type", "image"},
-                                      {"mimeType", "image/png"},
-                                      {"data", "AAAA"}},
-                                 Json{{"type", "audio"},
-                                      {"mimeType", "audio/wav"},
-                                      {"data", "BBBB"}},
-                             })}}})}};
+             Json::array(
+                 {Json{{"role", "user"},
+                       {"content",
+                        Json::array({
+                            Json{{"type", "text"}, {"text", "look"}},
+                            Json{{"type", "image"}, {"mimeType", "image/png"}, {"data", "AAAA"}},
+                            Json{{"type", "audio"}, {"mimeType", "audio/wav"}, {"data", "BBBB"}},
+                        })}}})}};
         Json msgs = handlers::detail::build_openai_messages_for_test(params);
         assert(msgs.is_array() && msgs.size() == 1);
         const Json& m = msgs[0];
@@ -262,11 +259,10 @@ int main()
     // OpenAI: audio/mpeg maps to format "mp3".
     {
         Json params = {
-            {"messages",
-             Json::array({Json{{"role", "user"},
-                               {"content", Json::array({Json{{"type", "audio"},
-                                                             {"mimeType", "audio/mpeg"},
-                                                             {"data", "CCCC"}}})}}})}};
+            {"messages", Json::array({Json{{"role", "user"},
+                                           {"content", Json::array({Json{{"type", "audio"},
+                                                                         {"mimeType", "audio/mpeg"},
+                                                                         {"data", "CCCC"}}})}}})}};
         Json msgs = handlers::detail::build_openai_messages_for_test(params);
         assert(msgs[0]["content"][0]["input_audio"].value("format", "") == "mp3");
         std::cout << "[OK] OpenAI audio/mpeg -> mp3\n";
@@ -275,9 +271,8 @@ int main()
     // OpenAI: text-only user message stays a plain string content (no parts array).
     {
         Json params = {
-            {"messages",
-             Json::array({Json{{"role", "user"},
-                               {"content", Json{{"type", "text"}, {"text", "hi"}}}}})}};
+            {"messages", Json::array({Json{{"role", "user"},
+                                           {"content", Json{{"type", "text"}, {"text", "hi"}}}}})}};
         Json msgs = handlers::detail::build_openai_messages_for_test(params);
         assert(msgs[0]["content"].is_string() && msgs[0].value("content", "") == "hi");
         std::cout << "[OK] OpenAI text-only unchanged\n";
@@ -287,39 +282,40 @@ int main()
     expect_throw("OpenAI assistant-multimodal",
                  [&]
                  {
-                     Json params = {{"messages",
-                                     Json::array({Json{{"role", "assistant"},
-                                                       {"content", Json::array({Json{
-                                                                       {"type", "image"},
-                                                                       {"mimeType", "image/png"},
-                                                                       {"data", "AAAA"}}})}}})}};
+                     Json params = {
+                         {"messages",
+                          Json::array({Json{{"role", "assistant"},
+                                            {"content", Json::array({Json{{"type", "image"},
+                                                                          {"mimeType", "image/png"},
+                                                                          {"data", "AAAA"}}})}}})}};
                      handlers::detail::build_openai_messages_for_test(params);
                  });
 
     // OpenAI: unsupported image MIME is rejected.
-    expect_throw("OpenAI bad image MIME",
-                 [&]
-                 {
-                     Json params = {{"messages",
-                                     Json::array({Json{{"role", "user"},
-                                                       {"content", Json::array({Json{
-                                                                       {"type", "image"},
-                                                                       {"mimeType", "image/tiff"},
-                                                                       {"data", "AAAA"}}})}}})}};
-                     handlers::detail::build_openai_messages_for_test(params);
-                 });
+    expect_throw(
+        "OpenAI bad image MIME",
+        [&]
+        {
+            Json params = {
+                {"messages",
+                 Json::array({Json{{"role", "user"},
+                                   {"content", Json::array({Json{{"type", "image"},
+                                                                 {"mimeType", "image/tiff"},
+                                                                 {"data", "AAAA"}}})}}})}};
+            handlers::detail::build_openai_messages_for_test(params);
+        });
 
     // Anthropic: user image => base64 source block.
     {
         Json params = {
             {"messages",
-             Json::array({Json{{"role", "user"},
-                               {"content", Json::array({
-                                               Json{{"type", "text"}, {"text", "see"}},
-                                               Json{{"type", "image"},
-                                                    {"mimeType", "image/jpeg"},
-                                                    {"data", "ZZZZ"}},
-                                           })}}})}};
+             Json::array(
+                 {Json{{"role", "user"},
+                       {"content",
+                        Json::array({
+                            Json{{"type", "text"}, {"text", "see"}},
+                            Json{{"type", "image"}, {"mimeType", "image/jpeg"}, {"data", "ZZZZ"}},
+                        })}}})}};
         Json msgs = handlers::detail::build_anthropic_messages_for_test(params);
         assert(msgs.is_array() && msgs.size() == 1);
         const Json& blocks = msgs[0]["content"];
@@ -337,12 +333,12 @@ int main()
     expect_throw("Anthropic audio",
                  [&]
                  {
-                     Json params = {{"messages",
-                                     Json::array({Json{{"role", "user"},
-                                                       {"content", Json::array({Json{
-                                                                       {"type", "audio"},
-                                                                       {"mimeType", "audio/wav"},
-                                                                       {"data", "BBBB"}}})}}})}};
+                     Json params = {
+                         {"messages",
+                          Json::array({Json{{"role", "user"},
+                                            {"content", Json::array({Json{{"type", "audio"},
+                                                                          {"mimeType", "audio/wav"},
+                                                                          {"data", "BBBB"}}})}}})}};
                      handlers::detail::build_anthropic_messages_for_test(params);
                  });
 
@@ -350,12 +346,12 @@ int main()
     expect_throw("Anthropic assistant image",
                  [&]
                  {
-                     Json params = {{"messages",
-                                     Json::array({Json{{"role", "assistant"},
-                                                       {"content", Json::array({Json{
-                                                                       {"type", "image"},
-                                                                       {"mimeType", "image/png"},
-                                                                       {"data", "AAAA"}}})}}})}};
+                     Json params = {
+                         {"messages",
+                          Json::array({Json{{"role", "assistant"},
+                                            {"content", Json::array({Json{{"type", "image"},
+                                                                          {"mimeType", "image/png"},
+                                                                          {"data", "AAAA"}}})}}})}};
                      handlers::detail::build_anthropic_messages_for_test(params);
                  });
 

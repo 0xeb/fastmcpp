@@ -2591,8 +2591,8 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
 
     // Phase 4: run the registered Middleware pipeline around dispatch. With no middleware
     // registered (the default), `core` is invoked directly — byte-identical, zero overhead.
-    return [&app, core = std::move(core), session_accessor](
-               const fastmcpp::Json& message) -> fastmcpp::Json
+    return [&app, core = std::move(core),
+            session_accessor](const fastmcpp::Json& message) -> fastmcpp::Json
     {
         if (!app.has_middleware())
             return core(message);
@@ -2617,8 +2617,8 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
         else if (ctx.method == "prompts/get")
             ctx.prompt_name = params.value("name", "");
 
-        return app.middleware_pipeline()->execute(
-            ctx, [&core](const server::MiddlewareContext& c) { return core(c.message); });
+        return app.middleware_pipeline()->execute(ctx, [&core](const server::MiddlewareContext& c)
+                                                  { return core(c.message); });
     };
 }
 

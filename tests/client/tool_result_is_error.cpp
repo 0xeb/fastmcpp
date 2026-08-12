@@ -30,16 +30,16 @@ std::shared_ptr<server::Server> make_error_server()
 {
     auto srv = std::make_shared<server::Server>();
 
-    srv->route(
-        "tools/list",
-        [](const Json&)
-        {
-            Json tools = Json::array();
-            tools.push_back(Json{{"name", "always_error"},
-                                 {"description", "Returns is_error=true with custom content"},
-                                 {"inputSchema", Json{{"type", "object"}}}});
-            return Json{{"tools", tools}};
-        });
+    srv->route("tools/list",
+               [](const Json&)
+               {
+                   Json tools = Json::array();
+                   tools.push_back(
+                       Json{{"name", "always_error"},
+                            {"description", "Returns is_error=true with custom content"},
+                            {"inputSchema", Json{{"type", "object"}}}});
+                   return Json{{"tools", tools}};
+               });
 
     srv->route(
         "tools/call",
@@ -84,9 +84,8 @@ int main()
     // 2) F5: raise_on_error=false MUST return the result with isError=true.
     {
         client::Client c(std::make_unique<client::LoopbackTransport>(srv));
-        auto result =
-            c.call_tool("always_error", Json::object(), std::nullopt,
-                        std::chrono::milliseconds{0}, nullptr, /*raise_on_error=*/false);
+        auto result = c.call_tool("always_error", Json::object(), std::nullopt,
+                                  std::chrono::milliseconds{0}, nullptr, /*raise_on_error=*/false);
         assert(result.isError && "F5: isError must propagate when raise_on_error=false");
 
         // 3) content preserved (NOT collapsed to a generic 'Tool call failed').

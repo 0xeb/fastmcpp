@@ -3,12 +3,11 @@
 
 #include "fastmcpp/server/host_origin_guard.hpp"
 
-#include <httplib.h>
-
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <cstdint>
+#include <httplib.h>
 
 namespace fastmcpp::server
 {
@@ -89,8 +88,8 @@ bool parse_ipv6(const std::string& s, std::array<uint8_t, 16>& out)
         while (true)
         {
             size_t colon = part.find(':', start);
-            std::string g =
-                (colon == std::string::npos) ? part.substr(start) : part.substr(start, colon - start);
+            std::string g = (colon == std::string::npos) ? part.substr(start)
+                                                         : part.substr(start, colon - start);
             if (g.empty())
                 return false; // empty group outside of "::"
             groups.push_back(g);
@@ -554,22 +553,19 @@ HostOriginVerdict HostOriginGuard::check(const std::string& host_header,
     return HostOriginVerdict::Allow;
 }
 
-void install_host_origin_guard(httplib::Server& svr, HostOriginGuard guard,
-                               std::string bound_host)
+void install_host_origin_guard(httplib::Server& svr, HostOriginGuard guard, std::string bound_host)
 {
     if (!guard.enabled())
         return;
     svr.set_pre_routing_handler(
         [guard = std::move(guard), bound_host = std::move(bound_host)](
-            const httplib::Request& req,
-            httplib::Response& res) -> httplib::Server::HandlerResponse
+            const httplib::Request& req, httplib::Response& res) -> httplib::Server::HandlerResponse
         {
             std::optional<std::string> origin;
             if (req.has_header("Origin"))
                 origin = req.get_header_value("Origin");
             // fastmcpp serves plain HTTP; TLS termination happens upstream.
-            auto verdict =
-                guard.check(req.get_header_value("Host"), origin, "http", bound_host);
+            auto verdict = guard.check(req.get_header_value("Host"), origin, "http", bound_host);
             if (verdict == HostOriginVerdict::RejectHost421)
             {
                 res.status = 421;

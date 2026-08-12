@@ -26,12 +26,15 @@ int main()
 
     auto counter = std::make_shared<int>(0);
     FastMCP app("mw_integ", "1.0.0");
-    tools::Tool add{
-        "add",
-        Json{{"type", "object"},
-             {"properties", Json{{"a", Json{{"type", "integer"}}}, {"b", Json{{"type", "integer"}}}}}},
-        Json{{"type", "integer"}},
-        [counter](const Json& in) { (*counter)++; return in.value("a", 0) + in.value("b", 0); }};
+    tools::Tool add{"add",
+                    Json{{"type", "object"},
+                         {"properties", Json{{"a", Json{{"type", "integer"}}},
+                                             {"b", Json{{"type", "integer"}}}}}},
+                    Json{{"type", "integer"}}, [counter](const Json& in)
+                    {
+                        (*counter)++;
+                        return in.value("a", 0) + in.value("b", 0);
+                    }};
     app.tools().register_tool(add);
 
     auto handler = mcp::make_mcp_handler(app);
@@ -70,7 +73,11 @@ int main()
         auto counter2 = std::make_shared<int>(0);
         FastMCP app2("mw_rl", "1.0.0");
         tools::Tool ping{"ping", Json{{"type", "object"}}, Json{{"type", "string"}},
-                         [counter2](const Json&) { (*counter2)++; return std::string("pong"); }};
+                         [counter2](const Json&)
+                         {
+                             (*counter2)++;
+                             return std::string("pong");
+                         }};
         app2.tools().register_tool(ping);
 
         server::RateLimitingMiddleware::Config cfg;

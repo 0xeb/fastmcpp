@@ -177,8 +177,7 @@ int main()
     // Bound host is implicitly allowed (non-unspecified binding appears in allowlist).
     {
         HostOriginGuard g(opts(HostOriginProtectionMode::Strict));
-        CHECK(g.check("10.1.2.3:9000", std::nullopt, HTTP, "10.1.2.3") ==
-                  HostOriginVerdict::Allow,
+        CHECK(g.check("10.1.2.3:9000", std::nullopt, HTTP, "10.1.2.3") == HostOriginVerdict::Allow,
               "bound host implicitly allowed");
     }
 

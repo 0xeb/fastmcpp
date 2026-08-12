@@ -18,7 +18,7 @@ using namespace fastmcpp::server::host_origin;
 namespace
 {
 int checks = 0;
-#define CHECK(cond, msg)                                                                            \
+#define CHECK(cond, msg)                                                                           \
     do                                                                                             \
     {                                                                                              \
         ++checks;                                                                                  \
@@ -149,8 +149,8 @@ int main()
     CHECK(normalize_host("  MCP.Example.COM  ") == "mcp.example.com", "trim + lower");
     CHECK(is_unspecified_host("::") && is_unspecified_host("0.0.0.0") && is_unspecified_host(""),
           "unspecified forms");
-    CHECK(is_loopback_host("::1") && is_loopback_host("127.0.0.1") && is_loopback_host("localhost") &&
-              is_loopback_host("[::1]"),
+    CHECK(is_loopback_host("::1") && is_loopback_host("127.0.0.1") &&
+              is_loopback_host("localhost") && is_loopback_host("[::1]"),
           "loopback forms");
     CHECK(!is_loopback_host("192.168.1.9") && !is_loopback_host("example.com"),
           "non-loopback forms");

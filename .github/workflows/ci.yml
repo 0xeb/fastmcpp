@@ -43,9 +43,15 @@ jobs:
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
+        # No explicit -G: pinning "Visual Studio 17 2022" broke the moment the
+        # runner image moved past it ("could not find any instance of Visual
+        # Studio"). CMake's default generator on a Windows runner is the newest
+        # installed Visual Studio, so this follows the image instead of chasing
+        # it. -A x64 still applies -- the default generator is a VS one, which
+        # is also what the MSBuild flags in the build step below require.
         run: |
           if (Test-Path build) { Remove-Item -Recurse -Force build/CMakeCache.txt, build/CMakeFiles -ErrorAction SilentlyContinue }
-          cmake -B build -S . -G "Visual Studio 17 2022" -A x64 -DFASTMCPP_BUILD_TESTS=ON -DFASTMCPP_BUILD_EXAMPLES=ON
+          cmake -B build -S . -A x64 -DFASTMCPP_BUILD_TESTS=ON -DFASTMCPP_BUILD_EXAMPLES=ON
 
       - name: Build (Unix)
         if: runner.os != 'Windows'

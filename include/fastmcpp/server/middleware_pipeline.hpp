@@ -535,8 +535,7 @@ class RateLimitingMiddleware : public Middleware
     {
     }
     explicit RateLimitingMiddleware(Config config)
-        : config_(std::move(config)),
-          global_{config_.max_tokens, std::chrono::steady_clock::now()}
+        : config_(std::move(config)), global_{config_.max_tokens, std::chrono::steady_clock::now()}
     {
     }
 
@@ -572,7 +571,8 @@ class RateLimitingMiddleware : public Middleware
     bool consume(Bucket& b, std::chrono::steady_clock::time_point now)
     {
         auto elapsed = std::chrono::duration<double>(now - b.last_refill);
-        b.tokens = std::min(config_.max_tokens, b.tokens + elapsed.count() * config_.tokens_per_second);
+        b.tokens =
+            std::min(config_.max_tokens, b.tokens + elapsed.count() * config_.tokens_per_second);
         b.last_refill = now;
         if (b.tokens >= 1.0)
         {

@@ -116,13 +116,12 @@ int main()
     };
 
     // F20: per-param style/explode. Arrays: form(explode=false)→comma, pipeDelimited→'|',
-    // spaceDelimited→' '; explode=true→repeat key. Objects: explode=false→"k,v,k,v"; default→expand.
+    // spaceDelimited→' '; explode=true→repeat key. Objects: explode=false→"k,v,k,v";
+    // default→expand.
     auto qparam = [](const char* name, const char* type, const char* style, bool has_explode,
                      bool explode) -> Json
     {
-        Json p = Json{{"name", name},
-                      {"in", "query"},
-                      {"schema", Json{{"type", type}}}};
+        Json p = Json{{"name", name}, {"in", "query"}, {"schema", Json{{"type", type}}}};
         if (style && *style)
             p["style"] = style;
         if (has_explode)
@@ -133,12 +132,12 @@ int main()
         {"operationId", "queryStyles"},
         {"parameters",
          Json::array({
-             qparam("tags", "array", "form", true, false),           // -> tags=a,b
-             qparam("pipes", "array", "pipeDelimited", true, false),  // -> pipes=x|y
-             qparam("spaces", "array", "spaceDelimited", true, false),// -> spaces=m n
-             qparam("items", "array", "", false, false),              // default explode -> repeat
-             qparam("filter", "object", "form", true, false),         // -> filter=a,1,b,2
-             qparam("coords", "object", "", false, false),            // default explode -> expand
+             qparam("tags", "array", "form", true, false),             // -> tags=a,b
+             qparam("pipes", "array", "pipeDelimited", true, false),   // -> pipes=x|y
+             qparam("spaces", "array", "spaceDelimited", true, false), // -> spaces=m n
+             qparam("items", "array", "", false, false),               // default explode -> repeat
+             qparam("filter", "object", "form", true, false),          // -> filter=a,1,b,2
+             qparam("coords", "object", "", false, false),             // default explode -> expand
          })},
         {"responses", Json{{"200", Json{{"description", "ok"}}}}},
     };
@@ -146,11 +145,9 @@ int main()
     // F21: multipart/form-data body (scalar field + boolean + file part).
     spec["paths"]["/api/upload"]["post"] = Json{
         {"operationId", "uploadFile"},
-        {"requestBody",
-         Json{{"required", true},
-              {"content",
-               Json{{"multipart/form-data",
-                     Json{{"schema", Json{{"type", "object"}}}}}}}}},
+        {"requestBody", Json{{"required", true},
+                             {"content", Json{{"multipart/form-data",
+                                               Json{{"schema", Json{{"type", "object"}}}}}}}}},
         {"responses", Json{{"200", Json{{"description", "ok"}}}}},
     };
 
@@ -194,14 +191,12 @@ int main()
     assert(echoed["message"] == "hello");
 
     // F20: style/explode serialization. The echo endpoint returns {key: [decoded values]}.
-    auto q = app.invoke_tool(
-        "querystyles",
-        Json{{"tags", Json::array({"a", "b"})},
-             {"pipes", Json::array({"x", "y"})},
-             {"spaces", Json::array({"m", "n"})},
-             {"items", Json::array({"1", "2"})},
-             {"filter", Json{{"a", 1}, {"b", 2}}},
-             {"coords", Json{{"lat", 10}, {"lon", 20}}}});
+    auto q = app.invoke_tool("querystyles", Json{{"tags", Json::array({"a", "b"})},
+                                                 {"pipes", Json::array({"x", "y"})},
+                                                 {"spaces", Json::array({"m", "n"})},
+                                                 {"items", Json::array({"1", "2"})},
+                                                 {"filter", Json{{"a", 1}, {"b", 2}}},
+                                                 {"coords", Json{{"lat", 10}, {"lon", 20}}}});
     // explode=false arrays: single joined value under the param key.
     assert(q["tags"].size() == 1 && q["tags"][0] == "a,b");
     assert(q["pipes"].size() == 1 && q["pipes"][0] == "x|y");

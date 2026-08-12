@@ -261,8 +261,7 @@ static fastmcpp::Json build_openai_content_parts(const fastmcpp::Json& content)
         const std::string t = block.value("type", "");
         if (t == "text")
         {
-            parts.push_back(
-                fastmcpp::Json{{"type", "text"}, {"text", block.value("text", "")}});
+            parts.push_back(fastmcpp::Json{{"type", "text"}, {"text", block.value("text", "")}});
         }
         else if (t == "image")
         {
@@ -341,7 +340,8 @@ static fastmcpp::Json build_openai_messages(const fastmcpp::Json& params)
             if (role != "user")
                 throw std::runtime_error(
                     "OpenAI sampling handler: image/audio content is only supported in user "
-                    "messages (got role '" + role + "')");
+                    "messages (got role '" +
+                    role + "')");
             messages.push_back(
                 fastmcpp::Json{{"role", "user"}, {"content", build_openai_content_parts(content)}});
             continue;
@@ -501,16 +501,17 @@ static fastmcpp::Json build_anthropic_messages(const fastmcpp::Json& params)
                 if (role != "user")
                     throw std::runtime_error(
                         "Anthropic sampling handler: image content is only supported in user "
-                        "messages (got role '" + role + "')");
+                        "messages (got role '" +
+                        role + "')");
                 const std::string mime = block.value("mimeType", "");
                 if (!anthropic_image_mime_ok(mime))
                     throw std::runtime_error(
                         "Anthropic sampling handler: unsupported image MIME '" + mime + "'");
-                blocks.push_back(fastmcpp::Json{
-                    {"type", "image"},
-                    {"source", fastmcpp::Json{{"type", "base64"},
-                                              {"media_type", mime},
-                                              {"data", block.value("data", "")}}}});
+                blocks.push_back(
+                    fastmcpp::Json{{"type", "image"},
+                                   {"source", fastmcpp::Json{{"type", "base64"},
+                                                             {"media_type", mime},
+                                                             {"data", block.value("data", "")}}}});
                 continue;
             }
             if (type == "audio")
