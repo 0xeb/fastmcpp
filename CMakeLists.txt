@@ -87,22 +87,47 @@ endif()
 target_link_libraries(fastmcpp_core PUBLIC nlohmann_json::nlohmann_json)
 
 # Header-only HTTP library (cpp-httplib)
+#
+# If the surrounding project already provides an httplib::httplib target, CONSUME
+# IT. cpp-httplib is header-only, so fetching a second private copy here puts two
+# sets of inline definitions into one binary. Whenever the two differ — a
+# different version, or different CPPHTTPLIB_*_SUPPORT feature macros — the
+# classes have different layouts per translation unit, the linker keeps one weak
+# definition, and callers read and write through mismatched offsets. It surfaces
+# as a crash inside httplib's own mutexes, not as a link error.
 include(FetchContent)
-FetchContent_Declare(
-  cpp_httplib
-  GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-  GIT_TAG v0.15.3
-)
-FetchContent_GetProperties(cpp_httplib)
-if(NOT cpp_httplib_POPULATED)
-  FetchContent_Populate(cpp_httplib)
+if(TARGET httplib::httplib)
+  # Same headers AND same feature macros as every other TU in the final binary.
+  target_link_libraries(fastmcpp_core PUBLIC httplib::httplib)
+  set(FASTMCPP_HTTPLIB_EXTERNAL TRUE)
+  message(STATUS "fastmcpp: using the project-provided httplib::httplib target")
+else()
+  FetchContent_Declare(
+    cpp_httplib
+    GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+    GIT_TAG v0.15.3
+  )
+  FetchContent_GetProperties(cpp_httplib)
+  if(NOT cpp_httplib_POPULATED)
+    FetchContent_Populate(cpp_httplib)
+  endif()
+  target_include_directories(fastmcpp_core PUBLIC ${cpp_httplib_SOURCE_DIR})
+  set(FASTMCPP_HTTPLIB_EXTERNAL FALSE)
+  message(STATUS "fastmcpp: fetching a private cpp-httplib (no httplib::httplib target found)")
 endif()
-target_include_directories(fastmcpp_core PUBLIC ${cpp_httplib_SOURCE_DIR})
 
 # Optional: OpenSSL for HTTPS/SSL support
 if(FASTMCPP_ENABLE_OPENSSL)
   find_package(OpenSSL REQUIRED)
-  target_compile_definitions(fastmcpp_core PUBLIC CPPHTTPLIB_OPENSSL_SUPPORT)
+  # With an external httplib target, that target decides whether the SSL code
+  # paths are compiled in. Defining CPPHTTPLIB_OPENSSL_SUPPORT here anyway would
+  # re-open the very layout skew this block avoids, from the other side.
+  if(FASTMCPP_HTTPLIB_EXTERNAL)
+    message(STATUS "FASTMCPP_ENABLE_OPENSSL=ON: deferring CPPHTTPLIB_OPENSSL_SUPPORT "
+                   "to the project-provided httplib::httplib target")
+  else()
+    target_compile_definitions(fastmcpp_core PUBLIC CPPHTTPLIB_OPENSSL_SUPPORT)
+  endif()
   target_link_libraries(fastmcpp_core PUBLIC OpenSSL::SSL OpenSSL::Crypto)
   message(STATUS "FASTMCPP_ENABLE_OPENSSL=ON: HTTPS/SSL support enabled")
 else()
@@ -186,8 +211,14 @@ target_sources(fastmcpp_core PRIVATE src/internal/process.cpp)
 find_package(Threads REQUIRED)
 target_link_libraries(fastmcpp_core PRIVATE Threads::Threads)
 
-add_executable(fastmcpp src/cli/main.cpp)
-target_link_libraries(fastmcpp PRIVATE fastmcpp_core)
+# Embedders link fastmcpp_core and never invoke this CLI, but it was unconditional, so
+# every consumer compiled and linked it on every build. Default ON keeps standalone
+# fastmcpp unchanged; embedders turn it off next to FASTMCPP_BUILD_TESTS/EXAMPLES.
+option(FASTMCPP_BUILD_CLI "Build the fastmcpp command-line executable" ON)
+if(FASTMCPP_BUILD_CLI)
+  add_executable(fastmcpp src/cli/main.cpp)
+  target_link_libraries(fastmcpp PRIVATE fastmcpp_core)
+endif()
 
 if(FASTMCPP_BUILD_TESTS)
   enable_testing()
