@@ -524,9 +524,15 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
                 continue;
             if (explode)
             {
-                // explode=true: each property becomes its own prop=value pair (name dropped).
+                // explode=true: each property becomes its own key=value pair.
+                // PYTHON REFERENCE: fastmcp/utilities/openapi/director.py (#4523) — deepObject
+                // keeps the parent parameter name as `param[prop]`; form style emits a bare prop.
                 for (auto it = val.cbegin(); it != val.cend(); ++it)
-                    append_pair(it.key(), to_string_value(it.value()));
+                {
+                    std::string property_name =
+                        (style == "deepObject") ? (param + "[" + it.key() + "]") : it.key();
+                    append_pair(property_name, to_string_value(it.value()));
+                }
             }
             else
             {

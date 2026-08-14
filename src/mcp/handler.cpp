@@ -3219,7 +3219,13 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 // This allows tools to access sampling via Context
                 if (!session_id.empty())
                 {
-                    args["_meta"] = {{"session_id", session_id}};
+                    // Issue #47: preserve any client-provided `arguments._meta` members and only
+                    // add/overwrite session_id, rather than replacing the whole object (which
+                    // dropped every member except session_id). Mirrors the non-sampling
+                    // tools/call handler above.
+                    if (!args.contains("_meta") || !args["_meta"].is_object())
+                        args["_meta"] = fastmcpp::Json::object();
+                    args["_meta"]["session_id"] = session_id;
 
                     // Get session and create sampling callback
                     auto session = session_accessor(session_id);

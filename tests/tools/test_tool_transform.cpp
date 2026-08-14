@@ -467,6 +467,36 @@ void test_hidden_does_not_block_rename_into_its_slot()
     std::cout << "PASSED\n";
 }
 
+// PYTHON REFERENCE: fastmcp/tools/tool_transform.py (#4564) — `required` must be emitted in a
+// deterministic order. Regression for iterating the unordered_set directly (hash/bucket order).
+void test_required_order_deterministic()
+{
+    std::cout << "  test_required_order_deterministic... " << std::flush;
+
+    // Declaration order is intentionally non-alphabetical; all four are required.
+    Tool many("many",
+              Json{{"type", "object"},
+                   {"properties",
+                    {{"zeta", {{"type", "integer"}}},
+                     {"alpha", {{"type", "integer"}}},
+                     {"mu", {{"type", "integer"}}},
+                     {"beta", {{"type", "integer"}}}}},
+                   {"required", Json::array({"zeta", "alpha", "mu", "beta"})}},
+              Json::object(), [](const Json&) { return Json::object(); });
+
+    // Two independent transforms must yield an identical `required` array.
+    auto r1 = TransformedTool::from_tool(many).input_schema()["required"];
+    auto r2 = TransformedTool::from_tool(many).input_schema()["required"];
+
+    assert(r1 == r2);       // deterministic across runs
+    assert(r1.size() == 4); // no member dropped/added
+    // Follows new_properties' stable key order (strictly increasing).
+    for (size_t i = 1; i < r1.size(); ++i)
+        assert(r1[i - 1].get<std::string>() < r1[i].get<std::string>());
+
+    std::cout << "PASSED\n";
+}
+
 int main()
 {
     std::cout << "Tool Transform Tests\n";
@@ -490,6 +520,7 @@ int main()
         test_two_renames_colliding();
         test_rename_does_not_collide();
         test_hidden_does_not_block_rename_into_its_slot();
+        test_required_order_deterministic();
 
         std::cout << "\nAll tests passed!\n";
         return 0;

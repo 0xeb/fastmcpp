@@ -216,9 +216,14 @@ build_transformed_schema(const Json& parent_schema,
         }
     }
     result.schema["properties"] = new_properties;
+    // PYTHON REFERENCE: fastmcp/tools/tool_transform.py (#4564) — iterate properties (not the
+    // set) for deterministic `required` ordering. new_required is an unordered_set, so emitting
+    // it directly yields hash/bucket order that varies across runs/platforms; iterating
+    // new_properties (a stable-key Json object) and filtering by membership is deterministic.
     result.schema["required"] = Json::array();
-    for (const auto& r : new_required)
-        result.schema["required"].push_back(r);
+    for (auto it = new_properties.begin(); it != new_properties.end(); ++it)
+        if (new_required.count(it.key()) > 0)
+            result.schema["required"].push_back(it.key());
 
     return result;
 }

@@ -138,6 +138,7 @@ int main()
              qparam("items", "array", "", false, false),               // default explode -> repeat
              qparam("filter", "object", "form", true, false),          // -> filter=a,1,b,2
              qparam("coords", "object", "", false, false),             // default explode -> expand
+             qparam("color", "object", "deepObject", true, true),      // -> color[R]=..&color[G]=..
          })},
         {"responses", Json{{"200", Json{{"description", "ok"}}}}},
     };
@@ -196,7 +197,8 @@ int main()
                                                  {"spaces", Json::array({"m", "n"})},
                                                  {"items", Json::array({"1", "2"})},
                                                  {"filter", Json{{"a", 1}, {"b", 2}}},
-                                                 {"coords", Json{{"lat", 10}, {"lon", 20}}}});
+                                                 {"coords", Json{{"lat", 10}, {"lon", 20}}},
+                                                 {"color", Json{{"R", 100}, {"G", 200}}}});
     // explode=false arrays: single joined value under the param key.
     assert(q["tags"].size() == 1 && q["tags"][0] == "a,b");
     assert(q["pipes"].size() == 1 && q["pipes"][0] == "x|y");
@@ -209,6 +211,11 @@ int main()
     assert(!q.contains("coords"));
     assert(q["lat"].size() == 1 && q["lat"][0] == "10");
     assert(q["lon"].size() == 1 && q["lon"][0] == "20");
+    // deepObject explode=true object: parent param name retained as color[prop].
+    // PYTHON REFERENCE: fastmcp/utilities/openapi/director.py (#4523)
+    assert(!q.contains("color"));
+    assert(q["color[R]"].size() == 1 && q["color[R]"][0] == "100");
+    assert(q["color[G]"].size() == 1 && q["color[G]"][0] == "200");
 
     // F21: multipart body — scalar field, boolean (stringified true/false), and file part.
     auto up = app.invoke_tool(
