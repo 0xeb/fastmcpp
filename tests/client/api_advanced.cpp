@@ -180,7 +180,12 @@ void test_call_tool_timeout_and_progress()
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
 
     client::CallToolOptions opts;
-    opts.timeout = std::chrono::milliseconds{50};
+    // 20 ms deadline against a 400 ms call. The wide gap is deliberate: the
+    // question is whether we returned at the deadline or waited for the whole
+    // call, and a narrow margin turns scheduling jitter on a shared CI runner
+    // into a false failure. An earlier version used 50 ms against 150 ms and
+    // failed on a loaded macOS agent.
+    opts.timeout = std::chrono::milliseconds{20};
     std::vector<std::string> progress_messages;
     opts.progress_handler =
         [&progress_messages](float, std::optional<float>, const std::string& msg)
@@ -190,7 +195,7 @@ void test_call_tool_timeout_and_progress()
     const auto started = std::chrono::steady_clock::now();
     try
     {
-        c.call_tool_mcp("slow", Json::object(), opts);
+        c.call_tool_mcp("slow", Json{{"ms", 400}}, opts);
     }
     catch (const fastmcpp::TransportError&)
     {
@@ -203,14 +208,21 @@ void test_call_tool_timeout_and_progress()
     assert(!progress_messages.empty());
     assert(progress_messages.front() == "request started");
 
-    // The deadline has to actually bound the wait. "slow" sleeps 150 ms against a
-    // 50 ms timeout, so returning at or after 150 ms would mean we waited for the
-    // call we claimed to abandon -- which is what an std::async future does, since
-    // its destructor blocks until the shared state is ready.
-    assert(elapsed < std::chrono::milliseconds{140} &&
-           "timeout must fire at the deadline, not after the call completes");
+    // The deadline has to actually bound the wait: returning at or near 400 ms
+    // would mean we waited for the call we claimed to abandon, which is what an
+    // std::async future does since its destructor blocks until the shared state
+    // is ready. Anything under 200 ms can only be the deadline firing.
+    if (elapsed >= std::chrono::milliseconds{200})
+    {
+        // Report the observation. A bare assert says only that it failed, not
+        // whether we missed by a little or waited for the entire call -- and that
+        // is the whole difference between a flaky threshold and a real defect.
+        std::cerr << "  [FAIL] timeout fired after " << elapsed.count()
+                  << " ms; expected < 200 ms (20 ms deadline, 400 ms call)\n";
+        assert(false && "timeout must fire at the deadline, not after the call completes");
+    }
 
-    std::cout << "  [PASS] timeout fired after " << elapsed.count() << " ms (tool sleeps 150 ms)\n";
+    std::cout << "  [PASS] timeout fired after " << elapsed.count() << " ms (call takes 400 ms)\n";
 }
 
 void test_progress_and_notifications()

@@ -241,7 +241,11 @@ std::shared_ptr<server::Server> create_tool_server()
             }
             else if (name == "slow")
             {
-                std::this_thread::sleep_for(std::chrono::milliseconds(150));
+                // Delay is a parameter so a timeout test can make the gap between
+                // "returned at the deadline" and "waited for the whole call" wide
+                // enough to survive scheduling jitter on a loaded CI runner.
+                const int delay_ms = args.value("ms", 150);
+                std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
                 return Json{
                     {"content", Json::array({{{"type", "text"}, {"text", "done"}}})},
                     {"isError", false},
