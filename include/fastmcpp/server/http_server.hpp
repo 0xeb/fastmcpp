@@ -86,6 +86,10 @@ class HttpServerWrapper
     std::shared_ptr<Server> core_;
     std::string host_;
     HostOriginGuardOptions host_origin_guard_options_{};
+    /// Set by install_host_origin_guard(); rejects a guarded request once
+    /// httplib has read its body. See host_origin_guard.hpp for why the check
+    /// cannot live entirely in the pre-routing handler.
+    HostOriginRejecter host_origin_reject_{};
     int requested_port_;
     std::atomic<int> bound_port_ = 0;
     std::string auth_token_; // Optional Bearer token for authentication

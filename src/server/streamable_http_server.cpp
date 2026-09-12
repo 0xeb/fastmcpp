@@ -106,7 +106,8 @@ bool StreamableHttpServerWrapper::start()
 
     bound_port_.store(0); // Reset the bound port's value.
     svr_ = std::make_unique<httplib::Server>();
-    install_host_origin_guard(*svr_, HostOriginGuard(host_origin_guard_options_), host_);
+    host_origin_reject_ =
+        install_host_origin_guard(*svr_, HostOriginGuard(host_origin_guard_options_), host_);
 
     // Security: Set payload and timeout limits to prevent DoS
     svr_->set_payload_max_length(10 * 1024 * 1024); // 10MB max payload
@@ -129,6 +130,12 @@ bool StreamableHttpServerWrapper::start()
         mcp_path_,
         [this](const httplib::Request& req, httplib::Response& res)
         {
+            // Requests carrying a body reach here still guarded: the pre-routing
+            // handler cannot reject them without leaving the body unread. See
+            // host_origin_guard.hpp.
+            if (host_origin_reject_ && host_origin_reject_(req, res))
+                return;
+
             // Apply CORS / additional headers up-front so they are present on every
             // response, including early returns (401, 503, 400, 404) and any exception
             // propagated to the catch handlers below.
@@ -346,8 +353,11 @@ bool StreamableHttpServerWrapper::start()
     // Handle GET request to return 405 Method Not Allowed
     svr_->Get(
         mcp_path_,
-        [this](const httplib::Request&, httplib::Response& res)
+        [this](const httplib::Request& req, httplib::Response& res)
         {
+            if (host_origin_reject_ && host_origin_reject_(req, res))
+                return;
+
             // CORS / additional headers must be applied on every response, including
             // this 405. Without this, browsers reject the response with a misleading
             // "No 'Access-Control-Allow-Origin' header is present" error.

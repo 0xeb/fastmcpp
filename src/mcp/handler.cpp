@@ -2,6 +2,7 @@
 
 #include "fastmcpp/app.hpp"
 #include "fastmcpp/mcp/tasks.hpp"
+#include "fastmcpp/protocol.hpp"
 #include "fastmcpp/proxy.hpp"
 #include "fastmcpp/server/middleware_pipeline.hpp"
 #include "fastmcpp/server/sse_server.hpp"
@@ -199,6 +200,18 @@ static std::string extract_session_id(const fastmcpp::Json& params)
         params["_meta"].contains("session_id") && params["_meta"]["session_id"].is_string())
         return params["_meta"]["session_id"].get<std::string>();
     return "";
+}
+
+// Version to answer an initialize with, given what the client asked for.
+//
+// Every handler below used to advertise kDefaultVersion unconditionally, which
+// meant a client's requested version was read by nobody and a session never
+// actually negotiated anything. A client that only speaks an older revision now
+// keeps working when kDefaultVersion moves.
+static std::string negotiated_version(const fastmcpp::Json& params)
+{
+    return fastmcpp::protocol::negotiate(
+        params.value("protocolVersion", std::string(fastmcpp::protocol::kDefaultVersion)));
 }
 
 static std::optional<fastmcpp::Json> extract_request_meta(const fastmcpp::Json& params)
@@ -961,7 +974,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
             if (method == "initialize")
             {
                 fastmcpp::Json result_obj = {
-                    {"protocolVersion", "2024-11-05"},
+                    {"protocolVersion", negotiated_version(params)},
                     {"capabilities", fastmcpp::Json{{"tools", fastmcpp::Json::object()}}},
                     {"serverInfo", fastmcpp::Json{{"name", server_name}, {"version", version}}},
                 };
@@ -1139,7 +1152,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
                 }
 
                 fastmcpp::Json result_obj = {
-                    {"protocolVersion", "2024-11-05"},
+                    {"protocolVersion", negotiated_version(params)},
                     {"capabilities", fastmcpp::Json{{"tools", fastmcpp::Json::object()}}},
                     {"serverInfo", serverInfo}};
                 if (server.instructions().has_value())
@@ -1364,7 +1377,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     serverInfo["icons"] = icons_array;
                 }
                 fastmcpp::Json result_obj = {
-                    {"protocolVersion", "2024-11-05"},
+                    {"protocolVersion", negotiated_version(params)},
                     {"capabilities", fastmcpp::Json{{"tools", fastmcpp::Json::object()}}},
                     {"serverInfo", serverInfo}};
                 if (server.instructions().has_value())
@@ -1546,7 +1559,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 if (!prompts.list().empty())
                     capabilities["prompts"] = fastmcpp::Json::object();
 
-                fastmcpp::Json result_obj = {{"protocolVersion", "2024-11-05"},
+                fastmcpp::Json result_obj = {{"protocolVersion", negotiated_version(params)},
                                              {"capabilities", capabilities},
                                              {"serverInfo", serverInfo}};
                 if (server.instructions().has_value())
@@ -1888,7 +1901,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 advertise_ui_extension(capabilities);
                 advertise_experimental(capabilities, app);
 
-                fastmcpp::Json result_obj = {{"protocolVersion", "2024-11-05"},
+                fastmcpp::Json result_obj = {{"protocolVersion", negotiated_version(params)},
                                              {"capabilities", capabilities},
                                              {"serverInfo", serverInfo}};
                 if (app.instructions().has_value())
@@ -2667,7 +2680,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 // Note: ProxyApp does not propagate experimental_capabilities (that field is
                 // FastMCP-only); skip advertise_experimental here intentionally.
 
-                fastmcpp::Json result_obj = {{"protocolVersion", "2024-11-05"},
+                fastmcpp::Json result_obj = {{"protocolVersion", negotiated_version(params)},
                                              {"capabilities", capabilities},
                                              {"serverInfo", serverInfo}};
                 if (app.instructions().has_value())
@@ -3139,7 +3152,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 advertise_ui_extension(capabilities);
                 advertise_experimental(capabilities, app);
 
-                fastmcpp::Json result_obj = {{"protocolVersion", "2024-11-05"},
+                fastmcpp::Json result_obj = {{"protocolVersion", negotiated_version(params)},
                                              {"capabilities", capabilities},
                                              {"serverInfo", serverInfo}};
                 if (app.instructions().has_value())

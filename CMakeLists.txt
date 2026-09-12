@@ -3,7 +3,14 @@ cmake_minimum_required(VERSION 3.16)
 if(POLICY CMP0169)
   cmake_policy(SET CMP0169 OLD)
 endif()
-project(fastmcpp VERSION 3.4.7 LANGUAGES CXX)
+# major.minor.patch = upstream fastmcp parity level; optional 4th = local revision.
+project(fastmcpp VERSION 3.4.7.1 LANGUAGES CXX)
+
+# Empty for a 3-component version, which would expand to FASTMCPP_VERSION_TWEAK=.
+if(NOT DEFINED PROJECT_VERSION_TWEAK OR PROJECT_VERSION_TWEAK STREQUAL "")
+  set(PROJECT_VERSION_TWEAK 0)
+endif()
+set(FASTMCPP_VERSION_STRING "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}.${PROJECT_VERSION_TWEAK}")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,6 +22,17 @@ option(FASTMCPP_ENABLE_POST_STREAMING "Enable POST streaming via libcurl (option
 option(FASTMCPP_FETCH_CURL "Fetch and build libcurl statically for POST streaming" ON)
 option(FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS "Enable built-in OpenAI/Anthropic sampling handlers (requires libcurl)" OFF)
 option(FASTMCPP_ENABLE_OPENSSL "Enable HTTPS/SSL support via OpenSSL (for cpp-httplib)" OFF)
+
+# TLS via Schannel, no extra dependency. Reaches https:// without OpenSSL.
+if(WIN32)
+  option(FASTMCPP_ENABLE_WINHTTP "Build the WinHTTP client transport (Windows only)" ON)
+else()
+  set(FASTMCPP_ENABLE_WINHTTP OFF)
+endif()
+
+# Portable https://, using whichever TLS backend libcurl binds to. Off by default
+# because it pulls libcurl into the build.
+option(FASTMCPP_ENABLE_CURL_TRANSPORT "Build the libcurl client transport (all platforms)" OFF)
 
 add_library(fastmcpp_core STATIC
     src/types.cpp
@@ -55,18 +73,33 @@ add_library(fastmcpp_core STATIC
     src/client/client.cpp
     src/client/sampling_handlers.cpp
     src/client/transports.cpp
+    src/client/http_detail.cpp
+    src/client/sse_stream.cpp
+    src/client/http_rpc_transport.cpp
     src/telemetry.cpp
     src/util/json_schema.cpp
     src/util/json_schema_type.cpp
     src/settings.cpp
 )
+if(WIN32 AND FASTMCPP_ENABLE_WINHTTP)
+  target_sources(fastmcpp_core PRIVATE src/client/winhttp_transport.cpp)
+  target_link_libraries(fastmcpp_core PUBLIC winhttp)
+  target_compile_definitions(fastmcpp_core PUBLIC FASTMCPP_HAS_WINHTTP)
+  message(STATUS "FASTMCPP_ENABLE_WINHTTP=ON: WinHTTP client transport enabled")
+endif()
+
 target_include_directories(fastmcpp_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
 
 # Version header is public
-target_compile_definitions(fastmcpp_core PUBLIC FASTMCPP_VERSION_MAJOR=${PROJECT_VERSION_MAJOR} FASTMCPP_VERSION_MINOR=${PROJECT_VERSION_MINOR} FASTMCPP_VERSION_PATCH=${PROJECT_VERSION_PATCH})
+target_compile_definitions(fastmcpp_core PUBLIC
+    FASTMCPP_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+    FASTMCPP_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+    FASTMCPP_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+    FASTMCPP_VERSION_TWEAK=${PROJECT_VERSION_TWEAK}
+    FASTMCPP_VERSION_STRING="${FASTMCPP_VERSION_STRING}")
 
 # MSVC: avoid parallel compilation PDB contention (C1041) in large targets
 if(MSVC)
@@ -135,7 +168,7 @@ else()
 endif()
 
 # Optional: libcurl for POST streaming and sampling handlers (modular)
-if(FASTMCPP_ENABLE_POST_STREAMING OR FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS)
+if(FASTMCPP_ENABLE_POST_STREAMING OR FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS OR FASTMCPP_ENABLE_CURL_TRANSPORT)
   if(FASTMCPP_FETCH_CURL)
     message(STATUS "FASTMCPP_FETCH_CURL=ON: fetching curl via FetchContent (static-only)")
     include(FetchContent)
@@ -196,12 +229,21 @@ if(FASTMCPP_ENABLE_POST_STREAMING OR FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS)
     if(FASTMCPP_ENABLE_POST_STREAMING)
       target_compile_definitions(fastmcpp_core PRIVATE FASTMCPP_POST_STREAMING)
     endif()
+    if(FASTMCPP_ENABLE_CURL_TRANSPORT)
+      target_sources(fastmcpp_core PRIVATE src/client/curl_transport.cpp)
+      # PUBLIC: the header is installed, so consumers need the same guard.
+      target_compile_definitions(fastmcpp_core PUBLIC FASTMCPP_HAS_CURL_TRANSPORT)
+      message(STATUS "FASTMCPP_ENABLE_CURL_TRANSPORT=ON: libcurl client transport enabled")
+    endif()
   else()
     if(FASTMCPP_ENABLE_POST_STREAMING)
       message(STATUS "libcurl not found; POST streaming will be disabled at runtime (request_stream_post throws)")
     endif()
     if(FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS)
       message(STATUS "libcurl not found; built-in sampling handlers will be unavailable")
+    endif()
+    if(FASTMCPP_ENABLE_CURL_TRANSPORT)
+      message(FATAL_ERROR "FASTMCPP_ENABLE_CURL_TRANSPORT=ON but libcurl was not found; set FASTMCPP_FETCH_CURL=ON or provide a curl toolchain")
     endif()
   endif()
 endif()
@@ -222,6 +264,13 @@ endif()
 
 if(FASTMCPP_BUILD_TESTS)
   enable_testing()
+
+  # Routes a failed Debug assert to stderr instead of a modal dialog.
+  # OBJECT, not STATIC: nothing references it, so STATIC would link but not run.
+  # link_libraries() covers every test target created below.
+  add_library(fastmcpp_test_crt OBJECT tests/support/crt_bootstrap.cpp)
+  link_libraries(fastmcpp_test_crt)
+
   add_executable(fastmcp_smoke tests/smoke.cpp)
   target_link_libraries(fastmcp_smoke PRIVATE fastmcpp_core)
   add_test(NAME fastmcp_smoke COMMAND fastmcp_smoke)
@@ -507,6 +556,50 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_client_transports PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_client_transports COMMAND fastmcpp_client_transports)
 
+  add_executable(fastmcpp_client_header_provider tests/client/header_provider.cpp)
+  target_link_libraries(fastmcpp_client_header_provider PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_header_provider COMMAND fastmcpp_client_header_provider)
+
+  add_executable(fastmcpp_client_http_rpc_transport tests/client/http_rpc_transport.cpp)
+  target_link_libraries(fastmcpp_client_http_rpc_transport PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_http_rpc_transport COMMAND fastmcpp_client_http_rpc_transport)
+
+  add_executable(fastmcpp_client_sse_stream tests/client/sse_stream.cpp)
+  target_link_libraries(fastmcpp_client_sse_stream PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_sse_stream COMMAND fastmcpp_client_sse_stream)
+
+  add_executable(fastmcpp_client_version_reporting tests/client/version_reporting.cpp)
+  target_link_libraries(fastmcpp_client_version_reporting PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_version_reporting COMMAND fastmcpp_client_version_reporting)
+
+  add_executable(fastmcpp_client_cancel_on_timeout tests/client/cancel_on_timeout.cpp)
+  target_link_libraries(fastmcpp_client_cancel_on_timeout PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_cancel_on_timeout COMMAND fastmcpp_client_cancel_on_timeout)
+
+  if(WIN32 AND FASTMCPP_ENABLE_WINHTTP)
+    add_executable(fastmcpp_client_winhttp_transport tests/client/winhttp_transport.cpp)
+    target_link_libraries(fastmcpp_client_winhttp_transport PRIVATE fastmcpp_core)
+    add_test(NAME fastmcpp_client_winhttp_transport COMMAND fastmcpp_client_winhttp_transport)
+  endif()
+
+  if(FASTMCPP_ENABLE_CURL_TRANSPORT)
+    add_executable(fastmcpp_client_curl_transport tests/client/curl_transport.cpp)
+    target_link_libraries(fastmcpp_client_curl_transport PRIVATE fastmcpp_core)
+    add_test(NAME fastmcpp_client_curl_transport COMMAND fastmcpp_client_curl_transport)
+  endif()
+
+  add_executable(fastmcpp_client_http_error_detail tests/client/http_error_detail.cpp)
+  target_link_libraries(fastmcpp_client_http_error_detail PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_http_error_detail COMMAND fastmcpp_client_http_error_detail)
+
+  add_executable(fastmcpp_client_notifications tests/client/notifications.cpp)
+  target_link_libraries(fastmcpp_client_notifications PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_notifications COMMAND fastmcpp_client_notifications)
+
+  add_executable(fastmcpp_client_protocol_version tests/client/protocol_version.cpp)
+  target_link_libraries(fastmcpp_client_protocol_version PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_protocol_version COMMAND fastmcpp_client_protocol_version)
+
   add_executable(fastmcpp_client_http_client_security tests/client/http_client_security.cpp)
   target_link_libraries(fastmcpp_client_http_client_security PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_client_http_client_security COMMAND fastmcpp_client_http_client_security)
@@ -737,6 +830,9 @@ if(FASTMCPP_BUILD_TESTS)
     set_tests_properties(fastmcpp_post_streaming PROPERTIES RUN_SERIAL TRUE)
   endif()
 endif()
+
+# End of test scope: examples must not inherit the Debug CRT bootstrap.
+set_property(DIRECTORY PROPERTY LINK_LIBRARIES "")
 
 if(FASTMCPP_BUILD_EXAMPLES)
   add_executable(fastmcpp_example_server examples/server_quick_start.cpp)

@@ -10,6 +10,7 @@
 // 403 "Forbidden Origin" (untrusted Origin). Default mode is Off (opt-in, same as
 // Python fastmcp 3.x) so existing deployments are unaffected.
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -17,7 +18,12 @@
 namespace httplib
 {
 class Server;
-}
+// struct, not class: cpp-httplib declares these as structs and MSVC warns on a
+// mismatched tag. Forward-declared rather than including httplib.h so it stays
+// out of this public header.
+struct Request;
+struct Response;
+} // namespace httplib
 
 namespace fastmcpp::server
 {
@@ -103,9 +109,30 @@ class HostOriginGuard
     HostOriginGuardOptions options_;
 };
 
-/// Install the guard as an httplib pre-routing handler: it runs before ALL routes
-/// (including OPTIONS), before auth and session handling. No-op when mode == Off.
+/// Rejects a request that fails the guard, filling in the 421/403 response.
+/// @return true when the request was rejected and the handler must return at once.
+/// Always false when the guard is disabled.
+using HostOriginRejecter = std::function<bool(const httplib::Request&, httplib::Response&)>;
+
+/// Install the guard and return the check to run at the top of each route handler.
+///
+/// The guard runs before auth and session handling. It is deliberately split in
+/// two, and both halves are needed:
+///
+///   * Requests **without a body** are rejected from httplib's pre-routing
+///     handler, so they never reach routing at all — including paths with no
+///     registered route.
+///   * Requests **with a body** cannot be rejected there. httplib runs
+///     pre-routing before `read_content`, so returning `Handled` leaves the body
+///     unread in the socket; closing a socket with unread data sends RST rather
+///     than FIN, which destroys the very 421/403 being sent and leaves the client
+///     with a connection reset instead of the reason it was rejected. Those are
+///     rejected by the returned rejecter, which handlers call once httplib has
+///     read the body.
+///
+/// No-op (a rejecter that always returns false) when mode == Off.
 /// `bound_host` should be the wrapper's bound address (drives Auto-mode decisions).
-void install_host_origin_guard(httplib::Server& svr, HostOriginGuard guard, std::string bound_host);
+HostOriginRejecter install_host_origin_guard(httplib::Server& svr, HostOriginGuard guard,
+                                             std::string bound_host);
 
 } // namespace fastmcpp::server

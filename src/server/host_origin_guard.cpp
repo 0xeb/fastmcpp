@@ -553,33 +553,87 @@ HostOriginVerdict HostOriginGuard::check(const std::string& host_header,
     return HostOriginVerdict::Allow;
 }
 
-void install_host_origin_guard(httplib::Server& svr, HostOriginGuard guard, std::string bound_host)
+namespace
+{
+/// Guard plus the bound address it was configured for, shared by the pre-routing
+/// handler and the per-handler rejecter so both decide identically.
+struct GuardState
+{
+    HostOriginGuard guard;
+    std::string bound_host;
+};
+
+/// True when the request carries a body httplib has not read yet.
+bool has_body(const httplib::Request& req)
+{
+    if (req.has_header("Transfer-Encoding"))
+        return true;
+    if (!req.has_header("Content-Length"))
+        return false;
+    return req.get_header_value("Content-Length") != "0";
+}
+
+HostOriginVerdict evaluate(const GuardState& state, const httplib::Request& req)
+{
+    std::optional<std::string> origin;
+    if (req.has_header("Origin"))
+        origin = req.get_header_value("Origin");
+    // fastmcpp serves plain HTTP; TLS termination happens upstream.
+    return state.guard.check(req.get_header_value("Host"), origin, "http", state.bound_host);
+}
+
+void apply_verdict(HostOriginVerdict verdict, httplib::Response& res)
+{
+    if (verdict == HostOriginVerdict::RejectHost421)
+    {
+        res.status = 421;
+        res.set_content("Misdirected Request", "text/plain");
+    }
+    else if (verdict == HostOriginVerdict::RejectOrigin403)
+    {
+        res.status = 403;
+        res.set_content("Forbidden Origin", "text/plain");
+    }
+}
+} // namespace
+
+HostOriginRejecter install_host_origin_guard(httplib::Server& svr, HostOriginGuard guard,
+                                             std::string bound_host)
 {
     if (!guard.enabled())
-        return;
+        return [](const httplib::Request&, httplib::Response&) { return false; };
+
+    auto state = std::make_shared<GuardState>(GuardState{std::move(guard), std::move(bound_host)});
+
     svr.set_pre_routing_handler(
-        [guard = std::move(guard), bound_host = std::move(bound_host)](
-            const httplib::Request& req, httplib::Response& res) -> httplib::Server::HandlerResponse
+        [state](const httplib::Request& req,
+                httplib::Response& res) -> httplib::Server::HandlerResponse
         {
-            std::optional<std::string> origin;
-            if (req.has_header("Origin"))
-                origin = req.get_header_value("Origin");
-            // fastmcpp serves plain HTTP; TLS termination happens upstream.
-            auto verdict = guard.check(req.get_header_value("Host"), origin, "http", bound_host);
-            if (verdict == HostOriginVerdict::RejectHost421)
-            {
-                res.status = 421;
-                res.set_content("Misdirected Request", "text/plain");
-                return httplib::Server::HandlerResponse::Handled;
-            }
-            if (verdict == HostOriginVerdict::RejectOrigin403)
-            {
-                res.status = 403;
-                res.set_content("Forbidden Origin", "text/plain");
-                return httplib::Server::HandlerResponse::Handled;
-            }
-            return httplib::Server::HandlerResponse::Unhandled;
+            const auto verdict = evaluate(*state, req);
+            if (verdict == HostOriginVerdict::Allow)
+                return httplib::Server::HandlerResponse::Unhandled;
+
+            // A request carrying a body must not be rejected here. httplib runs
+            // pre-routing before read_content, so returning Handled would leave
+            // the body unread in the socket; closing with unread data sends RST
+            // instead of FIN and the client loses this very response, seeing a
+            // connection reset rather than the reason. The rejecter below repeats
+            // the check once the body has been read.
+            if (has_body(req))
+                return httplib::Server::HandlerResponse::Unhandled;
+
+            apply_verdict(verdict, res);
+            return httplib::Server::HandlerResponse::Handled;
         });
+
+    return [state](const httplib::Request& req, httplib::Response& res)
+    {
+        const auto verdict = evaluate(*state, req);
+        if (verdict == HostOriginVerdict::Allow)
+            return false;
+        apply_verdict(verdict, res);
+        return true;
+    };
 }
 
 } // namespace fastmcpp::server

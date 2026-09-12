@@ -307,7 +307,8 @@ bool SseServerWrapper::start()
 
     bound_port_.store(0); // Reset the bound port's value.
     svr_ = std::make_unique<httplib::Server>();
-    install_host_origin_guard(*svr_, HostOriginGuard(host_origin_guard_options_), host_);
+    host_origin_reject_ =
+        install_host_origin_guard(*svr_, HostOriginGuard(host_origin_guard_options_), host_);
 
     // Security: Set payload and timeout limits to prevent DoS
     svr_->set_payload_max_length(10 * 1024 * 1024); // 10MB max payload
@@ -319,6 +320,12 @@ bool SseServerWrapper::start()
               [this](const httplib::Request& req, httplib::Response& res)
               {
                   // Security: Check authentication if configured
+                  // Requests carrying a body reach here still guarded: the pre-routing
+                  // handler cannot reject them without leaving the body unread. See
+                  // host_origin_guard.hpp.
+                  if (host_origin_reject_ && host_origin_reject_(req, res))
+                      return;
+
                   if (!auth_token_.empty())
                   {
                       auto auth_it = req.headers.find("Authorization");
@@ -411,8 +418,11 @@ bool SseServerWrapper::start()
     // Set up SSE endpoint POST handler (v2.13.0+) - Return 405 Method Not Allowed
     svr_->Post(
         sse_path_,
-        [](const httplib::Request&, httplib::Response& res)
+        [this](const httplib::Request& req, httplib::Response& res)
         {
+            if (host_origin_reject_ && host_origin_reject_(req, res))
+                return;
+
             // SSE endpoint only supports GET requests
             res.status = 405;
             res.set_header("Allow", "GET");
@@ -434,6 +444,12 @@ bool SseServerWrapper::start()
             try
             {
                 // Security: Check authentication if configured
+                // Requests carrying a body reach here still guarded: the pre-routing
+                // handler cannot reject them without leaving the body unread. See
+                // host_origin_guard.hpp.
+                if (host_origin_reject_ && host_origin_reject_(req, res))
+                    return;
+
                 if (!auth_token_.empty())
                 {
                     auto auth_it = req.headers.find("Authorization");

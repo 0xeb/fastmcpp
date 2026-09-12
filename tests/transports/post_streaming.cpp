@@ -43,6 +43,12 @@ int main()
 
                          const std::string e3 = "data: hello\n\n";
                          sink.write(e3.data(), e3.size());
+
+                         // Deliberately unterminated: no trailing blank line, which
+                         // is what an abruptly ended stream leaves behind. It must
+                         // still be delivered, and with the "data: " prefix stripped.
+                         const std::string e4 = "data: {\"tail\":true}";
+                         sink.write(e4.data(), e4.size());
                          return false; // end stream
                      },
                      [](bool) {});
@@ -86,14 +92,18 @@ int main()
     if (th.joinable())
         th.join();
 
-    assert(events.size() == 3);
+    assert(events.size() == 4);
     assert(events[0].contains("n") && events[0]["n"].get<int>() == 1);
+    // Split across two writes on the wire, folded back into one document.
     assert(events[1].contains("n") && events[1]["n"].get<int>() == 2);
     assert(events[2].contains("content"));
     assert(events[2]["content"].is_array());
     assert(!events[2]["content"].empty());
     assert(events[2]["content"][0].value("type", std::string()) == "text");
     assert(events[2]["content"][0].value("text", std::string()) == "hello");
+    // The unterminated tail: parsed as an event, not handed over as raw bytes
+    // still carrying their "data: " prefix.
+    assert(events[3].contains("tail") && events[3]["tail"].get<bool>());
 
     std::cout << "ok\n";
     return 0;

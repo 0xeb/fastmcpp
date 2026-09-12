@@ -187,6 +187,7 @@ void test_call_tool_timeout_and_progress()
     { progress_messages.push_back(msg); };
 
     bool timed_out = false;
+    const auto started = std::chrono::steady_clock::now();
     try
     {
         c.call_tool_mcp("slow", Json::object(), opts);
@@ -195,11 +196,21 @@ void test_call_tool_timeout_and_progress()
     {
         timed_out = true;
     }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started);
+
     assert(timed_out);
     assert(!progress_messages.empty());
     assert(progress_messages.front() == "request started");
 
-    std::cout << "  [PASS] timeout enforced and progress handler invoked\n";
+    // The deadline has to actually bound the wait. "slow" sleeps 150 ms against a
+    // 50 ms timeout, so returning at or after 150 ms would mean we waited for the
+    // call we claimed to abandon -- which is what an std::async future does, since
+    // its destructor blocks until the shared state is ready.
+    assert(elapsed < std::chrono::milliseconds{140} &&
+           "timeout must fire at the deadline, not after the call completes");
+
+    std::cout << "  [PASS] timeout fired after " << elapsed.count() << " ms (tool sleeps 150 ms)\n";
 }
 
 void test_progress_and_notifications()

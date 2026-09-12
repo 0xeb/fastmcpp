@@ -2,6 +2,7 @@
 #include "fastmcpp/client/client.hpp"
 #include "fastmcpp/client/transports.hpp"
 #include "fastmcpp/mcp/handler.hpp"
+#include "fastmcpp/protocol.hpp"
 #include "fastmcpp/server/server.hpp"
 #include "fastmcpp/version.hpp"
 
@@ -309,7 +310,7 @@ static fastmcpp::client::Client make_client_from_connection(const Connection& co
 static fastmcpp::Json default_initialize_params()
 {
     return fastmcpp::Json{
-        {"protocolVersion", "2024-11-05"},
+        {"protocolVersion", fastmcpp::protocol::kDefaultVersion},
         {"capabilities", fastmcpp::Json::object()},
         {"clientInfo",
          fastmcpp::Json{{"name", "fastmcpp-cli"},

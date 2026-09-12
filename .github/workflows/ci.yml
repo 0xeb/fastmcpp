@@ -64,4 +64,46 @@ jobs:
         run: cmake --build build --config ${{ matrix.build_type }} -- /m:1 /p:CL_MPCount=1
 
       - name: Test
-        run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure
+        # --timeout so a hung test fails its own case instead of running to the
+        # job limit. There is no per-test TIMEOUT property on most of these, and a
+        # blocked process would otherwise hold the whole leg for hours.
+        run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure --timeout 300
+
+  # The default matrix never sets FASTMCPP_ENABLE_CURL_TRANSPORT, so without this
+  # job the libcurl transport is the one piece of the client that CI never
+  # compiles -- on exactly the platforms it exists for. WinHTTP needs no
+  # equivalent: it is on by default and windows-latest is already in the matrix.
+  curl-transport:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} (curl transport)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: build-curl/_deps
+          key: curl-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: |
+            curl-deps-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Configure
+        run: >
+          cmake -B build-curl -S .
+          -DCMAKE_BUILD_TYPE=Release
+          -DFASTMCPP_BUILD_TESTS=ON
+          -DFASTMCPP_BUILD_EXAMPLES=OFF
+          -DFASTMCPP_ENABLE_CURL_TRANSPORT=ON
+
+      - name: Build
+        run: cmake --build build-curl --config Release --parallel 2
+
+      - name: Test
+        run: ctest --test-dir build-curl -C Release --output-on-failure --timeout 300

@@ -3,6 +3,8 @@
 #include "../internal/process.hpp"
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/util/json.hpp"
+#include "http_detail.hpp"
+#include "sse_stream.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -17,6 +19,10 @@
 
 namespace fastmcpp::client
 {
+
+// URL parsing, redirect resolution and SSE framing are shared with the
+// WinHTTP and libcurl transports; see src/client/http_detail.hpp.
+using namespace detail;
 
 struct StdioTransport::State
 {
@@ -34,126 +40,27 @@ struct StdioTransport::State
 
 namespace
 {
-struct ParsedUrl
+
+/// Copy httplib's response headers into a container the public exception type
+/// can expose without leaking httplib into fastmcpp's headers.
+std::multimap<std::string, std::string> to_multimap(const httplib::Headers& headers)
 {
-    std::string scheme; // "http" or "https"
-    std::string host;
-    int port;
-    bool is_https;
-};
-
-struct ParsedUrlWithPath
-{
-    ParsedUrl base;
-    std::string path; // includes leading '/'
-};
-
-ParsedUrl parse_url(const std::string& base)
-{
-    ParsedUrl result;
-    std::string remaining = base;
-
-    // Extract scheme
-    auto scheme_pos = remaining.find("://");
-    if (scheme_pos != std::string::npos)
-    {
-        result.scheme = remaining.substr(0, scheme_pos);
-        remaining = remaining.substr(scheme_pos + 3);
-    }
-    else
-    {
-        // Default to http if no scheme specified
-        result.scheme = "http";
-    }
-
-    // Validate scheme (only allow http/https)
-    if (result.scheme != "http" && result.scheme != "https")
-    {
-        throw fastmcpp::TransportError("Unsupported URL scheme: " + result.scheme +
-                                       " (only http and https are allowed)");
-    }
-
-    result.is_https = (result.scheme == "https");
-
-    // If path segments exist, strip them
-    auto slash_pos = remaining.find('/');
-    if (slash_pos != std::string::npos)
-        remaining = remaining.substr(0, slash_pos);
-
-    // Extract port if provided
-    auto colon_pos = remaining.rfind(':');
-    if (colon_pos != std::string::npos)
-    {
-        std::string port_str = remaining.substr(colon_pos + 1);
-        result.host = remaining.substr(0, colon_pos);
-        try
-        {
-            result.port = std::stoi(port_str);
-        }
-        catch (...)
-        {
-            // Use default port for scheme
-            result.port = result.is_https ? 443 : 80;
-        }
-    }
-    else
-    {
-        result.host = remaining;
-        // Use default port for scheme
-        result.port = result.is_https ? 443 : 80;
-    }
-
-    return result;
-}
-
-ParsedUrlWithPath parse_url_with_path(const std::string& url)
-{
-    ParsedUrlWithPath out;
-    out.base = parse_url(url);
-
-    // Extract path (if any) from the original string, preserving query/fragment (if present)
-    auto scheme_pos = url.find("://");
-    size_t host_start = (scheme_pos == std::string::npos) ? 0 : (scheme_pos + 3);
-    auto path_pos = url.find('/', host_start);
-    if (path_pos == std::string::npos)
-        out.path = "/";
-    else
-        out.path = url.substr(path_pos);
-
-    if (out.path.empty() || out.path[0] != '/')
-        out.path.insert(out.path.begin(), '/');
-
+    std::multimap<std::string, std::string> out;
+    for (const auto& [key, value] : headers)
+        out.emplace(key, value);
     return out;
 }
-
-bool is_redirect_status(int status)
-{
-    return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
-}
-
-std::pair<std::string, std::string> resolve_redirect_target(const std::string& current_full_url,
-                                                            const std::string& current_path,
-                                                            const std::string& location)
-{
-    if (location.rfind("http://", 0) == 0 || location.rfind("https://", 0) == 0)
-    {
-        auto parsed = parse_url_with_path(location);
-        std::string full_url =
-            parsed.base.scheme + "://" + parsed.base.host + ":" + std::to_string(parsed.base.port);
-        return {std::move(full_url), parsed.path};
-    }
-
-    if (!location.empty() && location[0] == '/')
-        return {current_full_url, location};
-
-    // Relative redirect - resolve against current path
-    std::string base_dir = "/";
-    auto last_slash = current_path.rfind('/');
-    if (last_slash != std::string::npos)
-        base_dir = current_path.substr(0, last_slash + 1);
-    return {current_full_url, base_dir + location};
-}
 } // namespace
+
+std::unordered_map<std::string, std::string>
+HttpTransport::effective_headers(const HeaderRequest& req) const
+{
+    auto merged = headers_;
+    if (header_provider_)
+        for (auto& [key, value] : header_provider_(req))
+            merged[key] = std::move(value);
+    return merged;
+}
 
 fastmcpp::Json HttpTransport::request(const std::string& route, const fastmcpp::Json& payload)
 {
@@ -173,141 +80,21 @@ fastmcpp::Json HttpTransport::request(const std::string& route, const fastmcpp::
     // Security: Disable redirects by default to prevent SSRF and TLS downgrade attacks
     cli.set_follow_location(false);
 
+    const std::string request_path = "/" + route;
+    const std::string request_body = payload.dump();
+
     httplib::Headers headers = {{"Accept", "text/event-stream, application/json"}};
-    for (const auto& [key, value] : headers_)
+    for (const auto& [key, value] :
+         effective_headers({"POST", full_url + request_path, request_path, request_body}))
         headers.emplace(key, value);
 
-    auto res = cli.Post(("/" + route).c_str(), headers, payload.dump(), "application/json");
+    auto res = cli.Post(request_path.c_str(), headers, request_body, "application/json");
     if (!res)
         throw fastmcpp::TransportError("HTTP request failed: no response");
     if (res->status < 200 || res->status >= 300)
-        throw fastmcpp::TransportError("HTTP error: " + std::to_string(res->status));
+        throw fastmcpp::TransportHttpError("HTTP error: " + std::to_string(res->status),
+                                           res->status, to_multimap(res->headers), res->body);
     return fastmcpp::util::json::parse(res->body);
-}
-
-void HttpTransport::request_stream(const std::string& route, const fastmcpp::Json& /*payload*/,
-                                   const std::function<void(const fastmcpp::Json&)>& on_event)
-{
-    auto url = parse_url(base_url_);
-
-    // Security: Create client with full scheme://host:port URL for proper TLS handling
-    std::string full_url = url.scheme + "://" + url.host + ":" + std::to_string(url.port);
-    httplib::Client cli(full_url.c_str());
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-    cli.enable_server_certificate_verification(verify_ssl_);
-#endif
-
-    cli.set_connection_timeout(5, 0);
-    cli.set_keep_alive(true);
-    cli.set_read_timeout(static_cast<int>(timeout_.count()), 0);
-
-    std::string path = "/" + route;
-    httplib::Headers headers = {{"Accept", "text/event-stream, application/json"}};
-    for (const auto& [key, value] : headers_)
-        headers.emplace(key, value);
-
-    std::string buffer;
-    std::string last_emitted;
-    std::atomic<bool> any_data{false};
-    auto content_receiver = [&](const char* data, size_t len)
-    {
-        any_data.store(true, std::memory_order_relaxed);
-        buffer.append(data, len);
-        // Try to parse SSE-style events separated by double newlines
-        size_t pos = 0;
-        while (true)
-        {
-            size_t sep = buffer.find("\n\n", pos);
-            if (sep == std::string::npos)
-                break;
-            std::string chunk = buffer.substr(pos, sep - pos);
-            pos = sep + 2;
-
-            // Extract data: lines
-            std::string aggregated;
-            size_t line_start = 0;
-            while (line_start < chunk.size())
-            {
-                size_t line_end = chunk.find('\n', line_start);
-                std::string line = chunk.substr(line_start, line_end == std::string::npos
-                                                                ? std::string::npos
-                                                                : (line_end - line_start));
-                if (line.rfind("data:", 0) == 0)
-                {
-                    std::string data_part = line.substr(5);
-                    if (!data_part.empty() && data_part[0] == ' ')
-                        data_part.erase(0, 1);
-                    aggregated += data_part;
-                }
-                if (line_end == std::string::npos)
-                    break;
-                line_start = line_end + 1;
-            }
-
-            if (!aggregated.empty())
-            {
-                // De-duplicate identical consecutive chunks to avoid repeated delivery
-                if (aggregated == last_emitted)
-                {
-                    // skip duplicate
-                }
-                else
-                {
-                    last_emitted = aggregated;
-                    try
-                    {
-                        auto evt = fastmcpp::util::json::parse(aggregated);
-                        if (on_event)
-                            on_event(evt);
-                    }
-                    catch (...)
-                    {
-                        // Fallback: deliver raw chunk as text if not JSON
-                        fastmcpp::Json item =
-                            fastmcpp::Json{{"type", "text"}, {"text", aggregated}};
-                        fastmcpp::Json evt =
-                            fastmcpp::Json{{"content", fastmcpp::Json::array({item})}};
-                        if (on_event)
-                            on_event(evt);
-                    }
-                }
-            }
-        }
-        // Erase processed portion
-        if (pos > 0)
-            buffer.erase(0, pos);
-        return true; // continue
-    };
-
-    auto response_handler = [&](const httplib::Response& r)
-    {
-        // Accept only 200 and event-stream or json
-        return r.status >= 200 && r.status < 300;
-    };
-    // Retry for a short window in case the server isn't immediately ready
-    httplib::Result res;
-    for (int attempt = 0; attempt < 50; ++attempt)
-    {
-        // First, try full handler variant
-        res = cli.Get(path.c_str(), headers, response_handler, content_receiver);
-        if (res)
-            break;
-        // Fallback: some environments behave better with the simpler overload
-        res = cli.Get(path.c_str(), content_receiver);
-        if (res)
-            break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    if (!res)
-    {
-        // Some environments may close the connection without a formal response
-        // even though chunks were delivered. If we received any data, treat as ok.
-        if (any_data.load(std::memory_order_relaxed))
-            return;
-        throw fastmcpp::TransportError("HTTP stream request failed: no response");
-    }
-    if (res->status < 200 || res->status >= 300)
-        throw fastmcpp::TransportError("HTTP stream error: " + std::to_string(res->status));
 }
 
 void HttpTransport::request_stream_post(const std::string& route, const fastmcpp::Json& payload,
@@ -329,84 +116,40 @@ void HttpTransport::request_stream_post(const std::string& route, const fastmcpp
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/json");
     headers = curl_slist_append(headers, "Accept: text/event-stream, application/json");
-    for (const auto& [key, value] : headers_)
+    for (const auto& [key, value] : effective_headers({"POST", url, "/" + route, body}))
     {
         std::string header = key + ": " + value;
         headers = curl_slist_append(headers, header.c_str());
     }
 
-    std::string buffer;
-    auto parse_and_emit = [&](bool flush_all = false)
+    // Framing is shared with the SSE listener; only the JSON policy below is
+    // specific to this path.
+    detail::SseEventStream framer;
+    auto emit = [&on_event](const detail::SseEvent& event)
     {
-        size_t pos = 0;
-        while (true)
+        if (!on_event)
+            return;
+        try
         {
-            size_t sep = buffer.find("\n\n", pos);
-            if (sep == std::string::npos)
-                break;
-            std::string chunk = buffer.substr(pos, sep - pos);
-            pos = sep + 2;
-
-            std::string aggregated;
-            size_t line_start = 0;
-            while (line_start < chunk.size())
-            {
-                size_t line_end = chunk.find('\n', line_start);
-                std::string line = chunk.substr(line_start, line_end == std::string::npos
-                                                                ? std::string::npos
-                                                                : (line_end - line_start));
-                if (line.rfind("data:", 0) == 0)
-                {
-                    std::string data_part = line.substr(5);
-                    if (!data_part.empty() && data_part[0] == ' ')
-                        data_part.erase(0, 1);
-                    aggregated += data_part;
-                }
-                if (line_end == std::string::npos)
-                    break;
-                line_start = line_end + 1;
-            }
-            if (!aggregated.empty())
-            {
-                try
-                {
-                    auto evt = fastmcpp::util::json::parse(aggregated);
-                    if (on_event)
-                        on_event(evt);
-                }
-                catch (...)
-                {
-                    fastmcpp::Json item = fastmcpp::Json{{"type", "text"}, {"text", aggregated}};
-                    fastmcpp::Json evt = fastmcpp::Json{{"content", fastmcpp::Json::array({item})}};
-                    if (on_event)
-                        on_event(evt);
-                }
-            }
+            on_event(fastmcpp::util::json::parse(event.data));
         }
-        if (flush_all && pos < buffer.size())
+        catch (...)
         {
-            std::string rest = buffer.substr(pos);
-            if (!rest.empty())
-            {
-                try
-                {
-                    auto evt = fastmcpp::util::json::parse(rest);
-                    if (on_event)
-                        on_event(evt);
-                }
-                catch (...)
-                {
-                    fastmcpp::Json item = fastmcpp::Json{{"type", "text"}, {"text", rest}};
-                    fastmcpp::Json evt = fastmcpp::Json{{"content", fastmcpp::Json::array({item})}};
-                    if (on_event)
-                        on_event(evt);
-                }
-            }
-            buffer.clear();
+            // A non-JSON payload is surfaced as text content rather than dropped.
+            fastmcpp::Json item = fastmcpp::Json{{"type", "text"}, {"text", event.data}};
+            on_event(fastmcpp::Json{{"content", fastmcpp::Json::array({item})}});
         }
-        if (pos > 0)
-            buffer.erase(0, pos);
     };
+
+    // Bundles what the write callback needs, so events are delivered as bytes
+    // arrive instead of only once the transfer finishes.
+    struct StreamSink
+    {
+        detail::SseEventStream* framer;
+        const std::function<void(const detail::SseEvent&)>* emit;
+    };
+    std::function<void(const detail::SseEvent&)> emit_fn = emit;
+    StreamSink sink{&framer, &emit_fn};
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -417,11 +160,11 @@ void HttpTransport::request_stream_post(const std::string& route, const fastmcpp
         curl, CURLOPT_WRITEFUNCTION,
         +[](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t
         {
-            auto* buf = static_cast<std::string*>(userdata);
-            buf->append(ptr, size * nmemb);
+            auto* s = static_cast<StreamSink*>(userdata);
+            s->framer->feed(ptr, size * nmemb, *s->emit);
             return size * nmemb;
         });
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &sink);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, static_cast<long>(timeout_.count()));
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L); // no overall timeout for streaming
@@ -432,8 +175,8 @@ void HttpTransport::request_stream_post(const std::string& route, const fastmcpp
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
 
-    // Parse whatever accumulated
-    parse_and_emit(true);
+    // A stream that ended without a trailing blank line still carried an event.
+    framer.flush(emit_fn);
 
     if (code != CURLE_OK && code != CURLE_PARTIAL_FILE)
     {
@@ -441,7 +184,8 @@ void HttpTransport::request_stream_post(const std::string& route, const fastmcpp
                                        curl_easy_strerror(code));
     }
     if (status < 200 || status >= 300)
-        throw fastmcpp::TransportError("HTTP stream POST error: " + std::to_string(status));
+        throw fastmcpp::TransportHttpError("HTTP stream POST error: " + std::to_string(status),
+                                           static_cast<int>(status));
 #else
     (void)route;
     (void)payload;
@@ -466,6 +210,19 @@ StdioTransport::StdioTransport(std::string command, std::vector<std::string> arg
 }
 
 fastmcpp::Json StdioTransport::request(const std::string& route, const fastmcpp::Json& payload)
+{
+    return send_message(route, payload, true);
+}
+
+void StdioTransport::notify(const std::string& route, const fastmcpp::Json& payload)
+{
+    // A notification carries no "id"; the server must not reply, so waiting for
+    // a response here would block until the read timeout.
+    (void)send_message(route, payload, false);
+}
+
+fastmcpp::Json StdioTransport::send_message(const std::string& route, const fastmcpp::Json& payload,
+                                            bool expect_response)
 {
     namespace proc = fastmcpp::process;
 
@@ -559,10 +316,11 @@ fastmcpp::Json StdioTransport::request(const std::string& route, const fastmcpp:
         const int64_t id = next_id_++;
         fastmcpp::Json rpc_request = {
             {"jsonrpc", "2.0"},
-            {"id", id},
             {"method", route},
             {"params", payload},
         };
+        if (expect_response)
+            rpc_request["id"] = id;
 
         {
             std::lock_guard<std::mutex> lock(st->stderr_mutex);
@@ -578,6 +336,9 @@ fastmcpp::Json StdioTransport::request(const std::string& route, const fastmcpp:
             throw fastmcpp::TransportError(std::string("StdioTransport: failed to write: ") +
                                            e.what());
         }
+
+        if (!expect_response)
+            return fastmcpp::Json::object();
 
         // Read lines from stdout until we get a JSON response matching our ID
         for (;;)
@@ -667,12 +428,16 @@ fastmcpp::Json StdioTransport::request(const std::string& route, const fastmcpp:
     // Write request then close stdin
     fastmcpp::Json rpc_request = {
         {"jsonrpc", "2.0"},
-        {"id", 1},
         {"method", route},
         {"params", payload},
     };
+    if (expect_response)
+        rpc_request["id"] = 1;
     process.stdin_pipe().write(rpc_request.dump() + "\n");
     process.stdin_pipe().close();
+
+    if (!expect_response)
+        return fastmcpp::Json::object();
 
     // Read all stdout synchronously
     std::string stdout_data;
@@ -854,102 +619,47 @@ void SseClientTransport::start_sse_listener()
             cli.set_read_timeout(300, 0); // Long timeout for SSE stream (5 minutes)
             cli.set_keep_alive(true);
 
-            std::string buffer;
-            auto content_receiver = [this, &buffer](const char* data, size_t len)
+            detail::SseEventStream framer;
+            auto content_receiver = [this, &framer](const char* data, size_t len)
             {
                 if (!running_.load(std::memory_order_acquire))
                     return false;
 
-                buffer.append(data, len);
-
-                // Parse SSE events (data: lines separated by double newlines)
-                size_t pos = 0;
-                while (true)
-                {
-                    // Try both \n\n (Unix) and \r\n\r\n (Windows/HTTP) for compatibility
-                    size_t sep = buffer.find("\n\n", pos);
-                    int sep_len = 2;
-                    if (sep == std::string::npos)
-                    {
-                        sep = buffer.find("\r\n\r\n", pos);
-                        sep_len = 4;
-                    }
-                    if (sep == std::string::npos)
-                        break;
-
-                    std::string chunk = buffer.substr(pos, sep - pos);
-                    pos = sep + sep_len;
-
-                    // Extract event type and data lines
-                    std::string event_type;
-                    std::string aggregated;
-                    size_t line_start = 0;
-                    while (line_start < chunk.size())
-                    {
-                        size_t line_end = chunk.find('\n', line_start);
-                        std::string line = chunk.substr(line_start, line_end == std::string::npos
-                                                                        ? std::string::npos
-                                                                        : (line_end - line_start));
-                        // Strip trailing \r for CRLF line endings
-                        if (!line.empty() && line.back() == '\r')
-                            line.pop_back();
-
-                        if (line.rfind("event:", 0) == 0)
-                        {
-                            event_type = line.substr(6);
-                            if (!event_type.empty() && event_type[0] == ' ')
-                                event_type.erase(0, 1);
-                        }
-                        else if (line.rfind("data:", 0) == 0)
-                        {
-                            std::string data_part = line.substr(5);
-                            if (!data_part.empty() && data_part[0] == ' ')
-                                data_part.erase(0, 1);
-                            aggregated += data_part;
-                        }
-                        if (line_end == std::string::npos)
-                            break;
-                        line_start = line_end + 1;
-                    }
-
-                    if (!aggregated.empty())
-                    {
-                        // Handle endpoint event specially - it's not JSON
-                        if (event_type == "endpoint")
-                        {
-                            std::lock_guard<std::mutex> lock(endpoint_mutex_);
-                            endpoint_path_ = aggregated;
-
-                            // Parse session_id from "...?session_id=<id>"
-                            session_id_.clear();
-                            auto pos = endpoint_path_.find("session_id=");
-                            if (pos != std::string::npos)
+                framer.feed(data, len,
+                            [this](const detail::SseEvent& event)
                             {
-                                pos += std::string("session_id=").size();
-                                auto end = endpoint_path_.find_first_of("&#", pos);
-                                session_id_ = endpoint_path_.substr(pos, end == std::string::npos
-                                                                             ? std::string::npos
-                                                                             : (end - pos));
-                            }
-                        }
-                        else
-                        {
-                            // Try to parse as JSON for other events
-                            try
-                            {
-                                auto evt = fastmcpp::util::json::parse(aggregated);
-                                process_sse_event(evt);
-                            }
-                            catch (...)
-                            {
-                                // Ignore parse errors
-                            }
-                        }
-                    }
-                }
+                                // The endpoint event is not JSON: its data is the
+                                // path every subsequent request and notification
+                                // gets POSTed to, so losing it breaks the whole
+                                // transport rather than just this message.
+                                if (event.event == "endpoint")
+                                {
+                                    std::lock_guard<std::mutex> lock(endpoint_mutex_);
+                                    endpoint_path_ = event.data;
 
-                if (pos > 0)
-                    buffer.erase(0, pos);
+                                    // Parse session_id from "...?session_id=<id>"
+                                    session_id_.clear();
+                                    auto pos = endpoint_path_.find("session_id=");
+                                    if (pos != std::string::npos)
+                                    {
+                                        pos += std::string("session_id=").size();
+                                        auto end = endpoint_path_.find_first_of("&#", pos);
+                                        session_id_ = endpoint_path_.substr(
+                                            pos, end == std::string::npos ? std::string::npos
+                                                                          : (end - pos));
+                                    }
+                                    return;
+                                }
+
+                                try
+                                {
+                                    process_sse_event(fastmcpp::util::json::parse(event.data));
+                                }
+                                catch (...)
+                                {
+                                    // A non-JSON event on this stream is not fatal.
+                                }
+                            });
 
                 return running_.load(std::memory_order_acquire);
             };
@@ -1101,6 +811,37 @@ void SseClientTransport::process_sse_event(const fastmcpp::Json& event)
     }
 }
 
+void SseClientTransport::notify(const std::string& route, const fastmcpp::Json& payload)
+{
+    if (!is_connected())
+        throw fastmcpp::TransportError("SSE client not connected");
+
+    // A notification carries no "id" and gets no reply on the event stream, so
+    // it is posted without registering a pending request to wait on.
+    fastmcpp::Json rpc_notification = {{"jsonrpc", "2.0"}, {"method", route}, {"params", payload}};
+
+    auto url = parse_url(base_url_);
+    httplib::Client cli(url.host.c_str(), url.port);
+#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
+    cli.enable_server_certificate_verification(verify_ssl_);
+#endif
+    cli.set_connection_timeout(5, 0);
+    cli.set_read_timeout(30, 0);
+
+    std::string post_path;
+    {
+        std::lock_guard<std::mutex> lock(endpoint_mutex_);
+        post_path = endpoint_path_.empty() ? messages_path_ : endpoint_path_;
+    }
+
+    auto res = cli.Post(post_path.c_str(), rpc_notification.dump(), "application/json");
+    if (!res)
+        throw fastmcpp::TransportError("Failed to send notification to " + messages_path_);
+    if (res->status < 200 || res->status >= 300)
+        throw fastmcpp::TransportHttpError("HTTP error: " + std::to_string(res->status),
+                                           res->status, to_multimap(res->headers), res->body);
+}
+
 fastmcpp::Json SseClientTransport::request(const std::string& route, const fastmcpp::Json& payload)
 {
     if (!is_connected())
@@ -1148,7 +889,8 @@ fastmcpp::Json SseClientTransport::request(const std::string& route, const fastm
     {
         std::lock_guard<std::mutex> lock(pending_mutex_);
         pending_requests_.erase(id);
-        throw fastmcpp::TransportError("HTTP error: " + std::to_string(res->status));
+        throw fastmcpp::TransportHttpError("HTTP error: " + std::to_string(res->status),
+                                           res->status, to_multimap(res->headers), res->body);
     }
 
     // Wait for response from SSE stream (with timeout)
@@ -1186,232 +928,38 @@ fastmcpp::Json SseClientTransport::request(const std::string& route, const fastm
 StreamableHttpTransport::StreamableHttpTransport(
     std::string base_url, std::string mcp_path,
     std::unordered_map<std::string, std::string> headers, bool verify_ssl)
-    : base_url_(std::move(base_url)), mcp_path_(std::move(mcp_path)), headers_(std::move(headers)),
-      verify_ssl_(verify_ssl)
+    : HttpRpcTransport(std::move(base_url), std::move(mcp_path), std::move(headers), verify_ssl)
 {
 }
 
 StreamableHttpTransport::~StreamableHttpTransport() = default;
 
-std::string StreamableHttpTransport::session_id() const
+HttpResponse
+StreamableHttpTransport::post(const std::string& url, const std::string& path,
+                              const std::unordered_map<std::string, std::string>& headers,
+                              const std::string& body)
 {
-    std::lock_guard<std::mutex> lock(session_mutex_);
-    return session_id_;
-}
+    httplib::Client cli(url.c_str());
+#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
+    cli.enable_server_certificate_verification(verify_ssl());
+#endif
+    cli.set_connection_timeout(30, 0);
+    cli.set_read_timeout(300, 0); // Align with MCP HTTP defaults (30s connect, 5min read)
+    cli.set_keep_alive(true);
+    // HttpRpcTransport runs the redirect loop for every transport alike, so that
+    // a credential attached by a HeaderProvider is not replayed to another
+    // origin. cpp-httplib must not follow a 3xx behind its back.
+    cli.set_follow_location(false);
 
-bool StreamableHttpTransport::has_session() const
-{
-    std::lock_guard<std::mutex> lock(session_mutex_);
-    return !session_id_.empty();
-}
-
-void StreamableHttpTransport::set_notification_callback(
-    std::function<void(const fastmcpp::Json&)> callback)
-{
-    notification_callback_ = std::move(callback);
-}
-
-void StreamableHttpTransport::reset(bool /*full*/)
-{
-    std::lock_guard<std::mutex> lock(session_mutex_);
-    session_id_.clear();
-}
-
-void StreamableHttpTransport::parse_session_id_from_response(const std::string& header_value)
-{
-    // The header comes as "Mcp-Session-Id: <value>"
-    // We receive just the value from httplib
-    if (!header_value.empty())
-    {
-        std::lock_guard<std::mutex> lock(session_mutex_);
-        session_id_ = header_value;
-    }
-}
-
-void StreamableHttpTransport::process_sse_line(const std::string& line,
-                                               std::vector<fastmcpp::Json>& messages)
-{
-    // Parse SSE data lines (format: "data: {json}")
-    if (line.rfind("data:", 0) == 0)
-    {
-        std::string data_part = line.substr(5);
-        if (!data_part.empty() && data_part[0] == ' ')
-            data_part.erase(0, 1);
-        if (!data_part.empty())
-        {
-            try
-            {
-                auto json = fastmcpp::util::json::parse(data_part);
-                messages.push_back(std::move(json));
-            }
-            catch (...)
-            {
-                // Ignore parse errors
-            }
-        }
-    }
-}
-
-fastmcpp::Json StreamableHttpTransport::parse_response(const std::string& body,
-                                                       const std::string& content_type)
-{
-    // Check if response is SSE stream
-    bool is_sse = content_type.find("text/event-stream") != std::string::npos;
-
-    if (is_sse)
-    {
-        // Parse SSE events and collect all JSON messages
-        std::vector<fastmcpp::Json> messages;
-        std::istringstream stream(body);
-        std::string line;
-
-        while (std::getline(stream, line))
-        {
-            // Strip trailing \r for CRLF
-            if (!line.empty() && line.back() == '\r')
-                line.pop_back();
-
-            process_sse_line(line, messages);
-        }
-
-        // Process messages - notifications go to callback, find the main response
-        fastmcpp::Json response;
-        for (const auto& msg : messages)
-        {
-            // Check if this is a notification (has method, no id)
-            if (msg.contains("method") && !msg.contains("id"))
-            {
-                if (notification_callback_)
-                    notification_callback_(msg);
-            }
-            else if (msg.contains("id"))
-            {
-                // This is the response we're looking for
-                response = msg;
-            }
-        }
-
-        return response;
-    }
-    else
-    {
-        // Plain JSON response
-        return fastmcpp::util::json::parse(body);
-    }
-}
-
-fastmcpp::Json StreamableHttpTransport::request(const std::string& route,
-                                                const fastmcpp::Json& payload)
-{
-    auto url = parse_url(base_url_);
-
-    // Create client
-    std::string full_url = url.scheme + "://" + url.host + ":" + std::to_string(url.port);
-
-    // Build request headers
-    httplib::Headers request_headers = {{"Accept", "application/json, text/event-stream"},
-                                        {"Content-Type", "application/json"}};
-
-    // Add custom headers
-    for (const auto& [key, value] : headers_)
+    httplib::Headers request_headers;
+    for (const auto& [key, value] : headers)
         request_headers.emplace(key, value);
 
-    // Add session ID if we have one
-    {
-        std::lock_guard<std::mutex> lock(session_mutex_);
-        if (!session_id_.empty())
-            request_headers.emplace("Mcp-Session-Id", session_id_);
-    }
-
-    // Build JSON-RPC request (route is method, payload is params)
-    int64_t id = next_id_.fetch_add(1, std::memory_order_relaxed);
-    fastmcpp::Json rpc_request = {
-        {"jsonrpc", "2.0"}, {"method", route}, {"params", payload}, {"id", id}};
-
-    std::string path = mcp_path_.empty() ? "/mcp" : mcp_path_;
-    if (!path.empty() && path[0] != '/')
-        path.insert(path.begin(), '/');
-
-    // Send request (follow redirects like the Python SDK's httpx follow_redirects=True)
-    httplib::Result res;
-    for (int redirects = 0; redirects <= 5; ++redirects)
-    {
-        httplib::Client cli(full_url.c_str());
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-        cli.enable_server_certificate_verification(verify_ssl_);
-#endif
-        cli.set_connection_timeout(30, 0);
-        cli.set_read_timeout(300, 0); // Align with MCP HTTP defaults (30s connect, 5min read)
-        cli.set_keep_alive(true);
-        // Manual redirect loop below (set_follow_location(false)) is a deliberate
-        // policy: fastmcpp uses libcurl/cpp-httplib and explicitly handles 3xx
-        // so it can manage Authorization-stripping on cross-origin redirects.
-        // Python fastmcp commit 226bfb49 made the same policy choice on httpx.
-        cli.set_follow_location(false);
-
-        res = cli.Post(path.c_str(), request_headers, rpc_request.dump(), "application/json");
-        if (!res)
-            throw fastmcpp::TransportError("StreamableHttp request failed: no response");
-
-        if (is_redirect_status(res->status))
-        {
-            auto loc = res->headers.find("Location");
-            if (loc == res->headers.end())
-                loc = res->headers.find("location");
-            if (loc == res->headers.end())
-                throw fastmcpp::TransportError("StreamableHttp redirect without Location header");
-
-            auto next = resolve_redirect_target(full_url, path, loc->second);
-            full_url = std::move(next.first);
-            path = std::move(next.second);
-            continue;
-        }
-
-        break;
-    }
-
+    auto res = cli.Post(path.c_str(), request_headers, body, "application/json");
     if (!res)
         throw fastmcpp::TransportError("StreamableHttp request failed: no response");
 
-    if (is_redirect_status(res->status))
-        throw fastmcpp::TransportError("StreamableHttp redirect limit exceeded");
-
-    if (res->status < 200 || res->status >= 300)
-        throw fastmcpp::TransportError("StreamableHttp error: " + std::to_string(res->status));
-
-    // Check for session ID in response headers
-    auto session_header = res->headers.find("Mcp-Session-Id");
-    if (session_header != res->headers.end())
-        parse_session_id_from_response(session_header->second);
-
-    // Also check lowercase (some servers may use different casing)
-    session_header = res->headers.find("mcp-session-id");
-    if (session_header != res->headers.end())
-        parse_session_id_from_response(session_header->second);
-
-    // Get content type
-    std::string content_type = "application/json";
-    auto ct_header = res->headers.find("Content-Type");
-    if (ct_header != res->headers.end())
-        content_type = ct_header->second;
-
-    // Parse response
-    auto rpc_response = parse_response(res->body, content_type);
-
-    // Check for JSON-RPC error
-    if (rpc_response.contains("error"))
-    {
-        auto error = rpc_response["error"];
-        std::string message = error.value("message", "Unknown error");
-        throw fastmcpp::TransportError("JSON-RPC error: " + message);
-    }
-
-    // Extract result from JSON-RPC envelope
-    if (rpc_response.contains("result"))
-        return rpc_response["result"];
-
-    // If no result or error, return empty object
-    return fastmcpp::Json::object();
+    return HttpResponse{res->status, to_multimap(res->headers), res->body};
 }
 
 } // namespace fastmcpp::client

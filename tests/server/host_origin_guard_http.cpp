@@ -38,6 +38,28 @@ static int failures = 0;
         }                                                                                          \
     } while (0)
 
+/// Compare a status against what was expected, reporting what actually arrived.
+///
+/// Plain CHECK only prints its message, which makes a failure here unreadable:
+/// post_status returns -1 on a transport error, so "expected 403" could equally
+/// mean the guard allowed the request or that the connection never completed.
+#define CHECK_STATUS(expr, want, msg)                                                              \
+    do                                                                                             \
+    {                                                                                              \
+        const int got_ = (expr);                                                                   \
+        if (got_ != (want))                                                                        \
+        {                                                                                          \
+            std::cerr << "FAIL: " << msg << " (expected " << (want) << ", got " << got_            \
+                      << (got_ == -1 ? " = transport error, no response" : "") << ")"              \
+                      << std::endl;                                                                \
+            ++failures;                                                                            \
+        }                                                                                          \
+        else                                                                                       \
+        {                                                                                          \
+            std::cout << "ok: " << msg << std::endl;                                               \
+        }                                                                                          \
+    } while (0)
+
 /// POST /ping with optional Host/Origin overrides; returns status (-1 on transport error).
 static int post_status(int port, const std::string& host_header, const std::string& origin_header)
 {
@@ -49,7 +71,13 @@ static int post_status(int port, const std::string& host_header, const std::stri
     if (!origin_header.empty())
         headers.emplace("Origin", origin_header);
     auto res = cli.Post("/ping", headers, R"({"ok":true})", "application/json");
-    return res ? res->status : -1;
+    if (res)
+        return res->status;
+
+    // Report why, not just that: a bare -1 is indistinguishable between "the
+    // guard let it through" and "the connection never completed".
+    std::cerr << "      (httplib error: " << httplib::to_string(res.error()) << ")" << std::endl;
+    return -1;
 }
 
 int main()
@@ -61,8 +89,8 @@ int main()
     {
         server::HttpServerWrapper http{srv, "127.0.0.1", 0};
         CHECK(http.start(), "off: server starts");
-        CHECK(post_status(http.port(), "attacker.example", "https://attacker.example") == 200,
-              "off: attacker host+origin allowed (guard disabled)");
+        CHECK_STATUS(post_status(http.port(), "attacker.example", "https://attacker.example"), 200,
+                     "off: attacker host+origin allowed (guard disabled)");
         http.stop();
     }
 
@@ -74,13 +102,14 @@ int main()
         http.set_host_origin_guard(o);
         CHECK(http.start(), "auto: server starts");
         int p = http.port();
-        CHECK(post_status(p, "", "") == 200, "auto: default loopback host allowed");
-        CHECK(post_status(p, "attacker.example", "") == 421, "auto: rebinding host rejected 421");
-        CHECK(post_status(p, "localhost:12345", "") == 200, "auto: localhost host allowed");
-        CHECK(post_status(p, "", "http://localhost:3000") == 200,
-              "auto: loopback origin for loopback host allowed");
-        CHECK(post_status(p, "", "https://attacker.example") == 403,
-              "auto: untrusted origin rejected 403");
+        CHECK_STATUS(post_status(p, "", ""), 200, "auto: default loopback host allowed");
+        CHECK_STATUS(post_status(p, "attacker.example", ""), 421,
+                     "auto: rebinding host rejected 421");
+        CHECK_STATUS(post_status(p, "localhost:12345", ""), 200, "auto: localhost host allowed");
+        CHECK_STATUS(post_status(p, "", "http://localhost:3000"), 200,
+                     "auto: loopback origin for loopback host allowed");
+        CHECK_STATUS(post_status(p, "", "https://attacker.example"), 403,
+                     "auto: untrusted origin rejected 403");
         http.stop();
     }
 
@@ -94,23 +123,23 @@ int main()
         http.set_host_origin_guard(o);
         CHECK(http.start(), "strict: server starts");
         int p = http.port();
-        CHECK(post_status(p, "mcp.example.com", "https://app.example.com") == 200,
-              "strict: configured host+origin allowed");
-        CHECK(post_status(p, "evil.example", "https://app.example.com") == 421,
-              "strict: unlisted host 421");
-        CHECK(post_status(p, "mcp.example.com", "https://evil.example") == 403,
-              "strict: unlisted origin 403");
+        CHECK_STATUS(post_status(p, "mcp.example.com", "https://app.example.com"), 200,
+                     "strict: configured host+origin allowed");
+        CHECK_STATUS(post_status(p, "evil.example", "https://app.example.com"), 421,
+                     "strict: unlisted host 421");
+        CHECK_STATUS(post_status(p, "mcp.example.com", "https://evil.example"), 403,
+                     "strict: unlisted origin 403");
         // Loopback origin for a public host is NOT allowed unless configured.
-        CHECK(post_status(p, "mcp.example.com", "http://localhost:3000") == 403,
-              "strict: loopback origin for public host 403");
+        CHECK_STATUS(post_status(p, "mcp.example.com", "http://localhost:3000"), 403,
+                     "strict: loopback origin for public host 403");
         // Same-origin fallback (http default port 80): Origin == request origin.
-        CHECK(post_status(p, "mcp.example.com", "http://mcp.example.com") == 200,
-              "strict: same-origin fallback allowed");
+        CHECK_STATUS(post_status(p, "mcp.example.com", "http://mcp.example.com"), 200,
+                     "strict: same-origin fallback allowed");
         // Port mismatch -> 403.
-        CHECK(post_status(p, "mcp.example.com", "http://mcp.example.com:3000") == 403,
-              "strict: same host, different port 403");
+        CHECK_STATUS(post_status(p, "mcp.example.com", "http://mcp.example.com:3000"), 403,
+                     "strict: same host, different port 403");
         // Bound host (127.0.0.1) is implicitly allowed.
-        CHECK(post_status(p, "", "") == 200, "strict: bound loopback host allowed");
+        CHECK_STATUS(post_status(p, "", ""), 200, "strict: bound loopback host allowed");
         http.stop();
     }
 

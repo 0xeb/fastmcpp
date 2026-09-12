@@ -15,17 +15,27 @@ fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp
 
 **Status:** Beta – core MCP features track the Python `fastmcp` reference.
 
-**Current version:** 3.4.7
+**Current version:** 3.4.7.1
 
 ## Features
 
 - Core MCP protocol implementation (JSON‑RPC).
 - Multiple transports: STDIO, HTTP (SSE), Streamable HTTP.
 - Streamable HTTP transport (MCP spec 2025-03-26) with session management.
+- WinHTTP client transport on Windows: HTTPS through Schannel, with the system
+  certificate store and enterprise proxy configuration, and no OpenSSL.
+- libcurl client transport on every platform, binding to whichever TLS backend
+  the platform provides (`FASTMCPP_ENABLE_CURL_TRANSPORT=ON`).
+- Per-request header provider for rotating credentials such as OAuth tokens.
+- HTTP failures reported as `TransportHttpError`, retaining the status code,
+  response headers (including `WWW-Authenticate`) and body.
 - Tool management and invocation.
 - Resources and prompts support.
 - Resource templates with URI pattern matching.
 - Resource annotations (MCP 2025-11-25): audience targeting, priority hints, icons.
+- MCP protocol version `2025-11-25` by default, with negotiation: a server echoes
+  back the revision a client asked for when it recognises it, so an older client
+  keeps working. Override per client with `Client::set_protocol_version()`.
 - JSON Schema validation.
 - FastMCP high-level application class.
 - ProxyApp for backend server proxying.
@@ -40,13 +50,47 @@ fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp
 ## Requirements
 
 - C++17 or later compiler.
-- CMake 3.20 or higher.
+- CMake 3.16 or higher.
 - `nlohmann/json` (fetched automatically).
 
 Optional:
 
-- libcurl (for HTTP POST streaming; can be fetched when `FASTMCPP_FETCH_CURL=ON`).
+- libcurl (for HTTP POST streaming and the libcurl client transport; fetched
+  when `FASTMCPP_FETCH_CURL=ON`, which is the default).
 - cpp‑httplib (HTTP server, fetched automatically).
+- OpenSSL, only if you want HTTPS through the cpp‑httplib transports
+  (`FASTMCPP_ENABLE_OPENSSL=ON`). See "Reaching `https://` servers" below for
+  the alternatives that need no extra dependency.
+
+### Reaching `https://` servers
+
+The cpp‑httplib transports negotiate TLS only when cpp‑httplib itself is
+compiled with `CPPHTTPLIB_OPENSSL_SUPPORT`, so with the default
+`FASTMCPP_ENABLE_OPENSSL=OFF` an `https://` URL fails at runtime with
+`'https' scheme is not supported`. The URL parser accepts the scheme and
+defaults to port 443; only the TLS handshake is missing.
+
+Three ways to fix that:
+
+- **Windows** — use `fastmcpp::client::WinHttpTransport`, built by default
+  (`FASTMCPP_ENABLE_WINHTTP=ON`). TLS comes from Schannel, and the system
+  certificate store, enterprise proxy settings and CA policy come with it. No
+  extra dependency.
+- **Any platform** — use `fastmcpp::client::CurlTransport`, built with
+  `FASTMCPP_ENABLE_CURL_TRANSPORT=ON`. libcurl binds to whichever TLS backend
+  the platform provides, so this reaches `https://` on Linux and macOS as well
+  as Windows.
+- **OpenSSL** — set `FASTMCPP_ENABLE_OPENSSL=ON`, with one caveat worth knowing:
+  it is necessary but not sufficient when your project supplies its own
+  `httplib::httplib` target. fastmcpp then leaves `CPPHTTPLIB_OPENSSL_SUPPORT`
+  to that target to avoid an ODR mismatch, so cpp‑httplib must itself be built
+  with its `openssl` feature or the build will succeed and then fail at runtime.
+
+All three implement `ITransport`, so they drop into `Client` in place of
+`StreamableHttpTransport`. The two above share `HttpRpcTransport`, which owns
+the JSON-RPC framing, the redirect policy and session handling, so they also
+support the per-request header provider and report failures as
+`TransportHttpError`.
 
 ## Building
 
@@ -75,8 +119,15 @@ Key options:
 | Option                           | Default | Description                                      |
 |----------------------------------|---------|--------------------------------------------------|
 | `CMAKE_BUILD_TYPE`              | Debug   | Build configuration (Debug/Release/RelWithDebInfo) |
+| `FASTMCPP_BUILD_TESTS`          | ON      | Build the test suite                             |
+| `FASTMCPP_BUILD_EXAMPLES`       | ON      | Build the example programs                       |
+| `FASTMCPP_BUILD_CLI`            | ON      | Build the `fastmcpp` command-line executable     |
 | `FASTMCPP_ENABLE_POST_STREAMING` | OFF     | Enable HTTP POST streaming (requires libcurl)   |
-| `FASTMCPP_FETCH_CURL`           | OFF     | Fetch and build curl (via FetchContent) if not found |
+| `FASTMCPP_FETCH_CURL`           | ON      | Fetch and build curl (via FetchContent) if not found |
+| `FASTMCPP_ENABLE_OPENSSL`       | OFF     | HTTPS for the cpp-httplib transports, via OpenSSL |
+| `FASTMCPP_ENABLE_WINHTTP`       | ON (Windows) | Build the WinHTTP client transport          |
+| `FASTMCPP_ENABLE_CURL_TRANSPORT` | OFF    | Build the libcurl client transport (all platforms) |
+| `FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS` | OFF | Built-in OpenAI/Anthropic sampling handlers |
 | `FASTMCPP_ENABLE_STREAMING_TESTS` | OFF   | Enable SSE streaming tests                      |
 
 ### Platform notes
@@ -355,7 +406,7 @@ See the `examples/` directory for complete programs, including:
 fastmcpp/
   include/fastmcpp/   # Public headers (client, server, tools, etc.)
   src/                # Implementation
-  tests/              # Test suite (GoogleTest)
+  tests/              # Test suite (standalone executables, no framework)
   examples/           # Example programs
   CMakeLists.txt      # Build configuration
   LICENSE             # Apache 2.0 license

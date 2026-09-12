@@ -1,5 +1,7 @@
 #pragma once
 #include "fastmcpp/client/client.hpp"
+#include "fastmcpp/client/header_provider.hpp"
+#include "fastmcpp/client/http_rpc_transport.hpp"
 #include "fastmcpp/types.hpp"
 
 #include <atomic>
@@ -12,6 +14,7 @@
 #include <optional>
 #include <ostream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -32,10 +35,18 @@ class HttpTransport : public ITransport
           verify_ssl_(verify_ssl)
     {
     }
+
+    /// Install a provider consulted on every request; its entries override the
+    /// static headers passed to the constructor.
+    ///
+    /// Set this before the first request. The provider is invoked on the
+    /// calling thread and must be safe to call from any thread that issues
+    /// requests through this transport.
+    void set_header_provider(HeaderProvider provider)
+    {
+        header_provider_ = std::move(provider);
+    }
     fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload);
-    // Optional streaming parity: receive SSE/stream-like responses
-    void request_stream(const std::string& route, const fastmcpp::Json& payload,
-                        const std::function<void(const fastmcpp::Json&)>& on_event);
 
     // Stream response to POST requests (optional parity via libcurl if available)
     void request_stream_post(const std::string& route, const fastmcpp::Json& payload,
@@ -50,7 +61,11 @@ class HttpTransport : public ITransport
     std::string base_url_;
     std::chrono::seconds timeout_;
     std::unordered_map<std::string, std::string> headers_;
+    HeaderProvider header_provider_;
     bool verify_ssl_{true};
+
+    /// Static headers with any provider entries merged over them.
+    std::unordered_map<std::string, std::string> effective_headers(const HeaderRequest& req) const;
 };
 
 // Launches an MCP stdio server as a subprocess and performs JSON-RPC requests
@@ -88,12 +103,21 @@ class StdioTransport : public ITransport
 
     fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload) override;
 
+    /// Send a JSON-RPC notification: no `id`, and no reply is awaited.
+    void notify(const std::string& route, const fastmcpp::Json& payload) override;
+
     bool keep_alive() const noexcept
     {
         return keep_alive_;
     }
 
   private:
+    /// Shared implementation for requests and notifications.
+    /// @param expect_response false for notifications, where waiting for a reply
+    ///        that will never arrive would block until the read timeout.
+    fastmcpp::Json send_message(const std::string& route, const fastmcpp::Json& payload,
+                                bool expect_response);
+
     std::string command_;
     std::vector<std::string> args_;
     std::optional<std::filesystem::path> log_file_;
@@ -130,6 +154,10 @@ class SseClientTransport : public ITransport,
 
     /// Send a JSON-RPC request and wait for response
     fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload) override;
+
+    /// Send a JSON-RPC notification: no `id`, and no reply is awaited on the
+    /// event stream.
+    void notify(const std::string& route, const fastmcpp::Json& payload) override;
 
     /// Check if connected to SSE stream
     bool is_connected() const;
@@ -181,9 +209,7 @@ class SseClientTransport : public ITransport,
 /// 3. Session ID management via Mcp-Session-Id header
 ///
 /// Reference: https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/
-class StreamableHttpTransport : public ITransport,
-                                public IResettableTransport,
-                                public ISessionTransport
+class StreamableHttpTransport : public HttpRpcTransport
 {
   public:
     /// Construct a Streamable HTTP client transport
@@ -194,19 +220,7 @@ class StreamableHttpTransport : public ITransport,
                                      std::unordered_map<std::string, std::string> headers = {},
                                      bool verify_ssl = true);
 
-    ~StreamableHttpTransport();
-
-    /// Send a JSON-RPC request and wait for response
-    fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload) override;
-
-    /// Get the session ID (set after successful initialize)
-    std::string session_id() const override;
-
-    /// Check if a session ID has been set
-    bool has_session() const override;
-
-    /// Set callback for handling server-initiated notifications during streaming responses
-    void set_notification_callback(std::function<void(const fastmcpp::Json&)> callback);
+    ~StreamableHttpTransport() override;
 
     /// Clear session state so subsequent requests behave as a fresh client.
     void reset_session()
@@ -214,27 +228,10 @@ class StreamableHttpTransport : public ITransport,
         reset(true);
     }
 
-    void reset(bool /*full*/ = false) override;
-
-  private:
-    void parse_session_id_from_response(const std::string& headers);
-    fastmcpp::Json parse_response(const std::string& body, const std::string& content_type);
-    void process_sse_line(const std::string& line, std::vector<fastmcpp::Json>& messages);
-
-    std::string base_url_;
-    std::string mcp_path_;
-    std::unordered_map<std::string, std::string> headers_;
-    bool verify_ssl_{true};
-
-    // Session management
-    mutable std::mutex session_mutex_;
-    std::string session_id_;
-
-    // Notification handling
-    std::function<void(const fastmcpp::Json&)> notification_callback_;
-
-    // Request ID generation
-    std::atomic<int64_t> next_id_{1};
+  protected:
+    HttpResponse post(const std::string& url, const std::string& path,
+                      const std::unordered_map<std::string, std::string>& headers,
+                      const std::string& body) override;
 };
 
 } // namespace fastmcpp::client

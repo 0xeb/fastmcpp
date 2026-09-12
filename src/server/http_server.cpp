@@ -68,7 +68,8 @@ bool HttpServerWrapper::start()
 
     bound_port_.store(0); // Reset the bound port's value.
     svr_ = std::make_unique<httplib::Server>();
-    install_host_origin_guard(*svr_, HostOriginGuard(host_origin_guard_options_), host_);
+    host_origin_reject_ =
+        install_host_origin_guard(*svr_, HostOriginGuard(host_origin_guard_options_), host_);
 
     // Security: Set payload and timeout limits to prevent DoS
     svr_->set_payload_max_length(10 * 1024 * 1024); // 10MB max payload
@@ -113,6 +114,12 @@ bool HttpServerWrapper::start()
         auto handler =
             [this, route, authorize_or_401](const httplib::Request& req, httplib::Response& res)
         {
+            // Requests carrying a body reach here still guarded: the pre-routing
+            // handler cannot reject them without leaving the body unread. See
+            // host_origin_guard.hpp.
+            if (host_origin_reject_ && host_origin_reject_(req, res))
+                return;
+
             if (!authorize_or_401(req, res))
                 return;
 
@@ -157,6 +164,12 @@ bool HttpServerWrapper::start()
     svr_->Post(R"(/(.*))",
                [this, authorize_or_401](const httplib::Request& req, httplib::Response& res)
                {
+                   // Requests carrying a body reach here still guarded: the pre-routing
+                   // handler cannot reject them without leaving the body unread. See
+                   // host_origin_guard.hpp.
+                   if (host_origin_reject_ && host_origin_reject_(req, res))
+                       return;
+
                    if (!authorize_or_401(req, res))
                        return;
 

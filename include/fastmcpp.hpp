@@ -32,8 +32,11 @@
 
 // Client
 #include "fastmcpp/client/client.hpp"
+#include "fastmcpp/client/curl_transport.hpp"
+#include "fastmcpp/client/http_rpc_transport.hpp"
 #include "fastmcpp/client/transports.hpp"
 #include "fastmcpp/client/types.hpp"
+#include "fastmcpp/client/winhttp_transport.hpp"
 
 // Server
 #include "fastmcpp/server/context.hpp"

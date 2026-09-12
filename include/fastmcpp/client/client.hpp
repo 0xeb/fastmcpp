@@ -6,11 +6,13 @@
 
 #include "fastmcpp/client/types.hpp"
 #include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/protocol.hpp"
 #include "fastmcpp/server/server.hpp"
 #include "fastmcpp/telemetry.hpp"
 #include "fastmcpp/types.hpp"
 #include "fastmcpp/util/json_schema.hpp"
 #include "fastmcpp/util/json_schema_type.hpp"
+#include "fastmcpp/version.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -18,6 +20,7 @@
 #include <future>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <thread>
@@ -49,6 +52,48 @@ class ITransport
     /// @param payload The request payload as JSON
     /// @return The response payload as JSON
     virtual fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload) = 0;
+
+    /// Send a JSON-RPC notification: a message with no `id`, for which the
+    /// server must not reply.
+    ///
+    /// `request()` always attaches an `id`, which by definition makes the
+    /// message a request rather than a notification. Methods in the
+    /// `notifications/*` family are therefore malformed when sent through it,
+    /// and the spec-required `notifications/initialized` cannot be expressed at
+    /// all.
+    ///
+    /// The default implementation forwards to `request()` and discards the
+    /// result, preserving the previous behaviour for transports that do not
+    /// override it. Transports that can frame a notification properly should do
+    /// so.
+    virtual void notify(const std::string& route, const fastmcpp::Json& payload)
+    {
+        (void)request(route, payload);
+    }
+
+    /// Send a request, reporting the JSON-RPC `id` it will carry before it goes
+    /// out.
+    ///
+    /// The id is minted inside the transport, so a caller holding a request that
+    /// is still in flight has no way to name it -- which is what
+    /// `notifications/cancelled` requires. @p on_id is invoked with that id
+    /// before the request is sent, on the calling thread.
+    ///
+    /// The default ignores @p on_id and forwards to `request()`, so transports
+    /// outside this repository keep working unchanged. A transport that does not
+    /// override this simply does not support cancellation, and that is the right
+    /// answer for some of them: `StdioTransport` serializes every exchange behind
+    /// one mutex, so a cancellation sent through it would wait for the very
+    /// request it was meant to cancel.
+    ///
+    /// Because the id and the capability come from the same place, a caller needs
+    /// no separate feature flag: no id reported means nothing to cancel.
+    virtual fastmcpp::Json request_tracked(const std::string& route, const fastmcpp::Json& payload,
+                                           const std::function<void(const fastmcpp::Json&)>& on_id)
+    {
+        (void)on_id;
+        return request(route, payload);
+    }
 };
 
 /// Optional transport interface: some transports support explicit session reset/disconnect.
@@ -72,6 +117,19 @@ class IServerRequestTransport
   public:
     virtual ~IServerRequestTransport() = default;
     virtual void set_server_request_handler(ServerRequestHandler handler) = 0;
+};
+
+/// Optional transport interface: some transports must echo the negotiated
+/// protocol version back on every subsequent request.
+///
+/// Streamable HTTP requires an `MCP-Protocol-Version` header once a version has
+/// been agreed, which only the transport can attach. `Client::initialize()`
+/// pushes the negotiated value down through this after the handshake.
+class IProtocolVersionTransport
+{
+  public:
+    virtual ~IProtocolVersionTransport() = default;
+    virtual void set_protocol_version(std::string version) = 0;
 };
 
 /// Optional transport interface: some transports expose MCP session IDs.
@@ -140,6 +198,21 @@ class InProcessMcpTransport : public ITransport
 struct CallToolOptions
 {
     /// Timeout for the call (0 = no timeout)
+    ///
+    /// On expiry the call throws, but the request it gave up on keeps running on
+    /// a detached thread and is still using the transport. Do not issue another
+    /// request through the same Client until it can have finished: most
+    /// transports are not safe for two concurrent `request()` calls.
+    /// `LoopbackTransport` has no synchronisation at all, `InProcessMcpTransport`
+    /// increments a non-atomic shared counter, and `HttpRpcTransport` guards its
+    /// session state but not its header provider or notification callback.
+    ///
+    /// On expiry a `notifications/cancelled` naming this request IS sent, when the
+    /// transport can report the id it used (`ITransport::request_tracked`). That
+    /// tells a conforming server to drop the work; it does not stop the detached
+    /// thread. Transports that cannot report an id -- `StdioTransport`, whose
+    /// request mutex would make the cancellation wait for the request it is
+    /// cancelling -- send nothing, and the timeout behaves as before.
     std::chrono::milliseconds timeout{0};
 
     /// Optional metadata to include with the request
@@ -224,6 +297,12 @@ class Client
         return transport_->request(route, payload);
     }
 
+    /// Send a JSON-RPC notification through the transport (no `id`, no reply).
+    void notify(const std::string& route, const fastmcpp::Json& payload)
+    {
+        transport_->notify(route, payload);
+    }
+
     // ==========================================================================
     // Tool Operations
     // ==========================================================================
@@ -292,22 +371,97 @@ class Client
         if (options.progress_handler)
             options.progress_handler(0.0f, std::nullopt, "request started");
 
-        auto invoke_request = [this, payload]() { return call("tools/call", payload); };
+        // The worker records the id the transport assigned, so that on expiry we
+        // can name this exact request in a notifications/cancelled. Shared because
+        // the worker writes it and the timing-out caller reads it.
+        struct SentId
+        {
+            std::mutex mutex;
+            std::optional<fastmcpp::Json> id;
+        };
+        auto sent = std::make_shared<SentId>();
+
+        auto invoke_request = [this, payload, sent]()
+        {
+            return transport_->request_tracked("tools/call", payload,
+                                               [sent](const fastmcpp::Json& id)
+                                               {
+                                                   std::lock_guard<std::mutex> lock(sent->mutex);
+                                                   sent->id = id;
+                                               });
+        };
 
         fastmcpp::Json response;
         if (options.timeout.count() > 0)
         {
-            auto fut = std::async(std::launch::async, invoke_request);
-            if (fut.wait_for(options.timeout) == std::future_status::ready)
+            // Deliberately a detached thread rather than std::async. An async
+            // future's destructor blocks until the shared state is ready, so
+            // throwing on expiry would unwind, destroy the future, and wait for
+            // the slow call anyway -- the exception would surface only after the
+            // request finished, which is not a timeout at all. tools/tool.hpp
+            // makes the same choice for the same reason.
+            std::promise<fastmcpp::Json> promise;
+            auto future = promise.get_future();
+
+            std::thread worker(
+                [promise = std::move(promise), invoke_request]() mutable
+                {
+                    try
+                    {
+                        promise.set_value(invoke_request());
+                    }
+                    catch (...)
+                    {
+                        try
+                        {
+                            promise.set_exception(std::current_exception());
+                        }
+                        catch (...)
+                        {
+                        }
+                    }
+                });
+
+            if (future.wait_for(options.timeout) == std::future_status::timeout)
             {
-                response = fut.get();
-            }
-            else
-            {
+                if (worker.joinable())
+                    worker.detach();
+
+                // Tell the server to stop. This does not stop us -- the abandoned
+                // request keeps running on the detached thread -- but it lets a
+                // server that honours cancellation drop the work instead of
+                // finishing something nobody will read.
+                //
+                // Only possible when the transport reported an id. Transports that
+                // do not implement request_tracked report none, which is the right
+                // outcome for StdioTransport: its request mutex would make this
+                // wait for the very request being cancelled.
+                std::optional<fastmcpp::Json> cancel_id;
+                {
+                    std::lock_guard<std::mutex> lock(sent->mutex);
+                    cancel_id = sent->id;
+                }
+                if (cancel_id)
+                {
+                    // Best effort: a server that rejects or ignores the
+                    // notification must not change what the caller sees, which is
+                    // the timeout.
+                    try
+                    {
+                        cancel(*cancel_id, "tools/call timed out");
+                    }
+                    catch (const fastmcpp::Error&)
+                    {
+                    }
+                }
+
                 if (options.progress_handler)
                     options.progress_handler(1.0f, std::nullopt, "request timed out");
                 throw fastmcpp::TransportError("tools/call timed out");
             }
+
+            worker.join();
+            response = future.get();
         }
         else
         {
@@ -639,8 +793,17 @@ class Client
     // Session Operations
     // ==========================================================================
 
-    /// Initialize the session with the server
-    InitializeResult initialize(std::chrono::milliseconds timeout = std::chrono::milliseconds{0})
+    /// Initialize the session with the server.
+    ///
+    /// Also sends the `notifications/initialized` notification that the MCP
+    /// specification requires to complete the handshake. Pass
+    /// @p send_initialized = false to suppress it for a server that rejects it.
+    ///
+    /// This took a leading `timeout` argument that was never read. Bounding the
+    /// handshake belongs to the transport, which already has connect and read
+    /// timeouts; see `HttpTransport`'s constructor, `CurlTransport::set_timeouts`
+    /// and `WinHttpTransport::set_timeouts`.
+    InitializeResult initialize(bool send_initialized = true)
     {
         fastmcpp::Json caps = fastmcpp::Json::object();
         if (get_sampling_callback())
@@ -654,12 +817,57 @@ class Client
         if (get_roots_callback())
             caps["roots"] = fastmcpp::Json::object();
 
-        fastmcpp::Json payload = {{"protocolVersion", "2024-11-05"},
-                                  {"capabilities", std::move(caps)},
-                                  {"clientInfo", {{"name", "fastmcpp"}, {"version", "2.14.0"}}}};
+        fastmcpp::Json payload = {
+            {"protocolVersion", protocol_version_},
+            {"capabilities", std::move(caps)},
+            {"clientInfo", {{"name", "fastmcpp"}, {"version", fastmcpp::VERSION_STRING}}}};
 
         auto response = call("initialize", payload);
-        return parse_initialize_result(response);
+        auto parsed = parse_initialize_result(response);
+
+        // Streamable HTTP requires MCP-Protocol-Version on every request once a
+        // version has been agreed, and only the transport can attach a header.
+        // Done before send_initialized() so the handshake notification carries it
+        // too.
+        if (auto* versioned = dynamic_cast<IProtocolVersionTransport*>(transport_.get()))
+            versioned->set_protocol_version(parsed.protocolVersion);
+
+        if (send_initialized)
+        {
+            // Best effort: a server that ignores or rejects the notification must
+            // not turn a successful initialize into a failure.
+            try
+            {
+                this->send_initialized();
+            }
+            catch (const fastmcpp::Error&)
+            {
+            }
+        }
+
+        return parsed;
+    }
+
+    /// Send `notifications/initialized`, completing the MCP handshake.
+    void send_initialized()
+    {
+        notify("notifications/initialized", fastmcpp::Json::object());
+    }
+
+    /// Version requested during `initialize()`.
+    ///
+    /// Servers generally honour whatever a client asks for, so this decides
+    /// what the session negotiates. Defaults to `protocol::kDefaultVersion`;
+    /// set `protocol::kLatestSupported` to opt into a newer revision.
+    void set_protocol_version(std::string version)
+    {
+        protocol_version_ = std::move(version);
+    }
+
+    /// Version that will be requested during `initialize()`.
+    const std::string& protocol_version() const noexcept
+    {
+        return protocol_version_;
     }
 
     /// Send a ping to check server connectivity
@@ -676,13 +884,42 @@ class Client
         }
     }
 
-    /// Cancel an in-progress request
-    void cancel(const std::string& request_id, const std::string& reason = "")
+    /// Cancel an in-progress request, naming it by its JSON-RPC id.
+    ///
+    /// The id must be the one the request actually carried. A JSON-RPC id may be
+    /// a number or a string, and every transport in this repository mints an
+    /// integer, so passing a string here cannot match a request we issued -- see
+    /// the `std::string` overload below.
+    ///
+    /// Obtain the id from `ITransport::request_tracked()`. Transports that do not
+    /// implement it cannot be cancelled.
+    void cancel(const fastmcpp::Json& request_id, const std::string& reason = "")
     {
         fastmcpp::Json payload = {{"requestId", request_id}};
         if (!reason.empty())
             payload["reason"] = reason;
-        call("notifications/cancelled", payload);
+        notify("notifications/cancelled", payload);
+    }
+
+    /// Cancel by a string id.
+    ///
+    /// Kept because it is the long-standing signature, but note that it sends
+    /// `{"requestId": "<string>"}`. Our own transports put an integer `id` on the
+    /// wire, so a server matching the two will not find a request this client
+    /// sent. Use the JSON overload with an id from `request_tracked()` for
+    /// anything you issued yourself; this one is for ids that really are strings,
+    /// which is what a server that mints its own would use.
+    void cancel(const std::string& request_id, const std::string& reason = "")
+    {
+        cancel(fastmcpp::Json(request_id), reason);
+    }
+
+    /// Disambiguates a string literal, which converts equally well to both
+    /// `std::string` and `Json` and would otherwise make `cancel("id")`
+    /// ambiguous. Routes to the string overload, matching the previous behaviour.
+    void cancel(const char* request_id, const std::string& reason = "")
+    {
+        cancel(std::string(request_id), reason);
     }
 
     /// Reset transport session/connection state when supported (best-effort).
@@ -705,7 +942,7 @@ class Client
         if (!message.empty())
             payload["message"] = message;
 
-        call("notifications/progress", payload);
+        notify("notifications/progress", payload);
     }
 
     /// Set logging level
@@ -721,7 +958,7 @@ class Client
         auto cb = get_roots_callback();
         if (cb)
             payload["roots"] = cb();
-        call("roots/list_changed", payload);
+        notify("roots/list_changed", payload);
     }
 
     /// Handle server notifications that target client callbacks (sampling/elicitation/roots)
@@ -806,6 +1043,7 @@ class Client
     friend class ResourceTask;
 
     std::shared_ptr<ITransport> transport_;
+    std::string protocol_version_{fastmcpp::protocol::kDefaultVersion};
     struct CallbackState
     {
         std::mutex mutex;
@@ -1280,7 +1518,7 @@ class Client
     {
         const auto& body = unwrap_rpc_result(response);
         InitializeResult result;
-        result.protocolVersion = body.value("protocolVersion", "2024-11-05");
+        result.protocolVersion = body.value("protocolVersion", protocol_version_);
 
         if (body.contains("capabilities"))
         {
