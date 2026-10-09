@@ -54,7 +54,10 @@ int main(int argc, char* argv[])
             std::cout << result.structuredContent->dump(2) << '\n';
             if (result.structuredContent->contains("errors") &&
                 !result.structuredContent->at("errors").empty())
+            {
+                std::cerr << "Parallel Search MCP: one or more URLs could not be fetched\n";
                 return 1;
+            }
         }
         else
         {
