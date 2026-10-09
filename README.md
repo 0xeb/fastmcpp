@@ -236,6 +236,36 @@ int main() {
 }
 ```
 
+### Keyless web search and fetch with Parallel
+
+The [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+example connects to `https://search.parallel.ai/mcp` using `CurlTransport` and
+Streamable HTTP. It initializes the client, discovers the available tools, then
+calls `web_search` or `web_fetch` and prints the returned URLs and excerpts.
+No API key or model is needed. Anonymous access is free for light use and subject
+to rate limits.
+
+```bash
+cmake -B build-parallel -S . -DCMAKE_BUILD_TYPE=Release \
+  -DFASTMCPP_BUILD_TESTS=OFF -DFASTMCPP_BUILD_EXAMPLES=ON \
+  -DFASTMCPP_ENABLE_CURL_TRANSPORT=ON
+cmake --build build-parallel --config Release --target fastmcpp_example_parallel_search -j2
+
+./build-parallel/fastmcpp_example_parallel_search search "C++ MCP client examples"
+./build-parallel/fastmcpp_example_parallel_search fetch https://modelcontextprotocol.io/docs/getting-started/intro
+```
+
+On Windows, the executable is under `build-parallel/Release/` for multi-config
+generators. The build needs libcurl with a TLS backend and a trusted CA store;
+the existing `FASTMCPP_FETCH_CURL` option fetches libcurl by default. If your
+toolchain supplies libcurl, add `-DFASTMCPP_FETCH_CURL=OFF` when configuring.
+
+Each invocation makes one tool call with certificate verification enabled and
+a 120-second transport timeout. Errors go to stderr with a nonzero exit status.
+For a multi-call application, reuse the returned `session_id` in later search
+and fetch arguments. This example executes tools directly; it does not run an
+LLM agent loop. Existing client and build defaults are unchanged.
+
 ### Streamable HTTP server (MCP spec 2025-03-26)
 
 ```cpp

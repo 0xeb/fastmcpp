@@ -844,6 +844,11 @@ if(FASTMCPP_BUILD_EXAMPLES)
   add_executable(fastmcpp_example_client_api examples/client_api.cpp)
   target_link_libraries(fastmcpp_example_client_api PRIVATE fastmcpp_core)
 
+  if(FASTMCPP_ENABLE_CURL_TRANSPORT)
+    add_executable(fastmcpp_example_parallel_search examples/parallel_search.cpp)
+    target_link_libraries(fastmcpp_example_parallel_search PRIVATE fastmcpp_core)
+  endif()
+
   # Removed outdated server_toolmanager_handler example target (file no longer exists)
 
   add_executable(fastmcpp_example_stdio examples/simple_echo.cpp)
