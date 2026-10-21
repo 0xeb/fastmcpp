@@ -360,8 +360,8 @@ void test_full_flow_and_token_reuse()
     assert(oauth->current_token()->access_token == "access-1");
 
     // Sharing one provider with another endpoint must not disclose this server's token.
-    auto other = std::make_unique<fastmcpp::client::StreamableHttpTransport>(
-        "http://127.0.0.1:1", "/other");
+    auto other =
+        std::make_unique<fastmcpp::client::StreamableHttpTransport>("http://127.0.0.1:1", "/other");
     bool rebound = false;
     try
     {
@@ -447,8 +447,7 @@ void test_reloaded_expired_token_rediscovers_authorization_server()
         t->set_auth(std::make_shared<auth::OAuth>(o));
         assert(t->request("ping", Json::object())["pong"] == true);
     }
-    store->put("mcp-oauth-token-expiry", s.mcp_url() + "/token_expiry",
-               Json{{"expires_at", 0}});
+    store->put("mcp-oauth-token-expiry", s.mcp_url() + "/token_expiry", Json{{"expires_at", 0}});
     s.omit_rotated_refresh_token = true;
     auth::OAuthOptions o;
     o.token_storage = store;
@@ -468,8 +467,7 @@ void test_reloaded_expired_token_rediscovers_authorization_server()
     assert(store->get("mcp-oauth-token", s.mcp_url() + "/tokens")->at("refresh_token") ==
            "refresh-1");
     // If AS discovery fails on a subsequent reload, fail before sending any credentials.
-    store->put("mcp-oauth-token-expiry", s.mcp_url() + "/token_expiry",
-               Json{{"expires_at", 0}});
+    store->put("mcp-oauth-token-expiry", s.mcp_url() + "/token_expiry", Json{{"expires_at", 0}});
     o.http = [&](const auth::HttpRequest& request)
     {
         assert(request.method == "GET");
