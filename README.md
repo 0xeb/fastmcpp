@@ -15,7 +15,7 @@ fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp
 
 **Status:** Beta – core MCP features track the Python `fastmcp` reference.
 
-**Current version:** 3.4.7.1
+**Current version:** 3.4.11.1
 
 ## Features
 
@@ -206,6 +206,20 @@ int main() {
 }
 ```
 
+#### Host/Origin protection (DNS rebinding)
+
+The HTTP, SSE and streamable HTTP servers can validate the `Host` and `Origin` headers, as
+fastmcp's `http_host_origin_protection` does. It is off by default. The servers take their
+default from the environment, and `set_host_origin_guard(...)` overrides it:
+
+| Variable | Values |
+|---|---|
+| `FASTMCPP_HTTP_HOST_ORIGIN_PROTECTION` | `off` (default), `auto`, `strict` (`true`/`1` = strict) |
+| `FASTMCPP_HTTP_ALLOWED_HOSTS` | comma-separated extra trusted hosts |
+| `FASTMCPP_HTTP_ALLOWED_ORIGINS` | comma-separated extra trusted origins |
+
+Since 3.4.11.1 these variables take effect; earlier versions parsed them but ignored them.
+
 ### HTTP client
 
 ```cpp
@@ -235,6 +249,29 @@ int main() {
     return 0;
 }
 ```
+
+### Authentication (bearer token, OAuth)
+
+`HttpRpcTransport::set_auth()` attaches authentication to the HTTP client transports
+(`StreamableHttpTransport`, `WinHttpTransport`, `CurlTransport`), as fastmcp's
+`Client(auth=...)` does:
+
+```cpp
+#include <fastmcpp/client/auth.hpp>
+
+auto transport = std::make_unique<client::StreamableHttpTransport>("https://example.com/mcp");
+transport->set_auth(std::make_shared<client::auth::BearerAuth>("my-token"));
+// or the full OAuth flow: discovery, registration, PKCE, refresh
+transport->set_auth(std::make_shared<client::auth::OAuth>());
+client::Client c(std::move(transport));
+```
+
+`OAuth` follows the MCP authorization flow (RFC 9728 / RFC 8414 discovery, dynamic client
+registration or a pre-registered `client_id`, PKCE S256, RFC 8707 `resource`, refresh, scope
+step-up). By default it opens the system browser and waits on a loopback callback; set
+`OAuthOptions::redirect_handler` / `callback_handler` for headless use, and
+`OAuthOptions::token_storage` (`FileStore`) to keep tokens across runs. `https://` endpoints
+need a build with WinHTTP or libcurl.
 
 ### Streamable HTTP server (MCP spec 2025-03-26)
 

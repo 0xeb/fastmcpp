@@ -3,6 +3,8 @@
 
 #include "fastmcpp/server/host_origin_guard.hpp"
 
+#include "fastmcpp/settings.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -11,6 +13,21 @@
 
 namespace fastmcpp::server
 {
+
+HostOriginGuardOptions default_host_origin_guard_options()
+{
+    const auto settings = fastmcpp::Settings::from_env();
+    HostOriginGuardOptions options;
+    if (settings.http_host_origin_protection == "strict")
+        options.mode = HostOriginProtectionMode::Strict;
+    else if (settings.http_host_origin_protection == "auto")
+        options.mode = HostOriginProtectionMode::Auto;
+    else
+        options.mode = HostOriginProtectionMode::Off;
+    options.allowed_hosts = settings.http_allowed_hosts;
+    options.allowed_origins = settings.http_allowed_origins;
+    return options;
+}
 namespace host_origin
 {
 

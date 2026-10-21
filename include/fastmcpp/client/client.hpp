@@ -1347,15 +1347,17 @@ class Client
 
             if (has_schema && result.data)
             {
+                // As upstream (fastmcp client/mixins/tools.py): a value that does not convert
+                // (schema mismatch, or past the nesting/work limits) leaves typedData empty and
+                // keeps the raw data; it does not fail the call.
                 try
                 {
                     result.typedData = fastmcpp::util::schema_type::json_schema_to_value(
                         target_schema, *result.data);
                 }
-                catch (const std::exception& e)
+                catch (const std::exception&)
                 {
-                    throw fastmcpp::ValidationError(std::string("Typed mapping failed: ") +
-                                                    e.what());
+                    result.typedData.reset();
                 }
             }
         }

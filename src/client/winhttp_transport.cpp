@@ -197,6 +197,14 @@ HttpResponse WinHttpTransport::post(const std::string& url, const std::string& p
                                     const std::unordered_map<std::string, std::string>& headers,
                                     const std::string& body)
 {
+    return send("POST", url, path, headers, body);
+}
+
+HttpResponse WinHttpTransport::send(const std::string& method, const std::string& url,
+                                    const std::string& path,
+                                    const std::unordered_map<std::string, std::string>& headers,
+                                    const std::string& body)
+{
     // The origin can change across a redirect, so it is resolved per call rather
     // than cached at construction.
     const auto target = detail::parse_url(url);
@@ -210,8 +218,9 @@ HttpResponse WinHttpTransport::post(const std::string& url, const std::string& p
                                        std::to_string(::GetLastError()));
 
     const DWORD flags = target.is_https ? WINHTTP_FLAG_SECURE : 0u;
-    Handle request(::WinHttpOpenRequest(connection, L"POST", wide_path.c_str(), nullptr,
-                                        WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags));
+    Handle request(::WinHttpOpenRequest(connection, widen(method).c_str(), wide_path.c_str(),
+                                        nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                        flags));
     if (!request)
         throw fastmcpp::TransportError("WinHttpTransport: WinHttpOpenRequest failed, error " +
                                        std::to_string(::GetLastError()));

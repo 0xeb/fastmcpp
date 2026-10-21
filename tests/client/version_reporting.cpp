@@ -105,7 +105,7 @@ void test_version_string_matches_components()
     // the fourth is a local revision on top of it.
     assert(fastmcpp::VERSION_MAJOR == 3);
     assert(fastmcpp::VERSION_MINOR == 4);
-    assert(fastmcpp::VERSION_PATCH == 7);
+    assert(fastmcpp::VERSION_PATCH == 11);
     assert(fastmcpp::VERSION_TWEAK >= 0);
 
     std::cout << "  [PASS] VERSION_STRING = " << fastmcpp::VERSION_STRING << "\n";

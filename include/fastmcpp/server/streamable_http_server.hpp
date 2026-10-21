@@ -158,7 +158,7 @@ class StreamableHttpServerWrapper
 
     McpHandler handler_;
     std::string host_;
-    HostOriginGuardOptions host_origin_guard_options_{};
+    HostOriginGuardOptions host_origin_guard_options_{default_host_origin_guard_options()};
     /// Set by install_host_origin_guard(); rejects a guarded request once
     /// httplib has read its body. See host_origin_guard.hpp for why the check
     /// cannot live entirely in the pre-routing handler.

@@ -13,6 +13,7 @@
 #include "fastmcpp/types.hpp"
 
 #include <chrono>
+#include <cstdlib>
 #include <httplib.h>
 #include <iostream>
 #include <memory>
@@ -23,6 +24,24 @@ using server::HostOriginGuardOptions;
 using server::HostOriginProtectionMode;
 
 static int failures = 0;
+
+static void set_env(const char* key, const char* value)
+{
+#ifdef _WIN32
+    _putenv_s(key, value);
+#else
+    setenv(key, value, 1);
+#endif
+}
+
+static void unset_env(const char* key)
+{
+#ifdef _WIN32
+    _putenv_s(key, "");
+#else
+    unsetenv(key);
+#endif
+}
 
 #define CHECK(cond, msg)                                                                           \
     do                                                                                             \
@@ -168,6 +187,38 @@ int main()
         CHECK(res && !res->has_header("Mcp-Session-Id"),
               "streamable: no session created on rejected request (guard precedes session)");
         streamable.stop();
+    }
+
+    // Settings defaults: with no set_host_origin_guard() call, the servers take their guard
+    // from FASTMCPP_HTTP_* (upstream: HTTP apps fall back to fastmcp.settings).
+    {
+        set_env("FASTMCPP_HTTP_HOST_ORIGIN_PROTECTION", "strict");
+        set_env("FASTMCPP_HTTP_ALLOWED_HOSTS", "trusted.example");
+        const auto defaults = server::default_host_origin_guard_options();
+        CHECK(defaults.mode == HostOriginProtectionMode::Strict, "settings: strict mode parsed");
+        CHECK(defaults.allowed_hosts && defaults.allowed_hosts->size() == 1 &&
+                  (*defaults.allowed_hosts)[0] == "trusted.example",
+              "settings: allowed hosts parsed");
+
+        server::HttpServerWrapper http{srv, "127.0.0.1", 0};
+        CHECK(http.start(), "settings: server starts");
+        CHECK_STATUS(post_status(http.port(), "attacker.example", ""), 421,
+                     "settings: strict default rejects an unknown Host");
+        CHECK_STATUS(post_status(http.port(), "trusted.example", ""), 200,
+                     "settings: allowed host from settings is accepted");
+        http.stop();
+
+        server::HttpServerWrapper overridden{srv, "127.0.0.1", 0};
+        overridden.set_host_origin_guard(HostOriginGuardOptions{});
+        CHECK(overridden.start(), "settings: overridden server starts");
+        CHECK_STATUS(post_status(overridden.port(), "attacker.example", ""), 200,
+                     "settings: explicit options override the settings");
+        overridden.stop();
+
+        unset_env("FASTMCPP_HTTP_HOST_ORIGIN_PROTECTION");
+        unset_env("FASTMCPP_HTTP_ALLOWED_HOSTS");
+        CHECK(server::default_host_origin_guard_options().mode == HostOriginProtectionMode::Off,
+              "settings: unset means off (the 3.x default)");
     }
 
     if (failures)

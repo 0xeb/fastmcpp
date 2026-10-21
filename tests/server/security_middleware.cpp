@@ -1,5 +1,6 @@
 #include "fastmcpp/server/security_middleware.hpp"
 
+#include "fastmcpp/server/middleware.hpp"
 #include "fastmcpp/server/server.hpp"
 #include "fastmcpp/util/json.hpp"
 
@@ -274,6 +275,39 @@ int main()
         }
 
         std::cout << "  [PASS] RateLimitMiddleware reset works correctly\n";
+    }
+
+    // Test: a rate limit added after tool injection still limits injected tools
+    // (fastmcp 0f8d1b9e: injected tools go through every middleware).
+    {
+        std::cout << "Test: RateLimitMiddleware applies to injected tools...\n";
+
+        fastmcpp::server::ToolInjectionMiddleware injection;
+        injection.add_tool("injected", "Injected tool", Json{{"type", "object"}},
+                           [](const Json&) { return Json{{"result", "ok"}}; });
+
+        auto srv = std::make_shared<Server>();
+        injection.register_routes(*srv);
+        auto limiter = std::make_shared<RateLimitMiddleware>(2, std::chrono::seconds(10));
+        srv->add_before(limiter->create_hook());
+
+        for (int i = 0; i < 2; i++)
+        {
+            if (srv->handle("injected", Json::object()).contains("error"))
+            {
+                std::cerr << "  [FAIL] Injected call " << i << " should have succeeded\n";
+                return 1;
+            }
+        }
+        auto limited = srv->handle("injected", Json::object());
+        if (!limited.contains("error") || limited["error"]["message"].get<std::string>().find(
+                                              "Rate limit exceeded") == std::string::npos)
+        {
+            std::cerr << "  [FAIL] Third injected call should have been rate limited\n";
+            return 1;
+        }
+
+        std::cout << "  [PASS] RateLimitMiddleware limits injected tools\n";
     }
 
     // Test 7: Error responses are logged correctly

@@ -4,7 +4,7 @@ if(POLICY CMP0169)
   cmake_policy(SET CMP0169 OLD)
 endif()
 # major.minor.patch = upstream fastmcp parity level; optional 4th = local revision.
-project(fastmcpp VERSION 3.4.7.1 LANGUAGES CXX)
+project(fastmcpp VERSION 3.4.11.1 LANGUAGES CXX)
 
 # Empty for a 3-component version, which would expand to FASTMCPP_VERSION_TWEAK=.
 if(NOT DEFINED PROJECT_VERSION_TWEAK OR PROJECT_VERSION_TWEAK STREQUAL "")
@@ -76,9 +76,11 @@ add_library(fastmcpp_core STATIC
     src/client/http_detail.cpp
     src/client/sse_stream.cpp
     src/client/http_rpc_transport.cpp
+    src/client/auth.cpp
     src/telemetry.cpp
     src/util/json_schema.cpp
     src/util/json_schema_type.cpp
+    src/util/linear_regex.cpp
     src/settings.cpp
 )
 if(WIN32 AND FASTMCPP_ENABLE_WINHTTP)
@@ -118,6 +120,11 @@ if(NOT TARGET nlohmann_json::nlohmann_json)
 endif()
 
 target_link_libraries(fastmcpp_core PUBLIC nlohmann_json::nlohmann_json)
+
+# Client OAuth (src/client/auth.cpp): BCryptGenRandom for PKCE/state, ShellExecuteW for the browser.
+if(WIN32)
+  target_link_libraries(fastmcpp_core PUBLIC bcrypt shell32)
+endif()
 
 # Header-only HTTP library (cpp-httplib)
 #
@@ -392,6 +399,15 @@ if(FASTMCPP_BUILD_TESTS)
   target_link_libraries(fastmcpp_settings PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_settings COMMAND fastmcpp_settings)
 
+  add_executable(fastmcpp_client_oauth tests/client/oauth.cpp)
+  target_link_libraries(fastmcpp_client_oauth PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_client_oauth COMMAND fastmcpp_client_oauth)
+  set_tests_properties(fastmcpp_client_oauth PROPERTIES TIMEOUT 120)
+
+  add_executable(fastmcpp_util_linear_regex tests/util/linear_regex.cpp)
+  target_link_libraries(fastmcpp_util_linear_regex PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_util_linear_regex COMMAND fastmcpp_util_linear_regex)
+
   add_executable(fastmcpp_util_metadata_parsing tests/util/metadata_parsing.cpp)
   target_link_libraries(fastmcpp_util_metadata_parsing PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_util_metadata_parsing COMMAND fastmcpp_util_metadata_parsing)
@@ -467,6 +483,10 @@ if(FASTMCPP_BUILD_TESTS)
   add_executable(fastmcpp_host_origin_guard_http tests/server/host_origin_guard_http.cpp)
   target_link_libraries(fastmcpp_host_origin_guard_http PRIVATE fastmcpp_core)
   add_test(NAME fastmcpp_host_origin_guard_http COMMAND fastmcpp_host_origin_guard_http)
+
+  add_executable(fastmcpp_host_origin_guard_sse tests/server/host_origin_guard_sse.cpp)
+  target_link_libraries(fastmcpp_host_origin_guard_sse PRIVATE fastmcpp_core)
+  add_test(NAME fastmcpp_host_origin_guard_sse COMMAND fastmcpp_host_origin_guard_sse)
 
   # Split into 4 parts to avoid MSVC heap exhaustion on CI (C1060 + OutOfMemoryException)
   add_executable(fastmcpp_server_interactions_part1 tests/server/interactions_part1.cpp)
@@ -664,6 +684,14 @@ if(FASTMCPP_BUILD_TESTS)
   set_tests_properties(fastmcpp_stdio_instructions_e2e PROPERTIES
     WORKING_DIRECTORY "$<TARGET_FILE_DIR:fastmcpp_stdio_instructions_e2e>"
   )
+
+  if(NOT WIN32)
+    add_executable(fastmcpp_internal_process_posix tests/internal/process_posix.cpp)
+    find_package(Threads REQUIRED)
+    target_link_libraries(fastmcpp_internal_process_posix PRIVATE fastmcpp_core Threads::Threads)
+    add_test(NAME fastmcpp_internal_process_posix COMMAND fastmcpp_internal_process_posix)
+    set_tests_properties(fastmcpp_internal_process_posix PROPERTIES TIMEOUT 120)
+  endif()
 
   add_executable(fastmcpp_stdio_failure tests/transports/stdio_failure.cpp)
   target_link_libraries(fastmcpp_stdio_failure PRIVATE fastmcpp_core)

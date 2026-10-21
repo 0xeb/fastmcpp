@@ -54,6 +54,13 @@ FastMCP::FastMCP(std::string name, std::string version, std::optional<std::strin
 
 namespace
 {
+/// A concrete resource exists at the URI but is hidden. Callers see a NotFoundError; mounting
+/// parents re-throw it instead of falling through to another source for the same URI.
+struct HiddenResourceError : NotFoundError
+{
+    using NotFoundError::NotFoundError;
+};
+
 fastmcpp::Json schema_from_schema_or_simple(const fastmcpp::Json& schema_or_simple)
 {
     return fastmcpp::util::schema_build::to_object_schema_from_simple(schema_or_simple);
@@ -1000,7 +1007,9 @@ resources::ResourceContent FastMCP::read_resource(const std::string& uri, const 
         // Fall through to check mounted apps
     }
 
-    // Check provider resources
+    // Check provider resources: concrete resources first. One that exists but is hidden is
+    // NotFound and must not fall through to a template (or later provider) matching the URI.
+    // PYTHON REFERENCE: fastmcp_slim/fastmcp/server/server.py:1540-1582 (read_resource)
     for (const auto& provider : providers_)
     {
         if (auto res = provider->get_resource_transformed(uri))
@@ -1009,7 +1018,12 @@ resources::ResourceContent FastMCP::read_resource(const std::string& uri, const 
                 return res->provider(params);
             return resources::ResourceContent{uri, res->mime_type, std::string{}};
         }
+        if (provider->has_resource_ignoring_visibility(uri))
+            throw HiddenResourceError("Unknown resource: " + uri);
+    }
 
+    for (const auto& provider : providers_)
+    {
         if (auto templ = provider->get_resource_template_transformed(uri))
         {
             auto match_params = templ->match(uri);
@@ -1046,6 +1060,10 @@ resources::ResourceContent FastMCP::read_resource(const std::string& uri, const 
             {
                 return mounted.app->read_resource(child_uri, params);
             }
+            catch (const HiddenResourceError&)
+            {
+                throw; // hidden in the child: not found, and no fall-through
+            }
             catch (const NotFoundError&)
             {
                 // Continue to next mounted app
@@ -1057,6 +1075,10 @@ resources::ResourceContent FastMCP::read_resource(const std::string& uri, const 
             try
             {
                 return mounted.app->read_resource(uri, params);
+            }
+            catch (const HiddenResourceError&)
+            {
+                throw;
             }
             catch (const NotFoundError&)
             {

@@ -1,11 +1,17 @@
 #include "fastmcpp/util/json_schema_type.hpp"
 
 #include "fastmcpp/util/json.hpp"
+#include "fastmcpp/util/linear_regex.hpp"
 
 #include <cmath>
+#include <list>
+#include <memory>
+#include <mutex>
 #include <regex>
 #include <sstream>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace fastmcpp::util::schema_type
 {
@@ -32,8 +38,16 @@ std::unordered_map<std::string, std::regex>& regex_cache()
     return cache;
 }
 
+std::mutex& regex_cache_mutex()
+{
+    static std::mutex m;
+    return m;
+}
+
+// Only for the built-in format patterns below (a fixed set of keys, so the cache stays small).
 const std::regex* cached_regex(const std::string& key, const std::string& pattern) noexcept
 {
+    std::lock_guard<std::mutex> lock(regex_cache_mutex());
     auto& cache = regex_cache();
     auto it = cache.find(key);
     if (it != cache.end())
@@ -61,6 +75,107 @@ const std::regex& cached_regex_required(const std::string& key, const std::strin
         throw fastmcpp::ValidationError("internal regex compile failure for built-in pattern: " +
                                         key);
     return *p;
+}
+
+// ---- Conversion limits (Python fastmcp 5f7d4d58: bounded caches, nesting and work limits) ----
+// PYTHON REFERENCE: fastmcp_slim/fastmcp/utilities/json_schema_type.py:216-220
+constexpr int kMaxConversionDepth = 64;
+constexpr int kMaxNesting = 4 * kMaxConversionDepth;
+constexpr size_t kMaxConversionSteps = 50000;
+constexpr size_t kMaxCachedPatterns = 256;
+
+struct ConversionState
+{
+    int depth = 0;
+    size_t steps = 0;
+};
+
+thread_local ConversionState* g_conversion = nullptr;
+
+// Raise if dicts and lists nest too deeply, without recursing (so a schema or value deep
+// enough to overflow the stack fails cleanly).
+void check_nesting(const fastmcpp::Json& root, const char* what)
+{
+    std::vector<std::pair<const fastmcpp::Json*, int>> stack{{&root, 0}};
+    while (!stack.empty())
+    {
+        auto [node, depth] = stack.back();
+        stack.pop_back();
+        if (depth > kMaxNesting)
+            throw fastmcpp::ValidationError(std::string(what) + " is too deeply nested to convert");
+        if (node->is_object() || node->is_array())
+            for (const auto& child : *node)
+                stack.emplace_back(&child, depth + 1);
+    }
+}
+
+struct DepthGuard
+{
+    explicit DepthGuard(const std::string& path)
+    {
+        auto& c = *g_conversion;
+        if (c.depth >= kMaxConversionDepth)
+            throw fastmcpp::ValidationError("JSON schema is too deeply nested to convert at " +
+                                            path);
+        if (++c.steps > kMaxConversionSteps)
+            throw fastmcpp::ValidationError("JSON schema is too large to convert");
+        ++c.depth;
+    }
+    ~DepthGuard()
+    {
+        --g_conversion->depth;
+    }
+    DepthGuard(const DepthGuard&) = delete;
+    DepthGuard& operator=(const DepthGuard&) = delete;
+};
+
+// User `pattern` keywords: Rust-syntax, linear-time, unanchored search like Pydantic's
+// rust-regex engine. Compiled patterns live in a bounded LRU cache shared across threads.
+// A pattern that does not compile (look-around, unsupported escapes) is cached as nullptr,
+// meaning "no constraint" (Python fastmcp 789a2986, #3959).
+class PatternCache
+{
+  public:
+    std::shared_ptr<const fastmcpp::util::LinearRegex> get(const std::string& pattern)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = index_.find(pattern);
+        if (it != index_.end())
+        {
+            order_.splice(order_.begin(), order_, it->second);
+            return it->second->second;
+        }
+        std::shared_ptr<const fastmcpp::util::LinearRegex> compiled;
+        try
+        {
+            compiled = std::make_shared<const fastmcpp::util::LinearRegex>(
+                fastmcpp::util::LinearRegex::compile(pattern));
+        }
+        catch (const fastmcpp::util::LinearRegex::Error&)
+        {
+            compiled = nullptr;
+        }
+        order_.emplace_front(pattern, compiled);
+        index_[pattern] = order_.begin();
+        if (order_.size() > kMaxCachedPatterns)
+        {
+            index_.erase(order_.back().first);
+            order_.pop_back();
+        }
+        return compiled;
+    }
+
+  private:
+    using Entry = std::pair<std::string, std::shared_ptr<const fastmcpp::util::LinearRegex>>;
+    std::mutex mutex_;
+    std::list<Entry> order_;
+    std::unordered_map<std::string, std::list<Entry>::iterator> index_;
+};
+
+PatternCache& pattern_cache()
+{
+    static PatternCache cache;
+    return cache;
 }
 
 SchemaValue convert(const fastmcpp::Json& schema, const fastmcpp::Json& instance,
@@ -167,9 +282,9 @@ SchemaValue handle_string(const fastmcpp::Json& schema, const fastmcpp::Json& in
     {
         // Python fastmcp commit 789a2986 (#3959): if the pattern fails to compile (lookahead,
         // unsupported Unicode escapes, etc.), gracefully drop the constraint instead of crashing.
-        const auto* pat = cached_regex(schema["pattern"].get<std::string>(),
-                                       schema["pattern"].get<std::string>());
-        if (pat && !std::regex_match(value, *pat))
+        // JSON Schema `pattern` is unanchored (ECMA-262 search), as in Pydantic's rust-regex.
+        const auto pat = pattern_cache().get(schema["pattern"].get<std::string>());
+        if (pat && !pat->search(value))
             throw fastmcpp::ValidationError("pattern violation at " + path);
     }
     return value;
@@ -358,6 +473,7 @@ SchemaValue handle_object(const fastmcpp::Json& schema, const fastmcpp::Json& in
 SchemaValue convert(const fastmcpp::Json& schema, const fastmcpp::Json& instance,
                     const std::string& path)
 {
+    DepthGuard guard(path);
     // JSON Schema permits boolean schemas: `true` accepts any value; `false` rejects all.
     // Python fastmcp commits 4b59e0d9 (#3818) and e5b96343 (#3785) ensure these don't crash
     // json_schema_to_value when they appear as a property schema or root schema.
@@ -430,6 +546,19 @@ SchemaValue convert(const fastmcpp::Json& schema, const fastmcpp::Json& instance
 
 SchemaValue json_schema_to_value(const fastmcpp::Json& schema, const fastmcpp::Json& instance)
 {
+    check_nesting(schema, "JSON schema");
+    check_nesting(instance, "Value");
+    ConversionState state;
+    ConversionState* const outer = g_conversion;
+    g_conversion = &state;
+    struct Restore
+    {
+        ConversionState* outer;
+        ~Restore()
+        {
+            g_conversion = outer;
+        }
+    } restore{outer};
     return convert(schema, instance, "$");
 }
 

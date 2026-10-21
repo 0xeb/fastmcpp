@@ -132,6 +132,13 @@ using HostOriginRejecter = std::function<bool(const httplib::Request&, httplib::
 ///
 /// No-op (a rejecter that always returns false) when mode == Off.
 /// `bound_host` should be the wrapper's bound address (drives Auto-mode decisions).
+/// Guard options from the http_host_origin_protection / http_allowed_hosts /
+/// http_allowed_origins settings (env FASTMCPP_HTTP_*). The HTTP, SSE and streamable HTTP
+/// servers start from these, as upstream's HTTP apps fall back to fastmcp.settings;
+/// set_host_origin_guard() overrides them.
+/// PYTHON REFERENCE: fastmcp_slim/fastmcp/settings.py:343-345, server/http.py
+HostOriginGuardOptions default_host_origin_guard_options();
+
 HostOriginRejecter install_host_origin_guard(httplib::Server& svr, HostOriginGuard guard,
                                              std::string bound_host);
 

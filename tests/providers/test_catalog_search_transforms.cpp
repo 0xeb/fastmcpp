@@ -3,8 +3,13 @@
 #include "fastmcpp/providers/transforms/search/bm25.hpp"
 #include "fastmcpp/providers/transforms/search/regex.hpp"
 
+#include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <iostream>
+#include <string>
+#include <utility>
+#include <vector>
 
 using namespace fastmcpp;
 
@@ -133,6 +138,122 @@ void test_regex_search_invalid_pattern()
     auto results = transform.do_search(catalog, "[invalid");
     assert(results.empty());
 
+    std::cout << " OK\n";
+}
+
+// ---- Bounded regex search (fastmcp eddc7800) ----
+// PYTHON REFERENCE: tests/server/transforms/test_search_regex.py
+
+tools::Tool make_bare_tool(const std::string& name, const std::string& description)
+{
+    tools::Tool::Fn fn = [](const Json& args) -> Json { return args; };
+    tools::Tool t(name, Json{{"type", "object"}, {"properties", Json::object()}}, Json::object(),
+                  std::move(fn));
+    t.set_description(description);
+    return t;
+}
+
+std::vector<std::string> names_of(const std::vector<tools::Tool>& tools)
+{
+    std::vector<std::string> names;
+    for (const auto& tool : tools)
+        names.push_back(tool.name());
+    return names;
+}
+
+void test_regex_search_overlong_pattern()
+{
+    std::cout << "test_regex_search_overlong_pattern..." << std::flush;
+    using namespace providers::transforms::search;
+    RegexSearchTransform transform;
+    std::vector<tools::Tool> catalog = {make_bare_tool("send_email", "Send an email.")};
+    assert(transform.do_search(catalog, "send_email|" + std::string(1000, 'x')).empty());
+    assert(transform.do_search(catalog, "send_email").size() == 1);
+    std::cout << " OK\n";
+}
+
+void test_regex_search_syntax_table()
+{
+    std::cout << "test_regex_search_syntax_table..." << std::flush;
+    using namespace providers::transforms::search;
+    RegexSearchTransform transform;
+    std::vector<tools::Tool> catalog = {
+        make_bare_tool("send_email", "Send an email and record the email.")};
+    const std::vector<std::string> match = {"send_email"};
+    const std::vector<std::string> none = {};
+    const std::vector<std::pair<std::string, std::vector<std::string>>> table = {
+        {"EMAIL", match},
+        {"send.*email|notify", match},
+        {R"(\bSEND_[a-z]+\b)", match},
+        {"^send_email", match},
+        {"(?-i:SEND_EMAIL)", none},
+        {"send(?=_email)", none},
+        {"(?<=send_)email", none},
+        {R"((email).*\1)", none},
+        {R"(.*\Z)", none},
+        {R"(email\.\z)", match},
+        {"(?a)email", none},
+        {"[invalid", none},
+        {"(?:send)_email", match},
+        {"[]_]email", match},
+        {"(send|mail)+", match},
+        {"(?x) send _ email", match},
+        {"(?i)(?-i:send)_EMAIL", match},
+    };
+    for (const auto& [pattern, expected] : table)
+    {
+        const auto got = names_of(transform.do_search(catalog, pattern));
+        if (got != expected)
+        {
+            std::cerr << "\n  pattern " << pattern << " gave " << got.size() << " matches\n";
+            assert(false);
+        }
+    }
+    std::cout << " OK\n";
+}
+
+void test_regex_search_repeated_alternatives_bounded()
+{
+    std::cout << "test_regex_search_repeated_alternatives_bounded..." << std::flush;
+    using namespace providers::transforms::search;
+    RegexSearchTransform transform;
+    std::vector<tools::Tool> catalog = {make_bare_tool("summarize", std::string(64, 'a') + "!")};
+    // Upstream test_search_repeated_alternatives: the engine is linear, so these patterns are
+    // accepted and answer quickly (no match because the text ends with '!').
+    const auto started = std::chrono::steady_clock::now();
+    for (const char* costly : {"(a|aa)+$", "(a+)+$", "^(a|a)*b"})
+        assert(transform.do_search(catalog, costly).empty());
+    assert(std::chrono::steady_clock::now() - started < std::chrono::seconds(1));
+    const std::vector<std::string> hit = {"summarize"};
+    assert(names_of(transform.do_search(catalog, "a+!$")) == hit);
+    assert(names_of(transform.do_search(catalog, "(a|aa)+!$")) == hit);
+    assert(names_of(transform.do_search(catalog, "(a|b)+")) == hit);
+    assert(names_of(transform.do_search(catalog, "(?:aa)+!")) == hit);
+    assert(names_of(transform.do_search(catalog, "^sum.*?ize")) == hit);
+    std::cout << " OK\n";
+}
+
+void test_regex_search_time_budget()
+{
+    std::cout << "test_regex_search_time_budget..." << std::flush;
+    using namespace providers::transforms::search;
+    using clock = std::chrono::steady_clock;
+    RegexSearchTransform transform;
+    std::string lorem;
+    for (int i = 0; i < 170; ++i)
+        lorem += "lorem ";
+    std::vector<tools::Tool> catalog;
+    for (int i = 0; i < 50; ++i)
+        catalog.push_back(make_bare_tool("tool_" + std::to_string(i), lorem));
+
+    // Upstream test_costly_pattern_stops_within_the_search_budget: counted repetition keeps the
+    // engine linear but slow, so a 50-tool catalog must hit the 1 s budget and stop under 3 s.
+    const auto started = clock::now();
+    assert(transform.do_search(catalog, "(?:[^z]?){9000}zzz").empty());
+    const auto elapsed = clock::now() - started;
+    std::cout << " (" << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count()
+              << " ms)";
+    assert(elapsed < std::chrono::seconds(3));
     std::cout << " OK\n";
 }
 
@@ -268,6 +389,10 @@ int main()
     test_regex_search_max_results();
     test_regex_search_invalid_pattern();
     test_regex_transform_list_tools();
+    test_regex_search_overlong_pattern();
+    test_regex_search_syntax_table();
+    test_regex_search_repeated_alternatives_bounded();
+    test_regex_search_time_budget();
 
     // BM25SearchTransform tests
     test_bm25_search_basic();

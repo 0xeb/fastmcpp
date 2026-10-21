@@ -103,9 +103,8 @@ int main()
 
     auto server = std::make_shared<server::Server>();
 
-    // Register tools/list route (returns empty - AfterHooks will augment it)
-    server->route("tools/list",
-                  [](const Json& /*input*/) { return Json{{"tools", Json::array()}}; });
+    // No tools/list route: the MCP handler lists the ToolManager's tools and the
+    // AfterHooks below add the injected ones.
 
     // Register regular tool routes
     server->route("echo", [&](const Json& input) { return tool_mgr.invoke("echo", input); });
@@ -116,10 +115,11 @@ int main()
     server->add_after(resource_middleware.create_tools_list_hook());
     server->add_after(custom_middleware.create_tools_list_hook());
 
-    // tools/call: use BeforeHook to intercept calls, first match wins
-    server->add_before(prompt_middleware.create_tools_call_hook());
-    server->add_before(resource_middleware.create_tools_call_hook());
-    server->add_before(custom_middleware.create_tools_call_hook());
+    // tools/call: register injected tools as routes, so every BeforeHook/AfterHook
+    // (rate limiting, logging, ...) applies to them like to registered tools
+    prompt_middleware.register_routes(*server);
+    resource_middleware.register_routes(*server);
+    custom_middleware.register_routes(*server);
 
     std::cout << "Server configured with middleware hooks\n\n";
 

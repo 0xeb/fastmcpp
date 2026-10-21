@@ -1,5 +1,6 @@
 #pragma once
 
+#include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/providers/provider.hpp"
 
 #include <filesystem>
@@ -10,6 +11,13 @@
 
 namespace fastmcpp::providers
 {
+
+/// A skill path resolves outside the directory that contains it.
+/// PYTHON REFERENCE: fastmcp_slim/fastmcp/server/providers/skills/_common.py:77
+struct SkillPathError : public ValidationError
+{
+    using ValidationError::ValidationError;
+};
 
 enum class SkillSupportingFiles
 {
@@ -43,6 +51,7 @@ class SkillProvider : public Provider
   private:
     std::string build_description() const;
     std::string build_manifest_json() const;
+    /// Paths relative to skill_path_ of the regular files that resolve inside it.
     std::vector<std::filesystem::path> list_files() const;
 
     std::filesystem::path skill_path_;

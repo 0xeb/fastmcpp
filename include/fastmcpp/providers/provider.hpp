@@ -74,7 +74,13 @@ class Provider
             chain = [transform, next](const std::string& tool_name)
             { return transform->get_tool(tool_name, next); };
         }
-        return chain(name);
+        auto tool = chain(name);
+        // Lookup honours enabled state like listing does: a tool hidden by a transform
+        // (ToolTransformConfig{enabled=false}) is not callable by name either.
+        // PYTHON REFERENCE: fastmcp_slim/fastmcp/server/server.py:777 (get_tool, is_enabled)
+        if (tool && tool->is_hidden())
+            return std::nullopt;
+        return tool;
     }
 
     std::vector<resources::Resource> list_resources_transformed() const
@@ -99,6 +105,25 @@ class Provider
             { return transform->get_resource(res_uri, next); };
         }
         return chain(uri);
+    }
+
+    /// Whether a concrete resource exists at `uri` once every transform except visibility is
+    /// applied. Together with get_resource_transformed() this tells a hidden resource apart from
+    /// a missing one, so a hidden resource is not served by a template matching the same URI.
+    /// PYTHON REFERENCE: fastmcp_slim/fastmcp/server/server.py:958 (_lookup_resource)
+    bool has_resource_ignoring_visibility(const std::string& uri) const
+    {
+        transforms::GetResourceNext chain = [this](const std::string& res_uri)
+        { return get_resource(res_uri); };
+        for (const auto& transform : transforms_)
+        {
+            if (std::dynamic_pointer_cast<transforms::Visibility>(transform))
+                continue;
+            auto next = chain;
+            chain = [transform, next](const std::string& res_uri)
+            { return transform->get_resource(res_uri, next); };
+        }
+        return chain(uri).has_value();
     }
 
     std::vector<resources::ResourceTemplate> list_resource_templates_transformed() const

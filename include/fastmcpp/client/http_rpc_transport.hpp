@@ -23,6 +23,11 @@
 namespace fastmcpp::client
 {
 
+namespace auth
+{
+class ClientAuth;
+}
+
 /// A complete HTTP response, in terms no backend library appears in.
 struct HttpResponse
 {
@@ -63,6 +68,11 @@ class HttpRpcTransport : public ITransport,
     /// Install a provider consulted on every request; its entries override the
     /// static headers passed to the constructor.
     void set_header_provider(HeaderProvider provider);
+
+    /// Attach authentication (client/auth.hpp: BearerAuth, OAuth). The provider is bound to
+    /// this transport's URL, its headers are merged over every request, and a 401 (or 403
+    /// insufficient_scope) it can answer is retried once with fresh credentials.
+    void set_auth(std::shared_ptr<auth::ClientAuth> auth);
 
     /// Session id captured from `Mcp-Session-Id`, empty when the server issues
     /// none. Stateless servers never send one.
@@ -131,6 +141,7 @@ class HttpRpcTransport : public ITransport,
     std::string mcp_path_;
     std::unordered_map<std::string, std::string> headers_;
     HeaderProvider header_provider_;
+    std::shared_ptr<auth::ClientAuth> auth_;
     bool verify_ssl_{true};
 
     std::atomic<int64_t> next_id_{1};

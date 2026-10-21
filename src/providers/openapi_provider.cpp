@@ -69,6 +69,92 @@ std::string url_encode_component(const std::string& value)
     return out;
 }
 
+// PYTHON REFERENCE: fastmcp_slim/fastmcp/utilities/openapi/director.py:431 (_build_url)
+constexpr int kMaxPathDecodings = 32;
+
+int hex_value(char c)
+{
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+    return -1;
+}
+
+// Decode valid %XX escapes once; an invalid '%' is kept as is (urllib.parse.unquote).
+std::string percent_decode_once(const std::string& value)
+{
+    std::string out;
+    out.reserve(value.size());
+    for (size_t i = 0; i < value.size(); ++i)
+    {
+        if (value[i] == '%' && i + 2 < value.size())
+        {
+            const int hi = hex_value(value[i + 1]);
+            const int lo = hex_value(value[i + 2]);
+            if (hi >= 0 && lo >= 0)
+            {
+                out.push_back(static_cast<char>((hi << 4) | lo));
+                i += 2;
+                continue;
+            }
+        }
+        out.push_back(value[i]);
+    }
+    return out;
+}
+
+bool has_dot_segment(const std::string& value)
+{
+    std::string normalized = value;
+    std::replace(normalized.begin(), normalized.end(), '\\', '/');
+    size_t start = 0;
+    while (true)
+    {
+        const size_t end = normalized.find('/', start);
+        const std::string part =
+            normalized.substr(start, end == std::string::npos ? end : end - start);
+        if (part == "." || part == "..")
+            return true;
+        if (end == std::string::npos)
+            return false;
+        start = end + 1;
+    }
+}
+
+// Path values stay data inside the declared route: '.'/'..' segments are rejected, raw or
+// percent-encoded up to kMaxPathDecodings layers, before any request is sent.
+void validate_path_value(const std::string& name, const std::string& raw)
+{
+    std::string decoded = raw;
+    for (int round = 0; round < kMaxPathDecodings; ++round)
+    {
+        if (has_dot_segment(decoded))
+            throw ValidationError("Path parameter '" + name + "' cannot contain dot segments");
+        std::string expanded = percent_decode_once(decoded);
+        if (expanded == decoded)
+            return;
+        decoded = std::move(expanded);
+    }
+    throw ValidationError("Path parameter '" + name + "' has too many encoding layers");
+}
+
+// quote(value, safe="").replace(".", "%2E")
+std::string url_encode_path_value(const std::string& value)
+{
+    const std::string encoded = url_encode_component(value);
+    std::string out;
+    out.reserve(encoded.size());
+    for (char c : encoded)
+        if (c == '.')
+            out += "%2E";
+        else
+            out.push_back(c);
+    return out;
+}
+
 std::string to_string_value(const Json& value)
 {
     if (value.is_string())
@@ -446,10 +532,12 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
     std::string resolved_path = route.path;
     for (const auto& param : route.path_params)
     {
-        if (!arguments.contains(param))
+        if (!arguments.contains(param) || arguments.at(param).is_null())
             throw ValidationError("Missing required path parameter: " + param);
         const std::string placeholder = "{" + param + "}";
-        const auto value = url_encode_component(to_string_value(arguments.at(param)));
+        const std::string raw = to_string_value(arguments.at(param));
+        validate_path_value(param, raw);
+        const auto value = url_encode_path_value(raw);
         size_t pos = std::string::npos;
         while ((pos = resolved_path.find(placeholder)) != std::string::npos)
             resolved_path.replace(pos, placeholder.size(), value);

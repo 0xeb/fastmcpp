@@ -4,6 +4,7 @@
 #include "fastmcpp/prompts/manager.hpp"
 #include "fastmcpp/resources/manager.hpp"
 #include "fastmcpp/server/context.hpp"
+#include "fastmcpp/server/server.hpp"
 
 namespace fastmcpp::server
 {
@@ -125,10 +126,36 @@ void ToolInjectionMiddleware::add_tool(const std::string& name, const std::strin
                                        const Json& input_schema,
                                        std::function<Json(const Json&)> handler)
 {
-    size_t index = tools_.size();
-    tools_.push_back(InjectedTool{name, description, input_schema, std::move(handler)});
-    tool_index_[name] = index;
+    InjectedTool tool{name, description, input_schema, std::move(handler)};
+    auto existing = tool_index_.find(name);
+    if (existing != tool_index_.end())
+    {
+        tools_[existing->second] = std::move(tool); // one tool per name, the last one wins
+        return;
+    }
+    tool_index_[name] = tools_.size();
+    tools_.push_back(std::move(tool));
 }
+
+namespace
+{
+Json run_injected_tool(const std::function<Json(const Json&)>& handler, const Json& args)
+{
+    try
+    {
+        return handler(args);
+    }
+    catch (const std::exception& e)
+    {
+        // Return MCP error response
+        return Json{
+            {"content",
+             Json::array({Json{{"type", "text"},
+                               {"text", std::string("Tool execution error: ") + e.what()}}})},
+            {"isError", true}};
+    }
+}
+} // namespace
 
 AfterHook ToolInjectionMiddleware::create_tools_list_hook()
 {
@@ -138,17 +165,47 @@ AfterHook ToolInjectionMiddleware::create_tools_list_hook()
         if (route != "tools/list")
             return; // Not our concern
 
-        // Append injected tools to the existing tools array
-        if (!response.contains("tools") || !response["tools"].is_array())
-            response["tools"] = Json::array();
-
+        // Injected tools first; a listed tool with the same name is replaced, not repeated.
+        Json merged = Json::array();
         for (const auto& tool : tools_)
         {
-            response["tools"].push_back(Json{{"name", tool.name},
-                                             {"description", tool.description},
-                                             {"inputSchema", tool.input_schema}});
+            if (shadowed_.count(tool.name))
+                continue; // an earlier injection middleware owns this name
+            merged.push_back(Json{{"name", tool.name},
+                                  {"description", tool.description},
+                                  {"inputSchema", tool.input_schema}});
         }
+        if (response.contains("tools") && response["tools"].is_array())
+        {
+            for (const auto& listed : response["tools"])
+            {
+                if (listed.is_object())
+                {
+                    const auto name = listed.find("name");
+                    if (name != listed.end() && name->is_string() &&
+                        tool_index_.count(name->get<std::string>()) &&
+                        !shadowed_.count(name->get<std::string>()))
+                        continue;
+                }
+                merged.push_back(listed);
+            }
+        }
+        response["tools"] = std::move(merged);
     };
+}
+
+void ToolInjectionMiddleware::register_routes(Server& srv) const
+{
+    for (const auto& tool : tools_)
+    {
+        const bool registered =
+            srv.route_injected(tool.name, [handler = tool.handler](const Json& args)
+                               { return run_injected_tool(handler, args); });
+        if (registered)
+            shadowed_.erase(tool.name);
+        else
+            shadowed_.insert(tool.name);
+    }
 }
 
 BeforeHook ToolInjectionMiddleware::create_tools_call_hook()
@@ -165,21 +222,7 @@ BeforeHook ToolInjectionMiddleware::create_tools_call_hook()
             return std::nullopt; // Not our tool, continue to normal handler
 
         // Execute the injected tool
-        const auto& tool = tools_[it->second];
-
-        try
-        {
-            return tool.handler(payload);
-        }
-        catch (const std::exception& e)
-        {
-            // Return MCP error response
-            return Json{
-                {"content",
-                 Json::array({Json{{"type", "text"},
-                                   {"text", std::string("Tool execution error: ") + e.what()}}})},
-                {"isError", true}};
-        }
+        return run_injected_tool(tools_[it->second].handler, payload);
     };
 }
 

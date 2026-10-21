@@ -156,6 +156,30 @@ int main()
     (void)copilot_provider.list_resources();
     (void)opencode_provider.list_resources();
 
+    // 4183eea4: a main file name that leaves the skill directory is rejected.
+    {
+        const auto escape_root = make_temp_dir("main_escape");
+        const auto escape_skill = escape_root / "skill";
+        write_text(escape_skill / "SKILL.md", "# Skill");
+        write_text(escape_root / "x.md", "# Outside");
+        auto rejects = [&](const std::string& main_name)
+        {
+            try
+            {
+                providers::SkillProvider p(escape_skill, main_name);
+            }
+            catch (const providers::SkillPathError&)
+            {
+                return true;
+            }
+            return false;
+        };
+        assert(rejects("../x.md"));
+        assert(rejects((escape_root / "x.md").string()));
+        std::error_code escape_ec;
+        std::filesystem::remove_all(escape_root, escape_ec);
+    }
+
     std::error_code ec;
     std::filesystem::remove_all(root, ec);
     std::filesystem::remove_all(root_a, ec);

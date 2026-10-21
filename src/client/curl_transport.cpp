@@ -177,6 +177,14 @@ HttpResponse CurlTransport::post(const std::string& url, const std::string& path
                                  const std::unordered_map<std::string, std::string>& headers,
                                  const std::string& body)
 {
+    return send("POST", url, path, headers, body);
+}
+
+HttpResponse CurlTransport::send(const std::string& method, const std::string& url,
+                                 const std::string& path,
+                                 const std::unordered_map<std::string, std::string>& headers,
+                                 const std::string& body)
+{
     EasyHandle easy;
     CURL* curl = easy.get();
 
@@ -192,9 +200,18 @@ HttpResponse CurlTransport::post(const std::string& url, const std::string& path
 
     curl_easy_setopt(curl, CURLOPT_URL, target.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list.get());
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
+    if (method == "GET")
+    {
+        curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+    }
+    else
+    {
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
+        if (method != "POST")
+            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method.c_str());
+    }
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_body);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, write_header);

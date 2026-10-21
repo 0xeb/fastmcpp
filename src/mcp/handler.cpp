@@ -1393,6 +1393,14 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
 
             if (method == "tools/list")
             {
+                // A tools/list route on the server is authoritative (as in the tools_meta
+                // overload); otherwise list the ToolManager's tools and let the server's
+                // AfterHooks (tool injection, filtering) adjust the list.
+                if (server.has_route("tools/list"))
+                {
+                    auto routed = server.handle("tools/list", params);
+                    return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", routed}};
+                }
                 fastmcpp::Json tools_array = fastmcpp::Json::array();
                 for (const auto& name : tools.list_names())
                 {
@@ -1403,9 +1411,9 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                         tool.output_schema(), tool.task_support(), tool.sequential(), tool.app(),
                         tool.meta(), tool.version(), tool.annotations()));
                 }
-                return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                      {"id", id},
-                                      {"result", fastmcpp::Json{{"tools", tools_array}}}};
+                fastmcpp::Json result = fastmcpp::Json{{"tools", tools_array}};
+                server.apply_after_hooks("tools/list", params, result);
+                return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", result}};
             }
 
             if (method == "tools/call")
@@ -1420,11 +1428,23 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
                 try
                 {
+                    // A server route (including tools injected by middleware) handles the call
+                    // through Server::handle, so every BeforeHook and AfterHook applies.
+                    if (server.has_route(name))
+                    {
+                        auto routed = server.handle(name, args);
+                        const bool known = tools.has(name);
+                        const fastmcpp::Json out_schema =
+                            known ? tools.get(name).output_schema() : fastmcpp::Json();
+                        fastmcpp::Json routed_payload = build_fastmcp_tool_result(
+                            routed, !out_schema.is_null(), schema_has_wrap_result(out_schema));
+                        return fastmcpp::Json{
+                            {"jsonrpc", "2.0"}, {"id", id}, {"result", routed_payload}};
+                    }
                     const auto& tool = tools.get(name);
                     bool has_output_schema = !tool.output_schema().is_null();
                     bool wrap_result = schema_has_wrap_result(tool.output_schema());
 
-                    // Use tools.invoke() directly - this is why we capture tools
                     auto result = tools.invoke(name, args);
                     fastmcpp::Json result_payload =
                         build_fastmcp_tool_result(result, has_output_schema, wrap_result);

@@ -54,6 +54,13 @@ class WinHttpTransport : public HttpRpcTransport
     /// guidance used by the cpp-httplib transport: 30 s connect, 5 min read.
     void set_timeouts(std::chrono::seconds connect, std::chrono::seconds read);
 
+    /// Send one request with any method, without following redirects. Used by
+    /// post() and by the OAuth client for metadata, registration and token calls.
+    /// @param url Origin, "scheme://host:port". @param path Path and query, with a leading '/'.
+    HttpResponse send(const std::string& method, const std::string& url, const std::string& path,
+                      const std::unordered_map<std::string, std::string>& headers,
+                      const std::string& body);
+
   protected:
     HttpResponse post(const std::string& url, const std::string& path,
                       const std::unordered_map<std::string, std::string>& headers,

@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace fastmcpp::server
@@ -49,8 +50,37 @@ class Server
     void route(const std::string& name, Handler h)
     {
         routes_[name] = std::move(h);
+        injected_routes_.erase(name);
+    }
+
+    /// Register a route for a tool injected by middleware. An injected tool takes precedence
+    /// over a route with the same name, but not over a tool injected earlier: when several
+    /// injection middleware provide the same name, the one registered first wins (fastmcp
+    /// ToolInjectionMiddleware). Returns false, leaving the routes unchanged, in that case.
+    bool route_injected(const std::string& name, Handler h)
+    {
+        if (injected_routes_.count(name))
+            return false;
+        routes_[name] = std::move(h);
+        injected_routes_.insert(name);
+        return true;
     }
     fastmcpp::Json handle(const std::string& name, const fastmcpp::Json& payload) const;
+
+    bool has_route(const std::string& name) const
+    {
+        return routes_.count(name) != 0;
+    }
+
+    /// Run every AfterHook on @p response, as handle() does after a route. For callers that
+    /// build a response without a route (e.g. a tools/list assembled from a ToolManager).
+    void apply_after_hooks(const std::string& name, const fastmcpp::Json& payload,
+                           fastmcpp::Json& response) const
+    {
+        for (const auto& h : after_)
+            if (h)
+                h(name, payload, response);
+    }
 
     // Middleware registration
     void add_before(BeforeHook h)
@@ -103,6 +133,7 @@ class Server
 
     // Routing and middleware
     std::unordered_map<std::string, Handler> routes_;
+    std::unordered_set<std::string> injected_routes_;
     std::vector<BeforeHook> before_;
     std::vector<AfterHook> after_;
 };

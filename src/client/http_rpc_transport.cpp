@@ -1,5 +1,6 @@
 #include "fastmcpp/client/http_rpc_transport.hpp"
 
+#include "fastmcpp/client/auth.hpp"
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/util/json.hpp"
 #include "http_detail.hpp"
@@ -87,12 +88,34 @@ void HttpRpcTransport::set_protocol_version(std::string version)
     protocol_version_ = std::move(version);
 }
 
+void HttpRpcTransport::set_auth(std::shared_ptr<auth::ClientAuth> auth)
+{
+    if (auth)
+    {
+        // The URL as configured (scheme, host, port and path as given), so resource
+        // comparisons (RFC 8707) see what the user wrote.
+        const std::string base =
+            base_url_.find("://") == std::string::npos ? "http://" + base_url_ : base_url_;
+        std::string path = mcp_path_.empty() ? "/mcp" : mcp_path_;
+        if (path.front() != '/')
+            path.insert(path.begin(), '/');
+        std::string trimmed = base;
+        while (!trimmed.empty() && trimmed.back() == '/')
+            trimmed.pop_back();
+        auth->bind(trimmed + path);
+    }
+    auth_ = std::move(auth);
+}
+
 std::unordered_map<std::string, std::string>
 HttpRpcTransport::build_headers(const HeaderRequest& req) const
 {
     auto merged = headers_;
     if (header_provider_)
         for (auto& [key, value] : header_provider_(req))
+            merged[key] = std::move(value);
+    if (auth_)
+        for (auto& [key, value] : auth_->headers(req))
             merged[key] = std::move(value);
 
     std::lock_guard<std::mutex> lock(state_mutex_);
@@ -175,36 +198,60 @@ fastmcpp::Json HttpRpcTransport::exchange(const fastmcpp::Json& rpc, bool expect
     bool got_response = false;
 
     const std::string origin = full_url;
+    const std::string initial_url = full_url;
+    const std::string initial_path = path;
 
-    for (int redirects = 0; redirects <= kMaxRedirects; ++redirects)
+    auto send_following_redirects = [&]()
     {
-        auto headers = build_headers({"POST", full_url + path, path, body});
-        headers.emplace("Accept", "application/json, text/event-stream");
-        headers.emplace("Content-Type", "application/json");
-
-        // Credentials are scoped to the origin they were issued for.
-        if (full_url != origin)
-            for (auto it = headers.begin(); it != headers.end();)
-                it = is_credential_header(it->first) ? headers.erase(it) : std::next(it);
-
-        response = post(full_url, path, headers, body);
-        got_response = true;
-
-        if (!detail::is_redirect_status(response.status))
-            break;
-
-        const std::string location = detail::find_header(response.headers, "Location");
-        if (location.empty())
-            throw fastmcpp::TransportError("HttpRpcTransport: redirect without a Location header");
-
-        auto next = detail::resolve_redirect_target(full_url, path, location);
-        full_url = std::move(next.first);
-        path = std::move(next.second);
+        full_url = initial_url;
+        path = initial_path;
         got_response = false;
-    }
+        for (int redirects = 0; redirects <= kMaxRedirects; ++redirects)
+        {
+            auto headers = build_headers({"POST", full_url + path, path, body});
+            headers.emplace("Accept", "application/json, text/event-stream");
+            headers.emplace("Content-Type", "application/json");
 
-    if (!got_response || detail::is_redirect_status(response.status))
-        throw fastmcpp::TransportError("HttpRpcTransport: redirect limit exceeded");
+            // Credentials are scoped to the origin they were issued for.
+            if (full_url != origin)
+                for (auto it = headers.begin(); it != headers.end();)
+                    it = is_credential_header(it->first) ? headers.erase(it) : std::next(it);
+
+            response = post(full_url, path, headers, body);
+            got_response = true;
+
+            if (!detail::is_redirect_status(response.status))
+                break;
+
+            const std::string location = detail::find_header(response.headers, "Location");
+            if (location.empty())
+                throw fastmcpp::TransportError(
+                    "HttpRpcTransport: redirect without a Location header");
+
+            auto next = detail::resolve_redirect_target(full_url, path, location);
+            full_url = std::move(next.first);
+            path = std::move(next.second);
+            got_response = false;
+        }
+
+        if (!got_response || detail::is_redirect_status(response.status))
+            throw fastmcpp::TransportError("HttpRpcTransport: redirect limit exceeded");
+    };
+
+    send_following_redirects();
+
+    // Authentication challenge: 401, or 403 with error="insufficient_scope" (a scope step-up).
+    // The provider runs its flow; on success the request is sent once more.
+    if (auth_ && (response.status == 401 || response.status == 403))
+    {
+        std::string version;
+        {
+            std::lock_guard<std::mutex> lock(state_mutex_);
+            version = protocol_version_;
+        }
+        if (auth_->handle_challenge({response.status, &response.headers, version}))
+            send_following_redirects();
+    }
 
     if (response.status < 200 || response.status >= 300)
         throw fastmcpp::TransportHttpError("HTTP error: " + std::to_string(response.status),

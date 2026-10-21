@@ -17,7 +17,8 @@ tools::Tool ResourcesAsTools::make_list_resources_tool() const
             return Json{{"error", "Provider not set"}};
 
         Json result = Json::array();
-        for (const auto& r : provider->list_resources())
+        // Transformed listings, so visibility-hidden resources/templates are not advertised.
+        for (const auto& r : provider->list_resources_transformed())
         {
             Json entry = {{"uri", r.uri}, {"name", r.name}};
             if (r.description)
@@ -27,7 +28,7 @@ tools::Tool ResourcesAsTools::make_list_resources_tool() const
             result.push_back(entry);
         }
 
-        for (const auto& t : provider->list_resource_templates())
+        for (const auto& t : provider->list_resource_templates_transformed())
         {
             Json entry = {{"uriTemplate", t.uri_template}, {"name", t.name}};
             if (t.description)

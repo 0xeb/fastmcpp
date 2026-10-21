@@ -164,8 +164,100 @@ void test_provider_transforms()
     std::cout << "  PASSED" << std::endl;
 }
 
+// 8649ba5f: a hidden concrete resource is NotFound; it must not fall through to a template
+// (or another source) that matches the same URI.
+// PYTHON REFERENCE: fastmcp_slim/fastmcp/server/server.py:958 (_lookup_resource), :1578
+namespace
+{
+resources::Resource make_text_resource(const std::string& uri, const std::string& text)
+{
+    resources::Resource res;
+    res.uri = uri;
+    res.name = uri;
+    res.provider = [uri, text](const Json&)
+    {
+        resources::ResourceContent content;
+        content.uri = uri;
+        content.data = text;
+        return content;
+    };
+    return res;
+}
+
+std::shared_ptr<providers::LocalProvider> make_secret_provider()
+{
+    auto provider = std::make_shared<providers::LocalProvider>();
+    provider->add_resource(make_text_resource("secret://data", "concrete"));
+    resources::ResourceTemplate templ;
+    templ.uri_template = "secret://{name}";
+    templ.name = "secrets";
+    templ.parameters = Json::object();
+    templ.provider = [](const Json& params)
+    {
+        resources::ResourceContent content;
+        content.uri = "secret://" + params.at("name").get<std::string>();
+        content.data = std::string("template:") + params.at("name").get<std::string>();
+        return content;
+    };
+    templ.parse();
+    provider->add_template(templ);
+    provider->disable({"resource:secret://data"});
+    return provider;
+}
+
+std::string read_text(const FastMCP& app, const std::string& uri)
+{
+    return std::get<std::string>(app.read_resource(uri).data);
+}
+
+bool read_is_not_found(const FastMCP& app, const std::string& uri)
+{
+    try
+    {
+        app.read_resource(uri);
+    }
+    catch (const NotFoundError&)
+    {
+        return true;
+    }
+    return false;
+}
+} // namespace
+
+void test_hidden_resource_does_not_fall_through()
+{
+    std::cout << "test_hidden_resource_does_not_fall_through..." << std::endl;
+
+    FastMCP app("HiddenResource", "1.0.0");
+    app.add_provider(make_secret_provider());
+    assert(read_is_not_found(app, "secret://data"));
+    assert(read_text(app, "secret://other") == "template:other");
+    for (const auto& res : app.list_all_resources())
+        assert(res.uri != "secret://data");
+
+    // A later provider that serves the same URI does not answer for the hidden one either.
+    auto fallback = std::make_shared<providers::LocalProvider>();
+    fallback->add_resource(make_text_resource("secret://data", "fallback"));
+    app.add_provider(fallback);
+    assert(read_is_not_found(app, "secret://data"));
+
+    // Through a namespaced mount, ahead of another mount that serves the same URI.
+    FastMCP child("Child", "1.0.0");
+    child.add_provider(make_secret_provider());
+    FastMCP other("Other", "1.0.0");
+    other.resources().register_resource(make_text_resource("secret://child/data", "other"));
+    FastMCP parent("Parent", "1.0.0");
+    parent.mount(other, "");
+    parent.mount(child, "child"); // mounted last, so consulted first
+    assert(read_is_not_found(parent, "secret://child/data"));
+    assert(read_text(parent, "secret://child/other") == "template:other");
+
+    std::cout << "  PASSED" << std::endl;
+}
+
 int main()
 {
     test_provider_transforms();
+    test_hidden_resource_does_not_fall_through();
     return 0;
 }

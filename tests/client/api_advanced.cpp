@@ -158,18 +158,13 @@ void test_typed_schema_validation_failure()
     client::Client c(std::make_unique<client::LoopbackTransport>(srv));
     c.list_tools();
 
-    bool failed = false;
-    try
-    {
-        c.call_tool("typed_invalid", Json::object());
-    }
-    catch (const fastmcpp::ValidationError&)
-    {
-        failed = true;
-    }
-    assert(failed);
+    // As upstream (client/mixins/tools.py): a value that does not match the output schema
+    // leaves the typed value empty and keeps the raw structured content; the call succeeds.
+    auto result = c.call_tool("typed_invalid", Json::object());
+    assert(!result.typedData.has_value());
+    assert(result.data.has_value());
 
-    std::cout << "  [PASS] invalid structured content triggers validation error\n";
+    std::cout << "  [PASS] invalid structured content leaves typedData empty, keeps raw data\n";
 }
 
 void test_call_tool_timeout_and_progress()

@@ -1,7 +1,11 @@
 #include "fastmcpp/util/json_schema_type.hpp"
 
+#include <atomic>
 #include <cassert>
 #include <iostream>
+#include <string>
+#include <thread>
+#include <vector>
 
 using fastmcpp::Json;
 using fastmcpp::util::schema_type::json_schema_to_value;
@@ -424,6 +428,126 @@ void test_tuple_schema_type_mismatch()
     std::cout << "  [PASS]\n";
 }
 
+// ============================================================================
+// Conversion limits and pattern semantics (Python fastmcp 5f7d4d58, 789a2986)
+// PYTHON REFERENCE: tests/utilities/json_schema_type/test_generated_classes.py
+// ============================================================================
+
+bool converts(const Json& schema, const Json& value)
+{
+    try
+    {
+        json_schema_to_value(schema, value);
+        return true;
+    }
+    catch (const fastmcpp::ValidationError&)
+    {
+        return false;
+    }
+}
+
+std::string conversion_error(const Json& schema, const Json& value)
+{
+    try
+    {
+        json_schema_to_value(schema, value);
+    }
+    catch (const fastmcpp::ValidationError& e)
+    {
+        return e.what();
+    }
+    return {};
+}
+
+void test_pattern_is_unanchored_search()
+{
+    std::cout << "test_pattern_is_unanchored_search...\n";
+    // JSON Schema patterns are searched, not fully matched (ECMA-262, Pydantic rust-regex).
+    assert(converts(Json{{"type", "string"}, {"pattern", "[0-9]"}}, "abc1def"));
+    assert(!converts(Json{{"type", "string"}, {"pattern", "[0-9]"}}, "abcdef"));
+    // Repeated alternation is linear-time: no catastrophic backtracking on hostile input.
+    assert(!converts(Json{{"type", "string"}, {"pattern", "^(a|aa)+$"}},
+                     std::string(20000, 'a') + "!"));
+    // Unsupported syntax drops the constraint instead of failing (789a2986, #3959).
+    assert(converts(Json{{"type", "string"}, {"pattern", "^(?=x)y$"}}, "anything"));
+    std::cout << "  [PASS]\n";
+}
+
+void test_too_deeply_nested_schema_is_rejected()
+{
+    std::cout << "test_too_deeply_nested_schema_is_rejected...\n";
+    // Raw nesting far beyond the limit fails cleanly, without recursing.
+    Json schema = Json::object();
+    Json* cur = &schema;
+    for (int i = 0; i < 5000; ++i)
+    {
+        (*cur)["items"] = Json::object();
+        cur = &(*cur)["items"];
+    }
+    assert(conversion_error(schema, 1).find("too deeply nested") != std::string::npos);
+
+    // 70 nested array schemas exceed the conversion depth of 64.
+    Json arr = Json{{"type", "string"}};
+    Json value = "x";
+    for (int i = 0; i < 70; ++i)
+    {
+        arr = Json{{"type", "array"}, {"items", arr}};
+        value = Json::array({value});
+    }
+    assert(conversion_error(arr, value).find("too deeply nested") != std::string::npos);
+
+    // Within the limit converts normally.
+    Json ok = Json{{"type", "string"}};
+    Json ok_value = "x";
+    for (int i = 0; i < 20; ++i)
+    {
+        ok = Json{{"type", "array"}, {"items", ok}};
+        ok_value = Json::array({ok_value});
+    }
+    assert(converts(ok, ok_value));
+    std::cout << "  [PASS]\n";
+}
+
+void test_too_large_conversion_is_rejected()
+{
+    std::cout << "test_too_large_conversion_is_rejected...\n";
+    Json schema = {{"type", "array"}, {"items", {{"type", "integer"}}}};
+    Json big = Json::array();
+    for (int i = 0; i < 60000; ++i)
+        big.push_back(i);
+    assert(conversion_error(schema, big).find("too large") != std::string::npos);
+    Json small = Json::array();
+    for (int i = 0; i < 1000; ++i)
+        small.push_back(i);
+    assert(converts(schema, small));
+    std::cout << "  [PASS]\n";
+}
+
+void test_pattern_cache_is_thread_safe_and_bounded()
+{
+    std::cout << "test_pattern_cache_is_thread_safe_and_bounded...\n";
+    std::vector<std::thread> threads;
+    std::atomic<int> failures{0};
+    for (int t = 0; t < 8; ++t)
+    {
+        threads.emplace_back(
+            [t, &failures]()
+            {
+                for (int i = 0; i < 500; ++i)
+                {
+                    const std::string digits = std::to_string(t * 1000 + i);
+                    const Json schema = {{"type", "string"}, {"pattern", "^" + digits + "$"}};
+                    if (!converts(schema, digits) || converts(schema, digits + "x"))
+                        ++failures;
+                }
+            });
+    }
+    for (auto& th : threads)
+        th.join();
+    assert(failures == 0);
+    std::cout << "  [PASS]\n";
+}
+
 int main()
 {
     std::cout << "=== TestStringConstraints ===\n";
@@ -461,6 +585,12 @@ int main()
     test_tuple_schema_too_many_items();
     test_tuple_schema_type_mismatch();
 
-    std::cout << "\n[OK] All constraint tests passed! (29 tests)\n";
+    std::cout << "\n=== TestConversionLimits ===\n";
+    test_pattern_is_unanchored_search();
+    test_too_deeply_nested_schema_is_rejected();
+    test_too_large_conversion_is_rejected();
+    test_pattern_cache_is_thread_safe_and_bounded();
+
+    std::cout << "\n[OK] All constraint tests passed! (33 tests)\n";
     return 0;
 }

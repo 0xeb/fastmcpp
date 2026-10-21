@@ -2,6 +2,7 @@
 
 #include "fastmcpp/app.hpp"
 
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <httplib.h>
@@ -56,6 +57,22 @@ int main()
                     out["parts"] = parts;
                     res.set_content(out.dump(), "application/json");
                 });
+
+    // 4183eea4: path values must stay inside /api/users/{id}/admin.txt. Every request is
+    // counted before routing so the tests can assert a rejected value never reached the backend.
+    std::atomic<int> backend_hits{0};
+    server.set_pre_routing_handler(
+        [&](const httplib::Request&, httplib::Response&)
+        {
+            ++backend_hits;
+            return httplib::Server::HandlerResponse::Unhandled;
+        });
+    server.Get(R"(/api/users/(.+)/admin\.txt)",
+               [](const httplib::Request& req, httplib::Response& res)
+               {
+                   Json body = {{"path", req.path}, {"id", req.matches[1].str()}};
+                   res.set_content(body.dump(), "application/json");
+               });
 
     std::thread server_thread([&]() { server.listen("127.0.0.1", 18888); });
     std::this_thread::sleep_for(std::chrono::milliseconds(150));
@@ -252,6 +269,66 @@ int main()
         }
     }
     assert(found_mapped_name);
+
+    // 4bacc9eb: only declared arguments are sent; an undeclared one never reaches the query.
+    auto declared_only =
+        app.invoke_tool("querystyles", Json{{"items", Json::array({"1"})}, {"evil", "x"}});
+    assert(!declared_only.contains("evil"));
+    assert(declared_only["items"].size() == 1);
+
+    // 4183eea4: path values with dot segments are rejected before any request.
+    // PYTHON REFERENCE: tests/utilities/openapi/test_path_values.py
+    Json record_spec = spec;
+    record_spec["paths"] = Json::object();
+    record_spec["paths"]["/api/users/{id}/admin.txt"]["get"] = Json{
+        {"operationId", "getRecord"},
+        {"parameters", Json::array({Json{{"name", "id"},
+                                         {"in", "path"},
+                                         {"required", true},
+                                         {"schema", Json{{"type", "string"}}}}})},
+        {"responses", Json{{"200", Json{{"description", "ok"}}}}},
+    };
+    FastMCP record_app("openapi_record", "1.0.0");
+    record_app.add_provider(std::make_shared<providers::OpenAPIProvider>(record_spec));
+
+    auto expect_rejected = [&](const Json& value, const std::string& needle)
+    {
+        const int hits_before = backend_hits.load();
+        bool threw = false;
+        try
+        {
+            record_app.invoke_tool("getrecord", Json{{"id", value}});
+        }
+        catch (const std::exception& e)
+        {
+            threw = std::string(e.what()).find(needle) != std::string::npos;
+        }
+        assert(threw);
+        assert(backend_hits.load() == hits_before);
+    };
+    for (const char* value : {".", "..", "../other", "other/../x", "other\\..\\x", "%2e%2e",
+                              "%252e%252e", "..%2fother", "other%5c..%5cx"})
+        expect_rejected(value, "dot segments");
+    {
+        std::string layered = "%";
+        for (int i = 0; i < 40; ++i)
+            layered += "25";
+        layered += "2e";
+        expect_rejected(layered, "too many encoding layers");
+    }
+
+    for (const Json& value : {Json("item.1"), Json(".hidden"), Json("..name"), Json("a/b"),
+                              Json("a\\b"), Json("100%"), Json(42)})
+    {
+        auto record = record_app.invoke_tool("getrecord", Json{{"id", value}});
+        const std::string path = record["path"].get<std::string>();
+        assert(path.rfind("/api/users/", 0) == 0);
+        assert(path.size() >= 10 && path.substr(path.size() - 10) == "/admin.txt");
+    }
+    {
+        auto record = record_app.invoke_tool("getrecord", Json{{"id", "item.1"}});
+        assert(record["id"] == "item.1");
+    }
 
     server.stop();
     server_thread.join();

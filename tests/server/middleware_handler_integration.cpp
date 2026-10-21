@@ -4,11 +4,17 @@
 
 #include "fastmcpp/app.hpp"
 #include "fastmcpp/mcp/handler.hpp"
+#include "fastmcpp/server/middleware.hpp"
 #include "fastmcpp/server/middleware_pipeline.hpp"
+#include "fastmcpp/server/server.hpp"
+#include "fastmcpp/tools/manager.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <iostream>
 #include <memory>
+#include <string>
+#include <vector>
 
 using namespace fastmcpp;
 
@@ -20,9 +26,58 @@ static Json call_add(const Json& id, int a, int b)
                 {"params", Json{{"name", "add"}, {"arguments", Json{{"a", a}, {"b", b}}}}}};
 }
 
+// The Server + ToolManager handler must route injected tools through Server::handle
+// (examples/tool_injection_middleware.cpp used to answer -32602 for them).
+static void test_tool_injection_through_server_and_tool_manager_handler()
+{
+    std::cout << "  tool injection via make_mcp_handler(Server, ToolManager)...";
+    tools::ToolManager tool_mgr;
+    tool_mgr.register_tool(tools::Tool{
+        "echo",
+        Json{{"type", "object"}, {"properties", Json{{"message", Json{{"type", "string"}}}}}},
+        Json{{"type", "string"}}, [](const Json& in) -> Json { return in.at("message"); }});
+    server::ToolInjectionMiddleware mw;
+    mw.add_tool(
+        "injected", "Injected tool", Json{{"type", "object"}}, [](const Json&)
+        { return Json{{"content", Json::array({Json{{"type", "text"}, {"text", "hi"}}})}}; });
+    auto srv = std::make_shared<server::Server>("demo", "1.0.0");
+    srv->route("echo", [&](const Json& in) { return tool_mgr.invoke("echo", in); });
+    int after_calls = 0;
+    srv->add_after([&](const std::string&, const Json&, Json&) { ++after_calls; });
+    srv->add_after(mw.create_tools_list_hook());
+    mw.register_routes(*srv);
+
+    auto handler = mcp::make_mcp_handler("demo", "1.0.0", *srv, tool_mgr);
+    auto listed = handler(
+        Json{{"jsonrpc", "2.0"}, {"id", 1}, {"method", "tools/list"}, {"params", Json::object()}});
+    std::vector<std::string> names;
+    for (const auto& t : listed["result"]["tools"])
+        names.push_back(t["name"].get<std::string>());
+    assert(std::find(names.begin(), names.end(), "echo") != names.end());
+    assert(std::find(names.begin(), names.end(), "injected") != names.end());
+
+    auto called =
+        handler(Json{{"jsonrpc", "2.0"},
+                     {"id", 2},
+                     {"method", "tools/call"},
+                     {"params", Json{{"name", "injected"}, {"arguments", Json::object()}}}});
+    assert(!called.contains("error"));
+    assert(called["result"]["content"][0]["text"] == "hi");
+
+    auto echoed =
+        handler(Json{{"jsonrpc", "2.0"},
+                     {"id", 3},
+                     {"method", "tools/call"},
+                     {"params", Json{{"name", "echo"}, {"arguments", Json{{"message", "yo"}}}}}});
+    assert(!echoed.contains("error"));
+    assert(after_calls >= 3); // list + both calls ran the server's AfterHooks
+    std::cout << " OK\n";
+}
+
 int main()
 {
     std::cout << "Middleware <-> handler integration\n";
+    test_tool_injection_through_server_and_tool_manager_handler();
 
     auto counter = std::make_shared<int>(0);
     FastMCP app("mw_integ", "1.0.0");

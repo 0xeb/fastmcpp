@@ -2,71 +2,58 @@
 // P5 — Python fastmcp #4312 (commit ba77e462) added a `resolving_refs` guard to
 // `json_schema_to_type` so a self-referential $ref no longer recurses forever.
 //
-// fastmcpp's `dereference_node` (src/util/json_schema.cpp) ALREADY guards cycles
-// via its `stack`: a $ref already being resolved is left in place instead of being
-// followed again. This is a verify-first test: a self-referential schema must
-// dereference in finite time (no stack overflow) and the cyclic edge must survive
-// as a `$ref` (not be infinitely expanded).
+// Since fastmcp 63a79d81 `dereference_refs` measures a schema before inlining it and a
+// circular schema cannot be inlined, so it comes back unchanged: no root $ref to resolve,
+// `$defs` and the cyclic `$ref` kept. A cycle reached through the root `$ref` only has the
+// root resolved.
+// PYTHON REFERENCE: fastmcp_slim/fastmcp/utilities/json_schema.py:263 (dereference_refs)
 
 #include "fastmcpp/util/json_schema.hpp"
 
-#include <cassert>
 #include <iostream>
 
 using namespace fastmcpp;
 
+namespace
+{
+bool fail(const std::string& message, const Json& value)
+{
+    std::cerr << "FAIL: " << message << ": " << value.dump() << std::endl;
+    return false;
+}
+} // namespace
+
 int main()
 {
     // A linked-list node that references itself through `next`.
-    Json schema = {
+    const Json node = {
+        {"type", "object"},
+        {"properties",
+         Json{
+             {"value", Json{{"type", "integer"}}},
+             {"next", Json{{"$ref", "#/$defs/Node"}}},
+         }},
+    };
+    const Json schema = {
         {"type", "object"},
         {"properties", Json{{"root", Json{{"$ref", "#/$defs/Node"}}}}},
-        {"$defs", Json{{"Node",
-                        Json{
-                            {"type", "object"},
-                            {"properties",
-                             Json{
-                                 {"value", Json{{"type", "integer"}}},
-                                 {"next", Json{{"$ref", "#/$defs/Node"}}},
-                             }},
-                        }}}},
+        {"$defs", Json{{"Node", node}}},
     };
 
-    // Must terminate (the cycle guard prevents infinite recursion / stack overflow).
+    // Must terminate, and the cyclic schema is returned unchanged.
     Json deref = util::schema::dereference_refs(schema);
+    if (deref != schema)
+        return fail("cyclic schema should be returned unchanged", deref) ? 0 : 1;
 
-    if (!deref.is_object())
-    {
-        std::cerr << "FAIL: expected object after deref" << std::endl;
-        return 1;
-    }
+    // Root-level $ref into a cycle: only the root is resolved, $defs stays for `next`.
+    const Json rooted = {{"$ref", "#/$defs/Node"}, {"$defs", Json{{"Node", node}}}};
+    Json rooted_deref = util::schema::dereference_refs(rooted);
+    Json expected = node;
+    expected["$defs"] = Json{{"Node", node}};
+    if (rooted_deref != expected)
+        return fail("root $ref into a cycle should resolve the root only", rooted_deref) ? 0 : 1;
 
-    // First hop resolved: root -> Node with its `value` property present.
-    const Json& root = deref["properties"]["root"];
-    if (!root.is_object() || root.value("type", std::string()) != "object" ||
-        !root["properties"].contains("value"))
-    {
-        std::cerr << "FAIL: root did not resolve to Node: " << deref.dump() << std::endl;
-        return 1;
-    }
-
-    // The cyclic edge (`next` -> Node, already on the stack) survives as a $ref
-    // rather than being expanded forever.
-    const Json& next = root["properties"]["next"];
-    if (!next.is_object() || !next.contains("$ref"))
-    {
-        std::cerr << "FAIL: cyclic 'next' should remain a $ref, got: " << next.dump() << std::endl;
-        return 1;
-    }
-
-    // A ref remains, so $defs must be retained (not stripped) for resolvability.
-    if (!deref.contains("$defs"))
-    {
-        std::cerr << "FAIL: $defs stripped despite a surviving cyclic $ref" << std::endl;
-        return 1;
-    }
-
-    std::cout << "PASS: recursive $ref cycle guard (P5) — dereference terminates, cycle preserved"
+    std::cout << "PASS: recursive $ref cycle guard (P5) — cyclic schema returned unchanged"
               << std::endl;
     return 0;
 }

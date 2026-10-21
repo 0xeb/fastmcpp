@@ -185,13 +185,41 @@ std::optional<std::string> parse_frontmatter_description(const std::filesystem::
 
 bool is_within(const std::filesystem::path& root, const std::filesystem::path& candidate)
 {
-    const auto root_text = root.generic_string();
-    const auto candidate_text = candidate.generic_string();
+    auto root_text = root.generic_string();
+    auto candidate_text = candidate.generic_string();
+#ifdef _WIN32
+    // Windows paths compare case-insensitively.
+    auto lower = [](std::string& s)
+    {
+        std::transform(s.begin(), s.end(), s.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    };
+    lower(root_text);
+    lower(candidate_text);
+#endif
     if (candidate_text.size() < root_text.size())
         return false;
     if (candidate_text.compare(0, root_text.size(), root_text) != 0)
         return false;
     return candidate_text.size() == root_text.size() || candidate_text[root_text.size()] == '/';
+}
+
+// Resolve `relative` under `base`, rejecting paths that escape `base`. `base` must already be
+// resolved; it is not resolved again, so swapping it for a link after it was selected cannot
+// move the containment boundary.
+// PYTHON REFERENCE: fastmcp_slim/fastmcp/server/providers/skills/_common.py:81 (resolve_within)
+std::filesystem::path resolve_within(const std::filesystem::path& base,
+                                     const std::filesystem::path& relative)
+{
+    const auto escape_error = [&]()
+    { return SkillPathError("Path " + relative.generic_string() + " escapes " + base.string()); };
+    if (relative.is_absolute() || relative.has_root_name() || relative.has_root_directory())
+        throw escape_error();
+    std::error_code ec;
+    const auto path = std::filesystem::weakly_canonical(base / relative, ec);
+    if (ec || !is_within(base, path))
+        throw escape_error();
+    return path;
 }
 
 resources::ResourceContent read_file_content(const std::filesystem::path& path,
@@ -248,23 +276,50 @@ SkillProvider::SkillProvider(std::filesystem::path skill_path, std::string main_
     if (!std::filesystem::exists(skill_path_) || !std::filesystem::is_directory(skill_path_))
         throw ValidationError("Skill directory not found: " + skill_path_.string());
 
-    const auto main_file = skill_path_ / main_file_name_;
+    // PYTHON REFERENCE: fastmcp_slim/fastmcp/server/providers/skills/skill_provider.py:236
+    const auto main_file = resolve_within(skill_path_, main_file_name_);
     if (!std::filesystem::exists(main_file))
         throw ValidationError("Main skill file not found: " + main_file.string());
 }
 
+// PYTHON REFERENCE: fastmcp_slim/fastmcp/server/providers/skills/_common.py:102 (scan_skill_files)
 std::vector<std::filesystem::path> SkillProvider::list_files() const
 {
     std::vector<std::filesystem::path> files;
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(skill_path_))
-        if (entry.is_regular_file())
-            files.push_back(entry.path());
+    std::error_code ec;
+    std::filesystem::recursive_directory_iterator it(
+        skill_path_, std::filesystem::directory_options::skip_permission_denied, ec);
+    for (; !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
+    {
+        std::error_code entry_ec;
+        if (!it->is_regular_file(entry_ec) || entry_ec)
+            continue;
+        const auto rel = it->path().lexically_relative(skill_path_);
+        try
+        {
+            resolve_within(skill_path_, rel);
+        }
+        catch (const SkillPathError&)
+        {
+            continue; // links that leave the skill are not part of it
+        }
+        files.push_back(rel);
+    }
+    std::sort(files.begin(), files.end());
     return files;
 }
 
 std::string SkillProvider::build_description() const
 {
-    const auto main_path = skill_path_ / main_file_name_;
+    std::filesystem::path main_path;
+    try
+    {
+        main_path = resolve_within(skill_path_, main_file_name_);
+    }
+    catch (const SkillPathError&)
+    {
+        return "Skill: " + skill_name_;
+    }
     if (auto frontmatter_description = parse_frontmatter_description(main_path))
         return *frontmatter_description;
 
@@ -297,12 +352,24 @@ std::string SkillProvider::build_description() const
 std::string SkillProvider::build_manifest_json() const
 {
     Json files = Json::array();
-    for (const auto& file : list_files())
+    for (const auto& rel : list_files())
     {
-        const auto rel = std::filesystem::relative(file, skill_path_);
+        std::filesystem::path file;
+        try
+        {
+            file = resolve_within(skill_path_, rel);
+        }
+        catch (const SkillPathError&)
+        {
+            continue;
+        }
+        std::error_code ec;
+        const auto size = std::filesystem::file_size(file, ec);
+        if (ec)
+            continue;
         files.push_back(Json{
             {"path", to_uri_path(rel)},
-            {"size", static_cast<int64_t>(std::filesystem::file_size(file))},
+            {"size", static_cast<int64_t>(size)},
             {"hash", compute_file_hash(file)},
         });
     }
@@ -319,8 +386,12 @@ std::vector<resources::Resource> SkillProvider::list_resources() const
     main_file.name = skill_name_ + "/" + main_file_name_;
     main_file.description = description;
     main_file.mime_type = "text/markdown";
-    main_file.provider = [main_path = skill_path_ / main_file_name_, uri = main_file.uri](
-                             const Json&) { return read_file_content(main_path, uri); };
+    // The main file is re-checked on every read, so a link swapped in after load cannot
+    // redirect it outside the skill.
+    // PYTHON REFERENCE: fastmcp_slim/fastmcp/server/providers/skills/skill_provider.py:56
+    main_file.provider =
+        [root = skill_path_, name = main_file_name_, uri = main_file.uri](const Json&)
+    { return read_file_content(resolve_within(root, name), uri); };
     out.push_back(main_file);
 
     resources::Resource manifest;
@@ -340,9 +411,8 @@ std::vector<resources::Resource> SkillProvider::list_resources() const
 
     if (supporting_files_ == SkillSupportingFiles::Resources)
     {
-        for (const auto& file : list_files())
+        for (const auto& rel : list_files())
         {
-            const auto rel = std::filesystem::relative(file, skill_path_);
             if (to_uri_path(rel) == main_file_name_)
                 continue;
 
@@ -350,9 +420,9 @@ std::vector<resources::Resource> SkillProvider::list_resources() const
             resource.uri = "skill://" + skill_name_ + "/" + to_uri_path(rel);
             resource.name = skill_name_ + "/" + to_uri_path(rel);
             resource.description = "File from " + skill_name_ + " skill";
-            resource.mime_type = detect_mime_type(file);
-            resource.provider = [file, uri = resource.uri](const Json&)
-            { return read_file_content(file, uri); };
+            resource.mime_type = detect_mime_type(rel);
+            resource.provider = [root = skill_path_, rel, uri = resource.uri](const Json&)
+            { return read_file_content(resolve_within(root, rel), uri); };
             out.push_back(std::move(resource));
         }
     }
@@ -439,31 +509,40 @@ void SkillsDirectoryProvider::discover_skills() const
     for (const auto& root_raw : roots_)
     {
         const auto root = std::filesystem::absolute(root_raw).lexically_normal();
-        if (!std::filesystem::exists(root) || !std::filesystem::is_directory(root))
+        std::error_code root_ec;
+        if (!std::filesystem::is_directory(root, root_ec))
             continue;
 
-        for (const auto& entry : std::filesystem::directory_iterator(root))
+        std::error_code ec;
+        std::filesystem::directory_iterator it(root, ec);
+        for (; !ec && it != std::filesystem::directory_iterator(); it.increment(ec))
         {
-            if (!entry.is_directory())
+            // Skill folders may be links to directories elsewhere; the skill's own files must
+            // still resolve within the folder it links to. Broken or looping links are skipped.
+            // PYTHON REFERENCE:
+            // fastmcp_slim/fastmcp/server/providers/skills/directory_provider.py:90
+            std::error_code entry_ec;
+            const auto skill_dir = std::filesystem::canonical(it->path(), entry_ec);
+            if (entry_ec)
                 continue;
-
-            const auto skill_dir = entry.path();
-            const auto main_file = skill_dir / main_file_name_;
-            if (!std::filesystem::exists(main_file))
+            if (!std::filesystem::is_directory(skill_dir, entry_ec) || entry_ec)
+                continue;
+            if (!std::filesystem::exists(skill_dir / main_file_name_, entry_ec) || entry_ec)
                 continue;
 
             const auto skill_name = skill_dir.filename().string();
-            if (!seen_names.insert(skill_name).second)
+            if (seen_names.count(skill_name))
                 continue;
 
             try
             {
                 providers_.push_back(
                     std::make_shared<SkillProvider>(skill_dir, main_file_name_, supporting_files_));
+                seen_names.insert(skill_name);
             }
             catch (...)
             {
-                // Skip unreadable/invalid skills.
+                // Skip unreadable/invalid skills (including SkillPathError).
             }
         }
     }
