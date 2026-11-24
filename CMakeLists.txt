@@ -4,7 +4,7 @@ if(POLICY CMP0169)
   cmake_policy(SET CMP0169 OLD)
 endif()
 # major.minor.patch = upstream fastmcp parity level; optional 4th = local revision.
-project(fastmcpp VERSION 3.4.11.1 LANGUAGES CXX)
+project(fastmcpp VERSION 3.4.11.2 LANGUAGES CXX)
 
 # Empty for a 3-component version, which would expand to FASTMCPP_VERSION_TWEAK=.
 if(NOT DEFINED PROJECT_VERSION_TWEAK OR PROJECT_VERSION_TWEAK STREQUAL "")
@@ -185,6 +185,8 @@ if(FASTMCPP_ENABLE_POST_STREAMING OR FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS OR F
     set(CURL_DISABLE_TESTS ON CACHE BOOL "Disable curl tests" FORCE)
     set(CURL_DISABLE_INSTALL ON CACHE BOOL "Disable curl install targets" FORCE)
     set(CURL_DISABLE_LDAP ON CACHE BOOL "Disable LDAP support" FORCE)
+    # libpsl only vets cookie domains; newer curl requires it unless disabled.
+    set(CURL_USE_LIBPSL OFF CACHE BOOL "Do not use libpsl" FORCE)
 
     # Prefer platform TLS backends to avoid OpenSSL as a dependency.
     if(WIN32)
@@ -203,7 +205,8 @@ if(FASTMCPP_ENABLE_POST_STREAMING OR FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS OR F
     FetchContent_Declare(
       curl
       GIT_REPOSITORY https://github.com/curl/curl.git
-      GIT_TAG curl-8_9_1
+      # 8.23.0+ builds against OpenSSL 4, which made ASN1_INTEGER opaque.
+      GIT_TAG curl-8_23_0
     )
     FetchContent_MakeAvailable(curl)
 

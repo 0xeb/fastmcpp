@@ -131,9 +131,12 @@ void test_argv_environment_and_path()
     assert(contains(spawn_error("sh", no_path), std::strerror(ENOENT)));
 
     // A relative working directory and the parent's PATH still work.
+    // Compare against the resolved path: on macOS /tmp is a symlink to /private/tmp.
     ProcessOptions in_tmp;
     in_tmp.working_directory = "/tmp";
-    assert(run_capture("pwd", {}, in_tmp).rfind("/tmp", 0) == 0);
+    std::unique_ptr<char, decltype(&std::free)> tmp_real(realpath("/tmp", nullptr), &std::free);
+    assert(tmp_real);
+    assert(run_capture("pwd", {"-P"}, in_tmp) == std::string(tmp_real.get()) + "\n");
     std::cout << " OK\n";
 }
 
