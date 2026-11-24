@@ -187,6 +187,14 @@ if(FASTMCPP_ENABLE_POST_STREAMING OR FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS OR F
     set(CURL_DISABLE_LDAP ON CACHE BOOL "Disable LDAP support" FORCE)
     # libpsl only vets cookie domains; newer curl requires it unless disabled.
     set(CURL_USE_LIBPSL OFF CACHE BOOL "Do not use libpsl" FORCE)
+    # Newer curl auto-enables optional libraries it finds on the host (e.g. Homebrew's
+    # libssh2 on macOS), which then fail to link into our static build. The transports
+    # need only HTTP(S), so keep those out.
+    set(CURL_USE_LIBSSH2 OFF CACHE BOOL "Do not use libssh2" FORCE)
+    set(USE_NGHTTP2 OFF CACHE BOOL "Do not use nghttp2" FORCE)
+    set(USE_LIBIDN2 OFF CACHE BOOL "Do not use libidn2" FORCE)
+    set(CURL_BROTLI OFF CACHE STRING "Do not use brotli" FORCE)
+    set(CURL_ZSTD OFF CACHE STRING "Do not use zstd" FORCE)
 
     # Prefer platform TLS backends to avoid OpenSSL as a dependency.
     if(WIN32)
