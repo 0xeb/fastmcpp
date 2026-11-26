@@ -3,6 +3,7 @@
 
 #ifndef _WIN32
 
+#include "env.hpp"
 #include "process.hpp"
 
 #include <cstdlib>
@@ -710,7 +711,7 @@ std::optional<std::string> find_executable(const std::string& name)
         return std::nullopt;
     }
 
-    const char* path_env = std::getenv("PATH");
+    auto path_env = fastmcpp::internal::getenv_string("PATH");
     if (!path_env)
     {
         if (fs::exists(name) && access(name.c_str(), X_OK) == 0)
@@ -718,7 +719,7 @@ std::optional<std::string> find_executable(const std::string& name)
         return std::nullopt;
     }
 
-    std::string path_str(path_env);
+    std::string path_str(*path_env);
     size_t start = 0;
     size_t end;
 

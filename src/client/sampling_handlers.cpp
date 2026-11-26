@@ -1,5 +1,6 @@
 #include "fastmcpp/client/sampling_handlers.hpp"
 
+#include "../internal/env.hpp"
 #include "fastmcpp/exceptions.hpp"
 
 #include <mutex>
@@ -50,8 +51,9 @@ static std::optional<std::string> get_env(const std::string& name)
 {
     if (name.empty())
         return std::nullopt;
-    if (const char* v = std::getenv(name.c_str()); v != nullptr && v[0] != '\0')
-        return std::string(v);
+    auto v = fastmcpp::internal::getenv_string(name.c_str());
+    if (v && !v->empty())
+        return v;
     return std::nullopt;
 }
 

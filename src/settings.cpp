@@ -1,5 +1,7 @@
 #include "fastmcpp/settings.hpp"
 
+#include "internal/env.hpp"
+
 #include <algorithm>
 #include <cstdlib>
 
@@ -8,9 +10,7 @@ namespace fastmcpp
 
 static std::string getenv_str(const char* key, const std::string& defv)
 {
-    if (const char* v = std::getenv(key))
-        return std::string(v);
-    return defv;
+    return fastmcpp::internal::getenv_string(key).value_or(defv);
 }
 
 Settings Settings::from_env()

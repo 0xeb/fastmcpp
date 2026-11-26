@@ -1,6 +1,9 @@
 #include "fastmcpp/util/json_schema.hpp"
 
+#include "fastmcpp/util/linear_regex.hpp"
+
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -539,6 +542,269 @@ void validate(const Json& schema, const Json& instance)
         if (t == "object")
             validate_object(schema, instance);
     }
+}
+
+namespace
+{
+
+std::string json_type_name(const Json& v)
+{
+    if (v.is_null())
+        return "null";
+    if (v.is_boolean())
+        return "boolean";
+    if (v.is_number_integer())
+        return "integer";
+    if (v.is_number())
+        return "number";
+    if (v.is_string())
+        return "string";
+    if (v.is_array())
+        return "array";
+    return "object";
+}
+
+// JSON Schema type test; an integer may be written as a float with no fraction (1.0).
+bool matches_type(const Json& v, const std::string& type)
+{
+    if (type == "null")
+        return v.is_null();
+    if (type == "integer")
+        return v.is_number_integer() ||
+               (v.is_number_float() && std::floor(v.get<double>()) == v.get<double>());
+    return is_type(v, type);
+}
+
+size_t utf8_length(const std::string& s)
+{
+    size_t n = 0;
+    for (unsigned char c : s)
+        if ((c & 0xC0) != 0x80)
+            ++n;
+    return n;
+}
+
+class ArgumentValidator
+{
+  public:
+    void check(const Json& schema, const Json& v, const std::string& path, int depth)
+    {
+        if (depth > 64)
+            throw ValidationError("schema nesting too deep at " + where(path));
+        if (schema.is_boolean())
+        {
+            if (!schema.get<bool>())
+                throw ValidationError(where(path) + ": no value is allowed");
+            return;
+        }
+        if (!schema.is_object())
+            return;
+
+        if (auto it = schema.find("type"); it != schema.end())
+        {
+            bool ok = false;
+            if (it->is_string())
+                ok = matches_type(v, it->get<std::string>());
+            else if (it->is_array())
+                for (const auto& t : *it)
+                    ok = ok || (t.is_string() && matches_type(v, t.get<std::string>()));
+            else
+                ok = true;
+            if (!ok)
+                throw ValidationError(where(path) + ": expected " + it->dump() + ", got " +
+                                      json_type_name(v));
+        }
+        if (auto it = schema.find("const"); it != schema.end() && *it != v)
+            throw ValidationError(where(path) + ": must be " + it->dump());
+        if (auto it = schema.find("enum"); it != schema.end() && it->is_array())
+            if (std::find(it->begin(), it->end(), v) == it->end())
+                throw ValidationError(where(path) + ": must be one of " + it->dump());
+
+        if (v.is_number())
+            check_number(schema, v.get<double>(), path);
+        if (v.is_string())
+            check_string(schema, v.get<std::string>(), path);
+        if (v.is_array())
+            check_array(schema, v, path, depth);
+        if (v.is_object())
+            check_object(schema, v, path, depth);
+
+        if (auto it = schema.find("allOf"); it != schema.end() && it->is_array())
+            for (const auto& sub : *it)
+                check(sub, v, path, depth + 1);
+        if (auto it = schema.find("anyOf"); it != schema.end() && it->is_array())
+            if (count_matches(*it, v, path, depth) == 0)
+                throw ValidationError(where(path) + ": does not match any allowed schema");
+        if (auto it = schema.find("oneOf"); it != schema.end() && it->is_array())
+            if (count_matches(*it, v, path, depth) != 1)
+                throw ValidationError(where(path) + ": must match exactly one schema");
+        if (auto it = schema.find("not"); it != schema.end())
+        {
+            bool matched = true;
+            try
+            {
+                check(*it, v, path, depth + 1);
+            }
+            catch (const ValidationError&)
+            {
+                matched = false;
+            }
+            if (matched)
+                throw ValidationError(where(path) + ": matches a disallowed schema");
+        }
+    }
+
+  private:
+    static std::string where(const std::string& path)
+    {
+        return path.empty() ? "arguments" : path;
+    }
+
+    size_t count_matches(const Json& branches, const Json& v, const std::string& path, int depth)
+    {
+        size_t n = 0;
+        for (const auto& sub : branches)
+        {
+            try
+            {
+                check(sub, v, path, depth + 1);
+                ++n;
+            }
+            catch (const ValidationError&)
+            {
+            }
+        }
+        return n;
+    }
+
+    static void check_number(const Json& s, double x, const std::string& path)
+    {
+        auto num = [&](const char* k) -> std::optional<double>
+        {
+            auto it = s.find(k);
+            if (it != s.end() && it->is_number())
+                return it->get<double>();
+            return std::nullopt;
+        };
+        const bool draft4_excl_min = s.contains("exclusiveMinimum") &&
+                                     s["exclusiveMinimum"].is_boolean() &&
+                                     s["exclusiveMinimum"].get<bool>();
+        const bool draft4_excl_max = s.contains("exclusiveMaximum") &&
+                                     s["exclusiveMaximum"].is_boolean() &&
+                                     s["exclusiveMaximum"].get<bool>();
+        if (auto m = num("minimum"); m && (draft4_excl_min ? x <= *m : x < *m))
+            throw ValidationError(where(path) + ": must be >" + (draft4_excl_min ? "" : "=") + " " +
+                                  Json(*m).dump());
+        if (auto m = num("maximum"); m && (draft4_excl_max ? x >= *m : x > *m))
+            throw ValidationError(where(path) + ": must be <" + (draft4_excl_max ? "" : "=") + " " +
+                                  Json(*m).dump());
+        if (auto m = num("exclusiveMinimum"); m && x <= *m)
+            throw ValidationError(where(path) + ": must be > " + Json(*m).dump());
+        if (auto m = num("exclusiveMaximum"); m && x >= *m)
+            throw ValidationError(where(path) + ": must be < " + Json(*m).dump());
+        if (auto m = num("multipleOf"); m && *m > 0)
+        {
+            const double q = x / *m;
+            if (std::fabs(q - std::round(q)) > 1e-9)
+                throw ValidationError(where(path) + ": must be a multiple of " + Json(*m).dump());
+        }
+    }
+
+    static void check_string(const Json& s, const std::string& x, const std::string& path)
+    {
+        const size_t len = utf8_length(x);
+        if (s.contains("minLength") && s["minLength"].is_number_unsigned() &&
+            len < s["minLength"].get<size_t>())
+            throw ValidationError(where(path) + ": shorter than " + s["minLength"].dump());
+        if (s.contains("maxLength") && s["maxLength"].is_number_unsigned() &&
+            len > s["maxLength"].get<size_t>())
+            throw ValidationError(where(path) + ": longer than " + s["maxLength"].dump());
+        if (s.contains("pattern") && s["pattern"].is_string())
+        {
+            std::optional<LinearRegex> re;
+            try
+            {
+                re = LinearRegex::compile(s["pattern"].get<std::string>());
+            }
+            catch (const LinearRegex::Error&)
+            {
+                return; // an unsupported pattern is no constraint
+            }
+            if (!re->search(x))
+                throw ValidationError(where(path) + ": does not match " + s["pattern"].dump());
+        }
+    }
+
+    void check_array(const Json& s, const Json& v, const std::string& path, int depth)
+    {
+        if (s.contains("minItems") && s["minItems"].is_number_unsigned() &&
+            v.size() < s["minItems"].get<size_t>())
+            throw ValidationError(where(path) + ": fewer than " + s["minItems"].dump() + " items");
+        if (s.contains("maxItems") && s["maxItems"].is_number_unsigned() &&
+            v.size() > s["maxItems"].get<size_t>())
+            throw ValidationError(where(path) + ": more than " + s["maxItems"].dump() + " items");
+        if (s.value("uniqueItems", false))
+            for (size_t i = 0; i < v.size(); ++i)
+                for (size_t j = i + 1; j < v.size(); ++j)
+                    if (v[i] == v[j])
+                        throw ValidationError(where(path) + ": items must be unique");
+        size_t first = 0;
+        if (auto it = s.find("prefixItems"); it != s.end() && it->is_array())
+            for (; first < it->size() && first < v.size(); ++first)
+                check((*it)[first], v[first], path + "[" + std::to_string(first) + "]", depth + 1);
+        if (auto it = s.find("items"); it != s.end())
+        {
+            if (it->is_array()) // draft 4 tuple form
+                for (size_t i = 0; i < it->size() && i < v.size(); ++i)
+                    check((*it)[i], v[i], path + "[" + std::to_string(i) + "]", depth + 1);
+            else
+                for (size_t i = first; i < v.size(); ++i)
+                    check(*it, v[i], path + "[" + std::to_string(i) + "]", depth + 1);
+        }
+    }
+
+    void check_object(const Json& s, const Json& v, const std::string& path, int depth)
+    {
+        auto child = [&](const std::string& key) { return path.empty() ? key : path + "." + key; };
+        if (auto it = s.find("required"); it != s.end() && it->is_array())
+            for (const auto& r : *it)
+                if (r.is_string() && !v.contains(r.get<std::string>()))
+                    throw ValidationError(child(r.get<std::string>()) + ": missing required "
+                                                                        "argument");
+        const Json* props = nullptr;
+        if (auto it = s.find("properties"); it != s.end() && it->is_object())
+            props = &*it;
+        const auto additional = s.find("additionalProperties");
+        for (const auto& [key, value] : v.items())
+        {
+            if (props && props->contains(key))
+            {
+                check((*props)[key], value, child(key), depth + 1);
+                continue;
+            }
+            if (additional == s.end())
+                continue;
+            if (additional->is_boolean() && !additional->get<bool>())
+                throw ValidationError(child(key) + ": unexpected argument");
+            check(*additional, value, child(key), depth + 1);
+        }
+    }
+};
+
+} // namespace
+
+void validate_arguments(const Json& input_schema, const Json& arguments)
+{
+    if (!arguments.is_object())
+        throw ValidationError("arguments must be an object");
+    Json args = arguments;
+    args.erase("_meta");
+    Json schema = input_schema.is_object() ? input_schema : Json::object();
+    if (contains_ref(schema))
+        schema = dereference_refs(schema);
+    if (!schema.contains("type"))
+        schema["type"] = "object";
+    ArgumentValidator().check(schema, args, "", 0);
 }
 
 bool contains_ref(const Json& schema)

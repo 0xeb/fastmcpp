@@ -1,5 +1,6 @@
 #include "fastmcpp/skills/provider.hpp"
 
+#include "../internal/env.hpp"
 #include "fastmcpp/app.hpp"
 #include "fastmcpp/mcp/envelope.hpp"
 #include "fastmcpp/protocol.hpp"
@@ -601,13 +602,13 @@ SkillsDirectoryProvider::SkillsDirectoryProvider(std::vector<fs::path> roots, bo
         std::string text = root.string();
         if (!text.empty() && text[0] == '~')
         {
-            const char* home = std::getenv("HOME");
+            auto home = fastmcpp::internal::getenv_string("HOME");
 #ifdef _WIN32
-            if (home == nullptr)
-                home = std::getenv("USERPROFILE");
+            if (!home)
+                home = fastmcpp::internal::getenv_string("USERPROFILE");
 #endif
-            if (home != nullptr)
-                root = fs::path(home) / fs::path(text.substr(text.size() > 1 ? 2 : 1));
+            if (home)
+                root = fs::path(*home) / fs::path(text.substr(text.size() > 1 ? 2 : 1));
         }
         roots_.push_back(fs::absolute(root));
     }

@@ -2,10 +2,14 @@
 
 #include "fastmcpp/util/linear_regex.hpp"
 
+#include "unicode_tables.inc"
+
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <initializer_list>
 #include <iterator>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -13,6 +17,8 @@ namespace fastmcpp::util
 {
 namespace
 {
+
+namespace ut = unicode_tables;
 
 constexpr char32_t kMaxCodepoint = 0x10FFFF;
 constexpr int kMaxNesting = 250; // Rust regex-syntax's default nest limit
@@ -143,9 +149,13 @@ struct CharSet
         return u.minus(intersect(other));
     }
 
-    // ASCII case folding (see the divergence note in the header).
-    void fold_case()
+    void fold_case(bool unicode)
     {
+        if (unicode)
+        {
+            fold_case_unicode();
+            return;
+        }
         std::vector<Range> extra;
         for (const auto& r : ranges)
         {
@@ -157,6 +167,24 @@ struct CharSet
             const char32_t lhi = std::min<char32_t>(r.second, 'z');
             if (llo <= lhi)
                 extra.emplace_back(llo - 32, lhi - 32);
+        }
+        ranges.insert(ranges.end(), extra.begin(), extra.end());
+        normalize();
+    }
+
+    // Close the set under Unicode simple case folding.
+    void fold_case_unicode()
+    {
+        std::vector<Range> extra;
+        const auto* begin = std::begin(ut::kFold);
+        const auto* end = std::end(ut::kFold);
+        for (const auto& r : ranges)
+        {
+            auto it = std::lower_bound(begin, end, r.first,
+                                       [](const ut::Fold& f, char32_t c) { return f.c < c; });
+            for (; it != end && it->c <= r.second; ++it)
+                for (unsigned k = 0; k < it->count; ++k)
+                    extra.emplace_back(it->others[k], it->others[k]);
         }
         ranges.insert(ranges.end(), extra.begin(), extra.end());
         normalize();
@@ -179,22 +207,234 @@ CharSet set_of(std::initializer_list<Range> rs)
     return s;
 }
 
-CharSet digit_set()
+const ut::Set* find_set(const char* kind, const char* name)
 {
+    for (const auto& s : ut::kSets)
+        if (std::strcmp(s.kind, kind) == 0 && std::strcmp(s.name, name) == 0)
+            return &s;
+    return nullptr;
+}
+
+CharSet table_set(const ut::Set& s)
+{
+    CharSet out;
+    for (unsigned k = 0; k < s.count; ++k)
+        out.add(s.ranges[k][0], s.ranges[k][1]);
+    out.normalize();
+    return out;
+}
+
+CharSet digit_set(bool unicode)
+{
+    if (unicode)
+        return table_set(*find_set("gc", "Decimal_Number"));
     return set_of({{'0', '9'}});
 }
-CharSet word_set()
+CharSet word_set(bool unicode)
 {
+    if (unicode)
+        return table_set(*find_set("perl", "word"));
     return set_of({{'0', '9'}, {'A', 'Z'}, {'_', '_'}, {'a', 'z'}});
 }
-CharSet space_set()
+CharSet space_set(bool unicode)
 {
+    if (unicode)
+        return table_set(*find_set("bool", "White_Space"));
     return set_of({{'\t', '\r'}, {' ', ' '}});
 }
 
-bool is_word(char32_t c)
+bool is_alphabetic(char32_t c)
+{
+    static const CharSet alpha = table_set(*find_set("bool", "Alphabetic"));
+    return alpha.contains(c);
+}
+
+bool is_alphanumeric(char32_t c)
+{
+    static const CharSet numeric = table_set(*find_set("gc", "Number"));
+    return is_alphabetic(c) || numeric.contains(c);
+}
+
+bool is_ascii_word(char32_t c)
 {
     return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
+}
+
+bool is_unicode_word(char32_t c)
+{
+    if (c < 0x80)
+        return is_ascii_word(c);
+    static const CharSet word = word_set(true);
+    return word.contains(c);
+}
+
+// Property-name normalisation of Unicode UAX44-LM3 as regex-syntax applies it: drop
+// spaces, '_' and '-', ASCII-lowercase, drop non-ASCII and an "is" prefix.
+std::string normalize_symbolic(const std::u32string& name)
+{
+    size_t start = 0;
+    bool starts_with_is = false;
+    if (name.size() >= 2 && (name[0] == 'i' || name[0] == 'I') &&
+        (name[1] == 's' || name[1] == 'S'))
+    {
+        starts_with_is = true;
+        start = 2;
+    }
+    std::string out;
+    for (size_t k = start; k < name.size(); ++k)
+    {
+        const char32_t c = name[k];
+        if (c == ' ' || c == '_' || c == '-')
+            continue;
+        if (c >= 'A' && c <= 'Z')
+            out.push_back(static_cast<char>(c + 32));
+        else if (c <= 0x7F)
+            out.push_back(static_cast<char>(c));
+    }
+    if (starts_with_is && out == "c")
+        out = "isc";
+    return out;
+}
+
+const char* canonical_property(const std::string& key)
+{
+    for (const auto& n : ut::kPropertyNames)
+        if (key == n.key)
+            return n.value;
+    return nullptr;
+}
+
+const char* canonical_value(const char* property, const std::string& key)
+{
+    for (const auto& v : ut::kPropertyValues)
+        if (std::strcmp(v.property, property) == 0 && key == v.key)
+            return v.value;
+    return nullptr;
+}
+
+const char* canonical_gencat(const std::string& key)
+{
+    if (key == "any")
+        return "Any";
+    if (key == "assigned")
+        return "Assigned";
+    if (key == "ascii")
+        return "ASCII";
+    return canonical_value("General_Category", key);
+}
+
+[[noreturn]] void fail(const char* what);
+
+CharSet gencat_set(const std::string& canonical)
+{
+    if (canonical == "ASCII")
+        return set_of({{0, 0x7F}});
+    if (canonical == "Any")
+        return set_of({{0, kMaxCodepoint}});
+    if (canonical == "Assigned")
+        return table_set(*find_set("gc", "Unassigned")).negated();
+    const ut::Set* s = find_set("gc", canonical.c_str());
+    if (s == nullptr)
+        fail("Unicode property value not found");
+    return table_set(*s);
+}
+
+CharSet named_set(const char* kind, const char* name, const char* missing)
+{
+    const ut::Set* s = find_set(kind, name);
+    if (s == nullptr)
+        fail(missing);
+    return table_set(*s);
+}
+
+CharSet age_set(const std::string& canonical)
+{
+    // Ages are cumulative: a version includes every codepoint assigned up to it.
+    static const char* const kAges[] = {
+        "V1_1",  "V2_0",  "V2_1",  "V3_0",  "V3_1",  "V3_2",  "V4_0",  "V4_1",  "V5_0",
+        "V5_1",  "V5_2",  "V6_0",  "V6_1",  "V6_2",  "V6_3",  "V7_0",  "V8_0",  "V9_0",
+        "V10_0", "V11_0", "V12_0", "V12_1", "V13_0", "V14_0", "V15_0", "V15_1", "V16_0",
+    };
+    CharSet out;
+    for (const char* age : kAges)
+    {
+        out.unite(named_set("age", age, "Unicode property value not found"));
+        if (canonical == age)
+            return out;
+    }
+    fail("Unicode property value not found");
+}
+
+// A \p{...} / \pX class body, resolved as regex-syntax does.
+CharSet unicode_property(const std::u32string& body, bool one_letter)
+{
+    size_t split = std::u32string::npos;
+    size_t value_at = 0;
+    if (!one_letter)
+    {
+        if (auto c = body.find(U':'); c != std::u32string::npos)
+        {
+            split = c;
+            value_at = c + 1;
+        }
+        else if (auto e = body.find(U'='); e != std::u32string::npos)
+        {
+            split = e;
+            value_at = e + 1;
+        }
+    }
+    if (split == std::u32string::npos)
+    {
+        const std::string norm = normalize_symbolic(body);
+        if (norm != "cf" && norm != "sc" && norm != "lc")
+            if (const char* prop = canonical_property(norm))
+            {
+                if (std::strcmp(prop, "Decimal_Number") == 0)
+                    return digit_set(true);
+                if (std::strcmp(prop, "White_Space") == 0)
+                    return space_set(true);
+                return named_set("bool", prop, "Unicode property not found");
+            }
+        if (const char* gc = canonical_gencat(norm))
+            return gencat_set(gc);
+        if (const char* sc = canonical_value("Script", norm))
+            return named_set("sc", sc, "Unicode property value not found");
+        fail("Unicode property not found");
+    }
+    const std::string name = normalize_symbolic(body.substr(0, split));
+    const std::string value = normalize_symbolic(body.substr(value_at));
+    const char* prop = canonical_property(name);
+    if (prop == nullptr)
+        fail("Unicode property not found");
+    const std::string p = prop;
+    if (p == "General_Category")
+    {
+        const char* gc = canonical_gencat(value);
+        if (gc == nullptr)
+            fail("Unicode property value not found");
+        return gencat_set(gc);
+    }
+    if (p == "Script")
+    {
+        const char* sc = canonical_value("Script", value);
+        if (sc == nullptr)
+            fail("Unicode property value not found");
+        return named_set("sc", sc, "Unicode property value not found");
+    }
+    const char* canon = canonical_value(prop, value);
+    if (canon == nullptr)
+        fail("Unicode property value not found");
+    if (p == "Age")
+        return age_set(canon);
+    if (p == "Script_Extensions")
+        return named_set("scx", canon, "Unicode property value not found");
+    if (p == "Grapheme_Cluster_Break")
+        return named_set("gcb", canon, "Unicode property value not found");
+    if (p == "Sentence_Break")
+        return named_set("sb", canon, "Unicode property value not found");
+    if (p == "Word_Break")
+        return named_set("wb", canon, "Unicode property value not found");
+    fail("Unicode property not found");
 }
 
 // ---------------------------------------------------------------- AST
@@ -209,6 +449,10 @@ enum class AssertKind
     NotWordBoundary,
     WordStart,
     WordEnd,
+    WordBoundaryAscii,
+    NotWordBoundaryAscii,
+    WordStartAscii,
+    WordEndAscii,
 };
 
 struct Node
@@ -255,6 +499,7 @@ struct Flags
     bool m = false; // multi-line ^ $
     bool s = false; // . matches \n
     bool x = false; // verbose (whitespace and # comments ignored)
+    bool u = true;  // Unicode mode (the default)
 };
 
 [[noreturn]] void fail(const char* what)
@@ -453,8 +698,10 @@ class Parser
         case 'x':
             f.x = on;
             return true;
+        case 'u':
+            f.u = on;
+            return true;
         case 'U': // swap greed: no effect on is_match
-        case 'u': // Unicode mode: no change in this engine
         case 'R': // CRLF mode: no change in this engine
             return true;
         default:
@@ -468,7 +715,10 @@ class Parser
         while (!at_end() && peek() != '>')
         {
             const char32_t c = next();
-            if (!(is_word(c) || c == '.' || c == '[' || c == ']'))
+            const bool ok =
+                len == 0 ? (c == '_' || is_alphabetic(c))
+                         : (c == '_' || c == '.' || c == '[' || c == ']' || is_alphanumeric(c));
+            if (!ok)
                 fail("invalid capture group name");
             ++len;
         }
@@ -555,7 +805,7 @@ class Parser
             return parse_group(flags, depth, flags_only);
         case '[':
         {
-            CharSet s = parse_class(depth + 1, flags.i);
+            CharSet s = parse_class(depth + 1, flags);
             return make_set(std::move(s));
         }
         case '.':
@@ -581,7 +831,7 @@ class Parser
         CharSet s;
         s.add(c, c);
         if (flags.i)
-            s.fold_case();
+            s.fold_case(flags.u);
         return make_set(std::move(s));
     }
 
@@ -665,31 +915,34 @@ class Parser
     }
 
     // Escapes valid both inside and outside classes.
-    bool class_escape(char32_t e, CharSet& out)
+    bool class_escape(char32_t e, CharSet& out, const Flags& flags)
     {
         switch (e)
         {
         case 'd':
-            out = digit_set();
+            out = digit_set(flags.u);
             return true;
         case 'D':
-            out = digit_set().negated();
+            out = digit_set(flags.u).negated();
             return true;
         case 'w':
-            out = word_set();
+            out = word_set(flags.u);
             return true;
         case 'W':
-            out = word_set().negated();
+            out = word_set(flags.u).negated();
             return true;
         case 's':
-            out = space_set();
+            out = space_set(flags.u);
             return true;
         case 'S':
-            out = space_set().negated();
+            out = space_set(flags.u).negated();
             return true;
         case 'p':
         case 'P':
-            fail("Unicode property classes are not supported");
+            if (!flags.u)
+                fail("Unicode classes are not allowed when Unicode mode is disabled");
+            out = parse_unicode_class(e == 'P', flags);
+            return true;
         case 'k':
             fail("backreferences are not supported");
         default:
@@ -703,6 +956,51 @@ class Parser
         out = CharSet{};
         out.add(lit, lit);
         return true;
+    }
+
+    // pos_ is just after 'p' or 'P'. Case folding applies before negation.
+    CharSet parse_unicode_class(bool negated, const Flags& flags)
+    {
+        if (at_end())
+            fail("unexpected end of pattern");
+        CharSet s;
+        if (peek_is('{'))
+        {
+            ++pos_;
+            std::u32string body;
+            while (true)
+            {
+                if (at_end())
+                    fail("unexpected end of pattern");
+                const char32_t c = next();
+                if (c == '}')
+                    break;
+                if (flags.x && (c == ' ' || (c >= '\t' && c <= '\r')))
+                    continue;
+                body.push_back(c);
+            }
+            if (!body.empty() && body[0] == '^')
+                fail("Unicode property not found");
+            bool not_equal = false;
+            if (auto i = body.find(U"!="); i != std::u32string::npos)
+            {
+                not_equal = true;
+                body.replace(i, 2, U"=");
+            }
+            s = unicode_property(body, /*one_letter=*/false);
+            if (not_equal)
+                negated = !negated;
+        }
+        else
+        {
+            const char32_t c = next();
+            if (c == '\\')
+                fail("invalid Unicode character class");
+            s = unicode_property(std::u32string(1, c), /*one_letter=*/true);
+        }
+        if (flags.i)
+            s.fold_case(true);
+        return negated ? s.negated() : s;
     }
 
     size_t find_close_brace() const
@@ -732,26 +1030,28 @@ class Parser
                                           p_.begin() + static_cast<std::ptrdiff_t>(close));
                 pos_ = close + 1;
                 if (name == U"start")
-                    return make_assert(AssertKind::WordStart);
+                    return make_assert(flags.u ? AssertKind::WordStart
+                                               : AssertKind::WordStartAscii);
                 if (name == U"end")
-                    return make_assert(AssertKind::WordEnd);
+                    return make_assert(flags.u ? AssertKind::WordEnd : AssertKind::WordEndAscii);
                 fail("unsupported word boundary assertion");
             }
-            return make_assert(AssertKind::WordBoundary);
+            return make_assert(flags.u ? AssertKind::WordBoundary : AssertKind::WordBoundaryAscii);
         case 'B':
-            return make_assert(AssertKind::NotWordBoundary);
+            return make_assert(flags.u ? AssertKind::NotWordBoundary
+                                       : AssertKind::NotWordBoundaryAscii);
         case '<':
-            return make_assert(AssertKind::WordStart);
+            return make_assert(flags.u ? AssertKind::WordStart : AssertKind::WordStartAscii);
         case '>':
-            return make_assert(AssertKind::WordEnd);
+            return make_assert(flags.u ? AssertKind::WordEnd : AssertKind::WordEndAscii);
         default:
             break;
         }
         CharSet s;
-        if (!class_escape(e, s))
+        if (!class_escape(e, s, flags))
             fail("unrecognized escape sequence");
-        if (flags.i)
-            s.fold_case();
+        if (flags.i && !(e == 'p' || e == 'P'))
+            s.fold_case(flags.u);
         return make_set(std::move(s));
     }
 
@@ -765,7 +1065,7 @@ class Parser
     }
 
     // pos_ is just after '['.
-    CharSet parse_class(int depth, bool fold)
+    CharSet parse_class(int depth, const Flags& flags)
     {
         if (depth > kMaxNesting)
             fail("nesting limit exceeded");
@@ -775,7 +1075,7 @@ class Parser
             negate = true;
             ++pos_;
         }
-        CharSet result = parse_class_union(depth, /*first=*/true, fold);
+        CharSet result = parse_class_union(depth, /*first=*/true, flags);
         while (true)
         {
             if (at_end())
@@ -787,7 +1087,7 @@ class Parser
             }
             const char32_t a = peek();
             pos_ += 2;
-            CharSet rhs = parse_class_union(depth, /*first=*/false, fold);
+            CharSet rhs = parse_class_union(depth, /*first=*/false, flags);
             if (a == '&')
                 result = result.intersect(rhs);
             else if (a == '-')
@@ -799,7 +1099,7 @@ class Parser
         return negate ? result.negated() : result;
     }
 
-    bool parse_ascii_class(CharSet& out, bool fold)
+    bool parse_ascii_class(CharSet& out, const Flags& flags)
     {
         // pos_ is at ':' after '['.
         const size_t save = pos_;
@@ -831,7 +1131,7 @@ class Parser
         else if (name == U"cntrl")
             s = set_of({{0, 0x1F}, {0x7F, 0x7F}});
         else if (name == U"digit")
-            s = digit_set();
+            s = digit_set(false);
         else if (name == U"graph")
             s = set_of({{'!', '~'}});
         else if (name == U"lower")
@@ -841,37 +1141,43 @@ class Parser
         else if (name == U"punct")
             s = set_of({{'!', '/'}, {':', '@'}, {'[', '`'}, {'{', '~'}});
         else if (name == U"space")
-            s = space_set();
+            s = space_set(false);
         else if (name == U"upper")
             s = set_of({{'A', 'Z'}});
         else if (name == U"word")
-            s = word_set();
+            s = word_set(false);
         else if (name == U"xdigit")
             s = set_of({{'0', '9'}, {'A', 'F'}, {'a', 'f'}});
         else
             fail("unknown ASCII class");
-        if (fold)
-            s.fold_case();
+        if (flags.i)
+            s.fold_case(flags.u);
         out = negate ? s.negated() : s;
         return true;
     }
 
     // One class item: a single character (returns true, fills @p single) or a set.
-    bool parse_class_item(int depth, CharSet& set, char32_t& single, bool fold)
+    bool parse_class_item(int depth, CharSet& set, char32_t& single, const Flags& flags)
     {
         const char32_t c = next();
         if (c == '[')
         {
-            if (peek_is(':') && parse_ascii_class(set, fold))
+            if (peek_is(':') && parse_ascii_class(set, flags))
                 return false;
-            set = parse_class(depth + 1, fold);
+            set = parse_class(depth + 1, flags);
             return false;
         }
         if (c == '\\')
         {
             CharSet s;
-            if (!class_escape(next(), s))
+            const char32_t e = next();
+            if (!class_escape(e, s, flags))
                 fail("unrecognized escape sequence in class");
+            if (e == 'p' || e == 'P')
+            {
+                set = std::move(s);
+                return false;
+            }
             if (s.ranges.size() == 1 && s.ranges[0].first == s.ranges[0].second)
             {
                 single = s.ranges[0].first;
@@ -884,7 +1190,7 @@ class Parser
         return true;
     }
 
-    CharSet parse_class_union(int depth, bool first, bool fold)
+    CharSet parse_class_union(int depth, bool first, const Flags& flags)
     {
         CharSet acc;
         bool leading = first;
@@ -904,7 +1210,7 @@ class Parser
                 break;
             CharSet set;
             char32_t lo = 0;
-            if (!parse_class_item(depth, set, lo, fold))
+            if (!parse_class_item(depth, set, lo, flags))
             {
                 acc.unite(set);
                 continue;
@@ -914,19 +1220,19 @@ class Parser
             if (!range)
             {
                 CharSet literal = set_of({{lo, lo}});
-                if (fold)
-                    literal.fold_case();
+                if (flags.i)
+                    literal.fold_case(flags.u);
                 acc.ranges.insert(acc.ranges.end(), literal.ranges.begin(), literal.ranges.end());
                 continue;
             }
             ++pos_; // '-'
             CharSet set2;
             char32_t hi = 0;
-            if (!parse_class_item(depth, set2, hi, fold) || hi < lo)
+            if (!parse_class_item(depth, set2, hi, flags) || hi < lo)
                 fail("invalid range in character class");
             CharSet range_set = set_of({{lo, hi}});
-            if (fold)
-                range_set.fold_case();
+            if (flags.i)
+                range_set.fold_case(flags.u);
             acc.ranges.insert(acc.ranges.end(), range_set.ranges.begin(), range_set.ranges.end());
         }
         acc.normalize();
@@ -1108,8 +1414,21 @@ class PcSet
 
 bool assertion_holds(AssertKind k, const std::vector<char32_t>& text, size_t pos)
 {
-    const bool prev_word = pos > 0 && is_word(text[pos - 1]);
-    const bool next_word = pos < text.size() && is_word(text[pos]);
+    bool ascii = false;
+    switch (k)
+    {
+    case AssertKind::WordBoundaryAscii:
+    case AssertKind::NotWordBoundaryAscii:
+    case AssertKind::WordStartAscii:
+    case AssertKind::WordEndAscii:
+        ascii = true;
+        break;
+    default:
+        break;
+    }
+    auto word = [ascii](char32_t c) { return ascii ? is_ascii_word(c) : is_unicode_word(c); };
+    const bool prev_word = pos > 0 && word(text[pos - 1]);
+    const bool next_word = pos < text.size() && word(text[pos]);
     switch (k)
     {
     case AssertKind::StartText:
@@ -1121,12 +1440,16 @@ bool assertion_holds(AssertKind k, const std::vector<char32_t>& text, size_t pos
     case AssertKind::EndLine:
         return pos == text.size() || text[pos] == '\n';
     case AssertKind::WordBoundary:
+    case AssertKind::WordBoundaryAscii:
         return prev_word != next_word;
     case AssertKind::NotWordBoundary:
+    case AssertKind::NotWordBoundaryAscii:
         return prev_word == next_word;
     case AssertKind::WordStart:
+    case AssertKind::WordStartAscii:
         return !prev_word && next_word;
     case AssertKind::WordEnd:
+    case AssertKind::WordEndAscii:
         return prev_word && !next_word;
     }
     return false;

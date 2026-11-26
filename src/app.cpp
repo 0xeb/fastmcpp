@@ -131,6 +131,9 @@ FastMCP& FastMCP::tool(std::string name, const Json& input_schema_or_simple, too
                        ToolOptions options)
 {
     auto input_schema = schema_from_schema_or_simple(input_schema_or_simple);
+    // An empty output schema means none: no outputSchema is advertised.
+    if (options.output_schema.is_object() && options.output_schema.empty())
+        options.output_schema = Json();
 
     tools::Tool t{std::move(name),
                   std::move(input_schema),
@@ -348,7 +351,7 @@ Json invoke_child_tool(const FastMCP& child, const std::string& name, const Json
             for (const auto& info : child.list_all_tools_info())
                 if (info.name == tool && info.outputSchema)
                     schema = *info.outputSchema;
-            const bool wrap = schema.is_object() && schema.value("x-fastmcp-wrap-result", false);
+            const bool wrap = mcp::output_schema_wraps_result(schema);
             return mcp::tool_call_result(
                 child.invoke_tool(tool, p.value("arguments", Json::object()), enforce_timeout),
                 !schema.is_null(), wrap);

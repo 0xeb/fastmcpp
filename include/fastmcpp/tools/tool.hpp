@@ -87,7 +87,7 @@ class Tool
     void validate_input_if_enabled(const fastmcpp::Json& input) const
     {
         if (validate_args_)
-            util::schema::validate(input_schema_, input);
+            util::schema::validate_arguments(input_schema_, input);
     }
 
     fastmcpp::Json invoke(const fastmcpp::Json& input, bool enforce_timeout = true) const

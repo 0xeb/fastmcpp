@@ -1,5 +1,6 @@
 #include "fastmcpp/providers/skills_provider.hpp"
 
+#include "../internal/env.hpp"
 #include "fastmcpp/exceptions.hpp"
 
 #include <algorithm>
@@ -293,17 +294,17 @@ resources::ResourceContent read_file_content(const std::filesystem::path& path,
 std::filesystem::path home_dir()
 {
 #ifdef _WIN32
-    const char* profile = std::getenv("USERPROFILE");
-    if (profile && *profile)
-        return std::filesystem::path(profile);
-    const char* drive = std::getenv("HOMEDRIVE");
-    const char* home = std::getenv("HOMEPATH");
+    auto profile = fastmcpp::internal::getenv_string("USERPROFILE");
+    if (profile && !profile->empty())
+        return std::filesystem::path(*profile);
+    auto drive = fastmcpp::internal::getenv_string("HOMEDRIVE");
+    auto home = fastmcpp::internal::getenv_string("HOMEPATH");
     if (drive && home)
-        return std::filesystem::path(std::string(drive) + std::string(home));
+        return std::filesystem::path(*drive + *home);
 #else
-    const char* home = std::getenv("HOME");
-    if (home && *home)
-        return std::filesystem::path(home);
+    auto home = fastmcpp::internal::getenv_string("HOME");
+    if (home && !home->empty())
+        return std::filesystem::path(*home);
 #endif
     return std::filesystem::current_path();
 }

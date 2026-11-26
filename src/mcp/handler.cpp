@@ -620,6 +620,17 @@ static fastmcpp::Json jsonrpc_tool_error(const fastmcpp::Json& id, const std::ex
     return jsonrpc_error(id, kJsonRpcInternalError, e.what());
 }
 
+/// A tool failure as an isError result, for handlers whose ToolManager reports tool errors.
+/// A protocol error the tool raised stays a JSON-RPC error.
+static fastmcpp::Json tool_error_response(const fastmcpp::Json& id, const std::string& name,
+                                          const std::exception& e, std::exception_ptr error)
+{
+    if (const auto* mcp_error = dynamic_cast<const fastmcpp::McpError*>(&e))
+        return mcp_error_response(id, *mcp_error);
+    return fastmcpp::Json{
+        {"jsonrpc", "2.0"}, {"id", id}, {"result", tool_error_result(name, error)}};
+}
+
 static void apply_read_cache_hint(fastmcpp::Json& result, const resources::ResourceContent& content)
 {
     // A per-read hint wins over the server-wide one (DualEraHandler keeps
@@ -702,17 +713,22 @@ static std::optional<fastmcpp::Json> extract_request_meta(const fastmcpp::Json& 
     return std::nullopt;
 }
 
-// Check if an output schema indicates the result was wrapped (non-object → {"result": ...})
+// Whether a tool's result is wrapped under {"result": ...}: its output schema carries the wrap
+// marker, or is not an object schema and gets wrapped when advertised.
 static bool schema_has_wrap_result(const fastmcpp::Json& schema)
 {
-    return !schema.is_null() && schema.is_object() && schema.contains("x-fastmcp-wrap-result") &&
-           schema["x-fastmcp-wrap-result"].get<bool>();
+    if (schema.is_null() || (schema.is_object() && schema.empty()))
+        return false;
+    if (schema.is_object() && schema.contains("x-fastmcp-wrap-result"))
+        return schema["x-fastmcp-wrap-result"].is_boolean() &&
+               schema["x-fastmcp-wrap-result"].get<bool>();
+    return !schema_is_object(schema);
 }
 
 static fastmcpp::Json normalize_output_schema_for_mcp(const fastmcpp::Json& schema)
 {
-    if (schema.is_null())
-        return schema;
+    if (schema.is_null() || (schema.is_object() && schema.empty()))
+        return fastmcpp::Json();
 
     // Output schemas must be object-shaped (MCP structuredContent is an object).
     // For scalar/array outputs, wrap into {"result": ...} and annotate for clients.
@@ -1393,6 +1409,11 @@ fastmcpp::Json build_fastmcp_tool_result(const fastmcpp::Json& result,
         else
             payload["structuredContent"] = fastmcpp::Json{{"result", result}};
     }
+    else if (result.is_object())
+    {
+        // Without an output schema an object result is still structured content.
+        payload["structuredContent"] = result;
+    }
     if (wrap_result)
         payload["_meta"] = fastmcpp::Json{{"fastmcp", fastmcpp::Json{{"wrap_result", true}}}};
     return payload;
@@ -1469,6 +1490,11 @@ inline std::optional<fastmcpp::TaskSupport> find_resource_task_support(const fas
     return std::nullopt;
 }
 } // namespace
+
+bool output_schema_wraps_result(const fastmcpp::Json& output_schema)
+{
+    return schema_has_wrap_result(output_schema);
+}
 
 fastmcpp::Json tool_call_result(const fastmcpp::Json& tool_output, bool include_structured_content,
                                 bool wrap_result)
@@ -1571,7 +1597,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 try
                 {
                     const auto& tool = tools.get(name);
-                    bool has_output_schema = !tool.output_schema().is_null();
+                    bool has_output_schema =
+                        !normalize_output_schema_for_mcp(tool.output_schema()).is_null();
                     bool wrap_result = schema_has_wrap_result(tool.output_schema());
 
                     auto result = tools.invoke(name, args);
@@ -1584,6 +1611,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
+                    if (tools.report_tool_errors())
+                        return tool_error_response(id, name, e, std::current_exception());
                     return jsonrpc_tool_error(id, e);
                 }
             }
@@ -1985,12 +2014,14 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                         const fastmcpp::Json out_schema =
                             known ? tools.get(name).output_schema() : fastmcpp::Json();
                         fastmcpp::Json routed_payload = build_fastmcp_tool_result(
-                            routed, !out_schema.is_null(), schema_has_wrap_result(out_schema));
+                            routed, !normalize_output_schema_for_mcp(out_schema).is_null(),
+                            schema_has_wrap_result(out_schema));
                         return fastmcpp::Json{
                             {"jsonrpc", "2.0"}, {"id", id}, {"result", routed_payload}};
                     }
                     const auto& tool = tools.get(name);
-                    bool has_output_schema = !tool.output_schema().is_null();
+                    bool has_output_schema =
+                        !normalize_output_schema_for_mcp(tool.output_schema()).is_null();
                     bool wrap_result = schema_has_wrap_result(tool.output_schema());
 
                     auto result = tools.invoke(name, args);
@@ -2003,6 +2034,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
+                    if (tools.report_tool_errors())
+                        return tool_error_response(id, name, e, std::current_exception());
                     return jsonrpc_tool_error(id, e);
                 }
             }
@@ -2185,7 +2218,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 try
                 {
                     const auto& tool = tools.get(name);
-                    bool has_output_schema = !tool.output_schema().is_null();
+                    bool has_output_schema =
+                        !normalize_output_schema_for_mcp(tool.output_schema()).is_null();
                     bool wrap_result = schema_has_wrap_result(tool.output_schema());
 
                     auto result = tools.invoke(name, args);
@@ -2198,6 +2232,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
+                    if (tools.report_tool_errors())
+                        return tool_error_response(id, name, e, std::current_exception());
                     return jsonrpc_tool_error(id, e);
                 }
             }
@@ -2431,6 +2467,89 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
 }
 
 // FastMCP handler - supports mounted apps with aggregation
+/// Run the registered middleware pipeline around @p core. With no middleware
+/// registered `core` is called directly.
+static std::function<fastmcpp::Json(const fastmcpp::Json&)>
+with_middleware(const FastMCP& app, std::function<fastmcpp::Json(const fastmcpp::Json&)> core,
+                SessionAccessor session_accessor)
+{
+    return [&app, core = std::move(core), session_accessor = std::move(session_accessor)](
+               const fastmcpp::Json& message) -> fastmcpp::Json
+    {
+        if (auto invalid = invalid_request_response(message))
+            return *invalid;
+        if (!app.has_middleware())
+            return core(message);
+
+        server::MiddlewareContext ctx;
+        ctx.message = message;
+        ctx.method = message.value("method", "");
+        ctx.type = message.contains("id") ? "request" : "notification";
+        ctx.timestamp = std::chrono::steady_clock::now();
+        if (message.contains("id"))
+            ctx.request_id = message.at("id").is_string() ? message.at("id").get<std::string>()
+                                                          : message.at("id").dump();
+
+        fastmcpp::Json params = message.value("params", fastmcpp::Json::object());
+        const std::string sid = extract_session_id(params);
+        if (!sid.empty() && session_accessor)
+            ctx.session = session_accessor(sid);
+        if (ctx.method == "tools/call")
+            ctx.tool_name = params.value("name", "");
+        else if (ctx.method == "resources/read")
+            ctx.resource_uri = params.value("uri", "");
+        else if (ctx.method == "prompts/get")
+            ctx.prompt_name = params.value("name", "");
+
+        if (ctx.method != "tools/call")
+            return app.middleware_pipeline()->execute(
+                ctx, [&core](const server::MiddlewareContext& c) { return core(c.message); });
+
+        // A tool failure reaches the middleware as its exception (ValidationError,
+        // NotFoundError for an unknown tool, fastmcpp::Error for anything else), and
+        // becomes the isError result here, above the chain, when no middleware
+        // answered it. An McpError a middleware raises stays a protocol error.
+        const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
+        const std::string name = ctx.tool_name.value_or("");
+        bool from_tool = false;
+        try
+        {
+            return app.middleware_pipeline()->execute(
+                ctx,
+                [&core, &from_tool](const server::MiddlewareContext& c)
+                {
+                    try
+                    {
+                        return core(c.message);
+                    }
+                    catch (const ToolCallFailure& failure)
+                    {
+                        from_tool = true;
+                        std::rethrow_exception(failure.error);
+                    }
+                });
+        }
+        catch (const fastmcpp::McpError& e)
+        {
+            return mcp_error_response(id, e);
+        }
+        catch (const fastmcpp::Error&)
+        {
+            return fastmcpp::Json{{"jsonrpc", "2.0"},
+                                  {"id", id},
+                                  {"result", tool_error_result(name, std::current_exception())}};
+        }
+        catch (const std::exception& e)
+        {
+            // An extension's own failure, as without middleware; a middleware's own
+            // exception propagates as before.
+            if (from_tool)
+                return jsonrpc_tool_error(id, e);
+            throw;
+        }
+    };
+}
+
 std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const FastMCP& app)
 {
     return make_mcp_handler(app, SessionAccessor{});
@@ -2522,9 +2641,10 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                         tool_json["title"] = *tool_info.title;
                     if (tool_info.description)
                         tool_json["description"] = *tool_info.description;
-                    if (tool_info.outputSchema && !tool_info.outputSchema->is_null())
-                        tool_json["outputSchema"] =
-                            normalize_output_schema_for_mcp(*tool_info.outputSchema);
+                    if (tool_info.outputSchema)
+                        if (auto out = normalize_output_schema_for_mcp(*tool_info.outputSchema);
+                            !out.is_null())
+                            tool_json["outputSchema"] = std::move(out);
                     if (tool_info.execution)
                         tool_json["execution"] = *tool_info.execution;
                     if (tool_info.icons && !tool_info.icons->empty())
@@ -2583,7 +2703,8 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                         if (tool_info.name != name)
                             continue;
                         has_output_schema =
-                            tool_info.outputSchema && !tool_info.outputSchema->is_null();
+                            tool_info.outputSchema &&
+                            !normalize_output_schema_for_mcp(*tool_info.outputSchema).is_null();
                         if (has_output_schema)
                             wrap_result = schema_has_wrap_result(*tool_info.outputSchema);
                         break;
@@ -3246,83 +3367,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
         }
     };
 
-    // Run the registered Middleware pipeline around dispatch. With no middleware
-    // registered (the default), `core` is invoked directly — byte-identical, zero overhead.
-    return [&app, core = std::move(core),
-            session_accessor](const fastmcpp::Json& message) -> fastmcpp::Json
-    {
-        if (auto invalid = invalid_request_response(message))
-            return *invalid;
-        if (!app.has_middleware())
-            return core(message);
-
-        server::MiddlewareContext ctx;
-        ctx.message = message;
-        ctx.method = message.value("method", "");
-        ctx.type = message.contains("id") ? "request" : "notification";
-        ctx.timestamp = std::chrono::steady_clock::now();
-        if (message.contains("id"))
-            ctx.request_id = message.at("id").is_string() ? message.at("id").get<std::string>()
-                                                          : message.at("id").dump();
-
-        fastmcpp::Json params = message.value("params", fastmcpp::Json::object());
-        const std::string sid = extract_session_id(params);
-        if (!sid.empty() && session_accessor)
-            ctx.session = session_accessor(sid);
-        if (ctx.method == "tools/call")
-            ctx.tool_name = params.value("name", "");
-        else if (ctx.method == "resources/read")
-            ctx.resource_uri = params.value("uri", "");
-        else if (ctx.method == "prompts/get")
-            ctx.prompt_name = params.value("name", "");
-
-        if (ctx.method != "tools/call")
-            return app.middleware_pipeline()->execute(
-                ctx, [&core](const server::MiddlewareContext& c) { return core(c.message); });
-
-        // A tool failure reaches the middleware as its exception (ValidationError,
-        // NotFoundError for an unknown tool, fastmcpp::Error for anything else), and
-        // becomes the isError result here, above the chain, when no middleware
-        // answered it. An McpError a middleware raises stays a protocol error.
-        const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
-        const std::string name = ctx.tool_name.value_or("");
-        bool from_tool = false;
-        try
-        {
-            return app.middleware_pipeline()->execute(
-                ctx,
-                [&core, &from_tool](const server::MiddlewareContext& c)
-                {
-                    try
-                    {
-                        return core(c.message);
-                    }
-                    catch (const ToolCallFailure& failure)
-                    {
-                        from_tool = true;
-                        std::rethrow_exception(failure.error);
-                    }
-                });
-        }
-        catch (const fastmcpp::McpError& e)
-        {
-            return mcp_error_response(id, e);
-        }
-        catch (const fastmcpp::Error&)
-        {
-            return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                  {"id", id},
-                                  {"result", tool_error_result(name, std::current_exception())}};
-        }
-        catch (const std::exception& e)
-        {
-            // An extension's own failure, as without middleware; a middleware's own
-            // exception propagates as before.
-            if (from_tool)
-                return jsonrpc_tool_error(id, e);
-            throw;
-        }
-    };
+    return with_middleware(app, std::move(core), std::move(session_accessor));
 }
 
 // ProxyApp handler - supports proxying to backend server
@@ -3805,7 +3850,7 @@ make_sampling_callback(std::shared_ptr<server::ServerSession> session)
 std::function<fastmcpp::Json(const fastmcpp::Json&)>
 make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_accessor)
 {
-    return [&app, session_accessor](const fastmcpp::Json& message) -> fastmcpp::Json
+    auto core = [&app, session_accessor](const fastmcpp::Json& message) -> fastmcpp::Json
     {
         if (auto invalid = invalid_request_response(message))
             return *invalid;
@@ -3894,9 +3939,10 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                         tool_json["title"] = *tool_info.title;
                     if (tool_info.description)
                         tool_json["description"] = *tool_info.description;
-                    if (tool_info.outputSchema && !tool_info.outputSchema->is_null())
-                        tool_json["outputSchema"] =
-                            normalize_output_schema_for_mcp(*tool_info.outputSchema);
+                    if (tool_info.outputSchema)
+                        if (auto out = normalize_output_schema_for_mcp(*tool_info.outputSchema);
+                            !out.is_null())
+                            tool_json["outputSchema"] = std::move(out);
                     if (tool_info.execution)
                         tool_json["execution"] = *tool_info.execution;
                     if (tool_info.icons && !tool_info.icons->empty())
@@ -3935,12 +3981,16 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                     session_id.empty() ? std::nullopt : std::optional<std::string>(session_id));
 
                 bool has_output_schema = false;
+                bool wrap_result = false;
                 for (const auto& tool_info : app.list_all_tools_info())
                 {
                     if (tool_info.name != name)
                         continue;
                     has_output_schema =
-                        tool_info.outputSchema && !tool_info.outputSchema->is_null();
+                        tool_info.outputSchema &&
+                        !normalize_output_schema_for_mcp(*tool_info.outputSchema).is_null();
+                    if (has_output_schema)
+                        wrap_result = schema_has_wrap_result(*tool_info.outputSchema);
                     break;
                 }
 
@@ -3968,11 +4018,34 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
 
                 try
                 {
-                    auto run_tool = [&app, name, has_output_schema](const fastmcpp::Json& call_args)
+                    auto run_tool = [&app, name, has_output_schema,
+                                     wrap_result](const fastmcpp::Json& call_args)
                     {
                         return build_fastmcp_tool_result(app.invoke_tool(name, call_args),
-                                                         has_output_schema);
+                                                         has_output_schema, wrap_result);
                     };
+                    if (app.has_middleware())
+                    {
+                        try
+                        {
+                            return fastmcpp::Json{
+                                {"jsonrpc", "2.0"},
+                                {"id", id},
+                                {"result", invoke_tool_intercepted(app, name, args, params,
+                                                                   run_tool, ToolErrors::Defer)},
+                            };
+                        }
+                        catch (const InputRequired&)
+                        {
+                            throw;
+                        }
+                        catch (const std::exception& e)
+                        {
+                            if (span.active())
+                                span.span().record_exception(e.what());
+                            throw ToolCallFailure{std::current_exception()};
+                        }
+                    }
                     fastmcpp::Json result_payload = invoke_tool_intercepted(
                         app, name, args, params, run_tool, ToolErrors::Report);
                     if (span.active() && result_payload.value("isError", false))
@@ -4253,6 +4326,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                                  e.what());
         }
     };
+    return with_middleware(app, std::move(core), std::move(session_accessor));
 }
 
 std::function<fastmcpp::Json(const fastmcpp::Json&)>

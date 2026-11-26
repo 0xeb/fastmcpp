@@ -76,6 +76,10 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor);
 // Uses app's aggregated lists (local + remote) and routing
 std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const ProxyApp& app);
 
+/// Whether results of a tool with @p output_schema are wrapped under `{"result": ...}`: the
+/// schema is not an object schema, or carries `x-fastmcp-wrap-result`.
+bool output_schema_wraps_result(const fastmcpp::Json& output_schema);
+
 /// Shape a tool's return value as an MCP CallToolResult object (a value that
 /// already is one is kept). @p include_structured_content when the tool has an
 /// output schema; @p wrap_result when that schema wraps a non-object result.

@@ -27,9 +27,10 @@ namespace fastmcpp::util
 /// Rejected with an error, as Rust does: lookaround, backreferences, `\Z`, octal escapes,
 /// unknown escapes and flags, unbalanced groups or classes, and programs over the size limit.
 ///
-/// Divergences from Rust: `\p{..}` / `\P{..}` Unicode properties are rejected, and `\d \w \s`,
-/// word boundaries and case-insensitive matching use ASCII rules (non-ASCII text still matches
-/// literally and through `.` and classes).
+/// Unicode mode is on by default, as in Rust: `\p{..}` / `\P{..}` (general category, script,
+/// script extensions, binary properties, age, and grapheme/word/sentence break), `\d \w \s`,
+/// word boundaries and case-insensitive matching use Rust's Unicode tables. `(?-u)` switches
+/// to ASCII rules.
 class LinearRegex
 {
   public:

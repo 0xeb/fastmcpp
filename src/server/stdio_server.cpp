@@ -226,8 +226,23 @@ void StdioServerWrapper::run_loop()
 
         try
         {
-            // Parse JSON-RPC request
-            auto request = fastmcpp::util::json::parse(line);
+            fastmcpp::Json request;
+            try
+            {
+                request = fastmcpp::util::json::parse(line);
+            }
+            catch (const std::exception&)
+            {
+                write_line(
+                    mcp::make_error_response(nullptr, mcp::kParseError, "Parse error").dump());
+                continue;
+            }
+
+            if (auto invalid = mcp::invalid_request_response(request))
+            {
+                write_line(invalid->dump());
+                continue;
+            }
 
             // JSON-RPC notifications (missing/null id) must not receive responses.
             const bool is_notification = !request.contains("id") || request["id"].is_null();

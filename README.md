@@ -14,7 +14,7 @@
 fastmcpp is a C++ port of [fastmcp](https://github.com/PrefectHQ/fastmcp): MCP servers and clients
 with tools, resources, prompts, providers and middleware, over STDIO, HTTP/SSE and Streamable HTTP.
 
-**Version:** 4.2.6.2. The first three numbers are the fastmcp release it matches; the fourth is a
+**Version:** 4.2.6.3. The first three numbers are the fastmcp release it matches; the fourth is a
 fastmcpp-only fix on top.
 
 ## Features

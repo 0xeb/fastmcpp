@@ -3,6 +3,7 @@
 
 #ifdef _WIN32
 
+#include "env.hpp"
 #include "process.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -725,15 +726,15 @@ std::optional<std::string> find_executable(const std::string& name)
         return std::nullopt;
     }
 
-    const char* path_env = std::getenv("PATH");
+    auto path_env = fastmcpp::internal::getenv_string("PATH");
     if (!path_env)
         return std::nullopt;
 
-    const char* pathext_env = std::getenv("PATHEXT");
+    auto pathext_env = fastmcpp::internal::getenv_string("PATHEXT");
     std::vector<std::string> extensions;
     if (pathext_env)
     {
-        std::string pathext(pathext_env);
+        std::string pathext(*pathext_env);
         size_t start = 0;
         size_t end;
         while ((end = pathext.find(';', start)) != std::string::npos)
@@ -748,7 +749,7 @@ std::optional<std::string> find_executable(const std::string& name)
         extensions = {".COM", ".EXE", ".BAT", ".CMD"};
     }
 
-    std::string path(path_env);
+    std::string path(*path_env);
     size_t start = 0;
     size_t end;
     while ((end = path.find(';', start)) != std::string::npos)
