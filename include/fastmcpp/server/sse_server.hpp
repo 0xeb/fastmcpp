@@ -74,7 +74,7 @@ class SseServerWrapper
      * @return true if server started successfully
      */
     /// Enable the Host/Origin request guard (DNS-rebinding protection).
-    /// Call before start(). Default Off. PYTHON REFERENCE: host_origin_protection.
+    /// Call before start(). Default Off.
     void set_host_origin_guard(HostOriginGuardOptions options)
     {
         host_origin_guard_options_ = std::move(options);

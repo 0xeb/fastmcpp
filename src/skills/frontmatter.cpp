@@ -6,7 +6,6 @@
 // with the same resolution rules, and rejects anything outside it rather than
 // guessing, so a file this port accepts is one fastmcp accepts too.
 //
-// PYTHON REFERENCE: fastmcp/skills/_snapshot.py:1-93
 
 #include "fastmcpp/skills/skill.hpp"
 
@@ -959,7 +958,6 @@ class Parser
 
 // Mirrors PyYAML's Emitter.analyze_scalar / choose_scalar_style for
 // safe_dump(allow_unicode=True), so authored SKILL.md bytes match fastmcp's.
-// PYTHON REFERENCE: yaml/emitter.py (analyze_scalar, write_plain, write_single_quoted)
 
 bool has_special_characters(const std::string& s)
 {
@@ -1183,7 +1181,7 @@ Json parse_frontmatter(std::string_view content)
 std::string render_skill_md(const Json& frontmatter, const std::string& instructions)
 {
     // nlohmann::json objects iterate in key order; the Agent Skills convention
-    // (and the upstream rendering) leads with name and description.
+    // leads with name and description.
     Json ordered_tail = frontmatter;
     std::string header;
     for (const char* key : {"name", "description"})

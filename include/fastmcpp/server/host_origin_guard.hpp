@@ -1,14 +1,12 @@
 #pragma once
 // Host/Origin request guard — DNS-rebinding protection for the HTTP transports.
 //
-// Ports Python fastmcp's HostOriginGuardMiddleware (server/http.py, fastmcp v3.4.4,
-// #4405/#4439/#4472). Validates the HTTP `Host` header and browser `Origin` header
-// BEFORE a request reaches auth/session/MCP routing. This is a request guard, not
-// CORS: CORS remains a separate response-header policy.
+// Validates the HTTP `Host` header and browser `Origin` header BEFORE a request reaches
+// auth/session/MCP routing. This is a request guard, not CORS: CORS remains a separate
+// response-header policy.
 //
-// Rejections mirror Python: 421 "Misdirected Request" (untrusted Host),
-// 403 "Forbidden Origin" (untrusted Origin). Default mode is Off (opt-in, same as
-// Python fastmcp 3.x) so existing deployments are unaffected.
+// Rejections: 421 "Misdirected Request" (untrusted Host), 403 "Forbidden Origin"
+// (untrusted Origin). Default mode is Off (opt-in) so existing deployments are unaffected.
 
 #include <functional>
 #include <optional>
@@ -28,18 +26,17 @@ struct Response;
 namespace fastmcpp::server
 {
 
-/// PYTHON REFERENCE: server/http.py HostOriginProtection / HostOriginProtectionMode
 enum class HostOriginProtectionMode
 {
-    Off,    ///< No validation (Python: host_origin_protection=False; the 3.x default)
-    Auto,   ///< Protect loopback-bound servers + explicit allowlists (Python: "auto")
-    Strict, ///< Always validate Host and Origin (Python: host_origin_protection=True)
+    Off,    ///< No validation (the default)
+    Auto,   ///< Protect loopback-bound servers + explicit allowlists
+    Strict, ///< Always validate Host and Origin
 };
 
 struct HostOriginGuardOptions
 {
     HostOriginProtectionMode mode{HostOriginProtectionMode::Off};
-    /// nullopt = not configured (Python None); an empty vector is "explicitly empty"
+    /// nullopt = not configured; an empty vector is "explicitly empty"
     /// — the distinction drives the Auto-mode decision logic.
     std::optional<std::vector<std::string>> allowed_hosts;
     std::optional<std::vector<std::string>> allowed_origins;
@@ -53,22 +50,15 @@ enum class HostOriginVerdict
     RejectOrigin403, ///< respond 403 "Forbidden Origin"
 };
 
-// ---- pure helpers (exposed for unit tests; mirror the Python helpers 1:1) ----
+// ---- pure helpers (exposed for unit tests) ----
 namespace host_origin
 {
-/// PYTHON REFERENCE: http.py::_normalize_host — trim+lower; "[v6]"->bare; strip one ":port".
 std::string normalize_host(const std::string& host);
-/// PYTHON REFERENCE: http.py::_is_loopback_host — "localhost" or an IP loopback.
 bool is_loopback_host(const std::string& host);
-/// PYTHON REFERENCE: http.py::_is_unspecified_host — empty, 0.0.0.0 or ::.
 bool is_unspecified_host(const std::string& host);
-/// PYTHON REFERENCE: http.py::_host_matches — fnmatch-style ('*'/'?') on normalized values.
 bool host_matches(const std::string& host, const std::vector<std::string>& allowed_hosts);
-/// PYTHON REFERENCE: http.py::_origin_host — hostname of an origin URL ('' on failure).
 std::string origin_host(const std::string& origin);
-/// PYTHON REFERENCE: http.py::_normalize_origin — canonical "scheme://host:port".
 std::string normalize_origin(const std::string& origin);
-/// PYTHON REFERENCE: http.py::_origin_matches — fnmatch on normalized origins.
 bool origin_matches(const std::string& origin, const std::vector<std::string>& allowed_origins);
 /// Minimal fnmatchcase: '*' and '?' wildcards (no character classes).
 bool glob_match(const std::string& value, const std::string& pattern);
@@ -82,7 +72,6 @@ class HostOriginGuard
 
     /// Evaluate one request. `bound_host` is the address the server socket is bound
     /// to (empty when unknown); `scheme` is the request scheme ("http"/"https").
-    /// PYTHON REFERENCE: http.py HostOriginGuardMiddleware.__call__
     HostOriginVerdict check(const std::string& host_header,
                             const std::optional<std::string>& origin_header,
                             const std::string& scheme, const std::string& bound_host) const;
@@ -134,9 +123,7 @@ using HostOriginRejecter = std::function<bool(const httplib::Request&, httplib::
 /// `bound_host` should be the wrapper's bound address (drives Auto-mode decisions).
 /// Guard options from the http_host_origin_protection / http_allowed_hosts /
 /// http_allowed_origins settings (env FASTMCPP_HTTP_*). The HTTP, SSE and streamable HTTP
-/// servers start from these, as upstream's HTTP apps fall back to fastmcp.settings;
-/// set_host_origin_guard() overrides them.
-/// PYTHON REFERENCE: fastmcp_slim/fastmcp/settings.py:343-345, server/http.py
+/// servers start from these; set_host_origin_guard() overrides them.
 HostOriginGuardOptions default_host_origin_guard_options();
 
 HostOriginRejecter install_host_origin_guard(httplib::Server& svr, HostOriginGuard guard,

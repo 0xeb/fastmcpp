@@ -17,10 +17,7 @@ namespace fastmcpp
 
 /// Strategy for how `ProxyApp::list_all_*` aggregations handle upstream errors.
 ///
-/// Mirrors Python fastmcp v3.4.0 (#4227, commit 2bff3725):
-/// `AggregateProvider.provider_error_strategy` and `FastMCPProxy.provider_error_strategy`.
-///
-/// - `Warn`: log + return locally-known items (current default; pre-v3.4.2 behavior).
+/// - `Warn`: log + return locally-known items (the default).
 /// - `Raise`: re-raise the first upstream exception so callers can fail fast
 ///   (use this when the proxy must surface upstream failures, e.g. behind a
 ///   health check or for a bridge that should not pretend the upstream is
@@ -31,9 +28,9 @@ enum class ProxyErrorStrategy
     Raise,
 };
 
-/// Optional construction options for `ProxyApp` (v3.4.2 catch-up).
+/// Optional construction options for `ProxyApp`.
 ///
-/// Use this overload to opt into the v3.4.0+ behaviors:
+/// Use this overload to opt into:
 ///   - `error_strategy = Raise`        — propagate upstream errors instead of
 ///                                       silently returning local-only.
 ///   - `validate_on_initialize = true` — contact the upstream during the
@@ -41,11 +38,8 @@ enum class ProxyErrorStrategy
 ///                                       any connection failure as an
 ///                                       `INTERNAL_ERROR` JSON-RPC response,
 ///                                       instead of failing later on the
-///                                       first `tools/list` etc. Python
-///                                       fastmcp v3.4.0+ does this always
-///                                       (#4228, commit 140d96aa). fastmcpp
-///                                       keeps it opt-in for back-compat
-///                                       with proxies whose upstream is only
+///                                       first `tools/list` etc. Opt-in for
+///                                       proxies whose upstream is only
 ///                                       reachable some of the time.
 struct ProxyAppOptions
 {
@@ -88,9 +82,8 @@ class ProxyApp
                       std::string version = "1.0.0",
                       std::optional<std::string> instructions = std::nullopt);
 
-    /// Construct proxy with v3.4.2 options (F7 error strategy + F8 initialize
-    /// forwarding). Pre-existing constructors continue to default to the
-    /// previous behavior (`Warn`, no initialize forwarding) for back-compat.
+    /// Construct proxy with options (error strategy, initialize forwarding). The other
+    /// constructors default to `Warn` and no initialize forwarding.
     explicit ProxyApp(ClientFactory client_factory, ProxyAppOptions options);
 
     /// Strategy applied when the upstream client throws during list_all_*.
@@ -237,7 +230,6 @@ class ProxyApp
 /// For transports, create a Client first then pass it to create_proxy().
 ///
 /// Session strategy: Always creates fresh sessions per request for safety.
-/// This differs from Python's behavior which can reuse connected client sessions.
 ///
 /// Args:
 ///     target: The backend to proxy to (Client or URL)

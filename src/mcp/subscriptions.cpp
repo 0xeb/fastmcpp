@@ -105,7 +105,6 @@ bool event_matches(const Json& honored, const std::set<std::string>& uris, const
     return uris.count(event.uri) > 0;
 }
 
-// PYTHON REFERENCE: mcp_types/_types.py:1024-1045 (SubscriptionFilter)
 std::optional<Json> validate_subscription_filter(const Json& filter)
 {
     if (!filter.is_object())

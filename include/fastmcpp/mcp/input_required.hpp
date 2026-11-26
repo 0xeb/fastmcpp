@@ -26,7 +26,6 @@
 /// and resources in the read params' `_meta`; the helpers below accept any of
 /// them. server::Context::input_responses() reads the same data for tools.
 ///
-/// PYTHON REFERENCE: fastmcp/server/context.py:390-428 (input_responses, request_state)
 
 #include "fastmcpp/types.hpp"
 

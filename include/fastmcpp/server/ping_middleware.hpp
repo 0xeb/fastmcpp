@@ -10,7 +10,6 @@ namespace fastmcpp::server
 
 /// Ping middleware that periodically sends pings during long-running tool calls.
 ///
-/// Parity with Python fastmcp PingMiddleware.
 /// Note: simplified implementation — stores interval for future integration with
 /// session-based ping sending.
 class PingMiddleware

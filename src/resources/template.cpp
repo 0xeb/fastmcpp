@@ -22,10 +22,9 @@ std::string to_lower(std::string s)
     return s;
 }
 
-// Python fastmcp commit 970b92bb: parameter names with hyphens are exposed to providers as
-// underscore-keyed entries (Python identifiers cannot contain hyphens, and `re` named groups
-// follow the same rule). We mirror this for cross-implementation parity so a template such as
-// `data://{user-id}/{first-name}` produces params {"user_id": ..., "first_name": ...}.
+// Parameter names with hyphens are exposed to providers as underscore-keyed entries, so a
+// template such as `data://{user-id}/{first-name}` produces params
+// {"user_id": ..., "first_name": ...}.
 std::string normalize_param_key(const std::string& name)
 {
     std::string result;
@@ -244,7 +243,6 @@ std::string hex_class(char c)
 
 // A literal run matches as written or percent-encoded (RFC 6570 section 3.1),
 // with hex digits in either case; an existing %XX triplet matches case-insensitively.
-// PYTHON REFERENCE: fastmcp/resources/template.py:140-170 (_literal_pattern)
 std::string literal_pattern(const std::string& text)
 {
     static const char* digits = "0123456789ABCDEF";
@@ -288,7 +286,6 @@ std::string literal_pattern(const std::string& text)
 
 void validate_uri_template(const std::string& uri_template)
 {
-    // PYTHON REFERENCE: fastmcp/resources/template.py:766-788
     static const std::regex level3(R"(\{([+#./;]))");
     std::set<std::string> ops;
     for (auto it = std::sregex_iterator(uri_template.begin(), uri_template.end(), level3);
@@ -418,8 +415,8 @@ void ResourceTemplate::parse()
     }
 
     // Infer per-parameter kind from the JSON schema, if present.
-    // Parity with Python fastmcp commit 9ccaef2b: boolean/integer/number params
-    // go through typed coercion with ValidationError on invalid literals.
+    // Boolean/integer/number params go through typed coercion with ValidationError on
+    // invalid literals.
     if (parameters.is_object() && parameters.contains("properties") &&
         parameters["properties"].is_object())
     {
@@ -437,7 +434,7 @@ void ResourceTemplate::parse()
             else if (prop.contains("type") && prop["type"].is_array())
             {
                 // JSON schema allows ["integer", "null"] etc. — pick the first
-                // non-null type (matches Python's optional-annotation behavior).
+                // non-null type.
                 for (const auto& t : prop["type"])
                 {
                     if (!t.is_string())
@@ -491,7 +488,6 @@ ResourceTemplate::match(const std::string& uri_in) const
 {
     // A fragment is not part of the resource identity, unless the template
     // spells out a literal '#'.
-    // PYTHON REFERENCE: fastmcp/resources/template.py:256-260 (match_uri_template)
     const std::string uri =
         uri_template.find('#') == std::string::npos ? uri_in.substr(0, uri_in.find('#')) : uri_in;
     std::smatch match;
@@ -575,7 +571,7 @@ ResourceTemplate::create_resource(const std::string& uri,
     resource.mime_type = mime_type;
     resource.app = app;
 
-    // Mirror Python fastmcp #4061 (commit 01b971d8): preserve template-level
+    // Preserve template-level
     // metadata so resources instantiated from a template carry the template's
     // display annotations rather than appearing unstyled/unannotated.
     resource.title = title;

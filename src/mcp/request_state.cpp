@@ -14,7 +14,6 @@ namespace crypto = fastmcpp::util::crypto;
 namespace
 {
 
-// PYTHON REFERENCE: mcp/server/request_state.py:155-160
 constexpr const char* kKdfInfo = "mcp/request-state/v1/aes-256-gcm";
 constexpr const char* kKidInfo = "mcp/request-state/v1/kid:";
 constexpr const char* kTokenPrefix = "v1.";
@@ -37,14 +36,12 @@ double now_seconds()
 
 /// Python's `json.dumps(value, sort_keys=..., separators=(",", ":"))` with its
 /// default `ensure_ascii=True`. nlohmann objects are already key-sorted.
-// PYTHON REFERENCE: mcp/server/request_state.py:163-171 (compact_json)
 std::string compact_json(const Json& value)
 {
     return value.dump(-1, ' ', true);
 }
 
 /// (target, args-digest) for the request a token binds to.
-// PYTHON REFERENCE: mcp/server/request_state.py:280-292 (_request_identity)
 std::pair<std::string, std::string> request_identity(const std::string& method, const Json& params)
 {
     Json args = Json::object();
@@ -71,7 +68,6 @@ std::pair<std::string, std::string> request_identity(const std::string& method, 
 
 AesGcmRequestStateCodec::AesGcmRequestStateCodec(const std::vector<std::string>& keys)
 {
-    // PYTHON REFERENCE: mcp/server/request_state.py:192-218
     if (keys.empty())
         throw std::invalid_argument("AesGcmRequestStateCodec requires at least one key");
     for (std::size_t i = 0; i < keys.size(); ++i)
@@ -160,7 +156,6 @@ std::shared_ptr<const RequestStateSecurity> RequestStateSecurity::process_defaul
 
 bool is_input_required_method(const std::string& method)
 {
-    // PYTHON REFERENCE: mcp_types/methods.py (INPUT_REQUIRED_METHODS)
     return method == "tools/call" || method == "prompts/get" || method == "resources/read";
 }
 
@@ -171,7 +166,6 @@ RequestStateBoundary::RequestStateBoundary(std::shared_ptr<const RequestStateSec
     audience_ = security_->audience ? security_->audience : std::move(default_audience);
 }
 
-// PYTHON REFERENCE: mcp/server/request_state.py:388-424 (RequestStateBoundary._unseal)
 std::optional<std::string> RequestStateBoundary::unseal(const std::string& method,
                                                         const Json& params) const
 {
@@ -200,7 +194,7 @@ std::optional<std::string> RequestStateBoundary::unseal(const std::string& metho
         return std::nullopt;
 
     const double now = now_seconds();
-    // Accept-conditions stated positively, as upstream, so NaN rejects.
+    // Accept-conditions stated positively, so NaN rejects.
     if (!claims["iat"].is_number() || !(claims["iat"].get<double>() <= now + kFutureSkew))
         return std::nullopt;
     if (!claims["exp"].is_number() || !(now < claims["exp"].get<double>()))
@@ -222,7 +216,6 @@ std::optional<std::string> RequestStateBoundary::unseal(const std::string& metho
     return claims["s"].get<std::string>();
 }
 
-// PYTHON REFERENCE: mcp/server/request_state.py:443-475 (RequestStateBoundary._seal)
 std::string RequestStateBoundary::seal(const std::string& method, const Json& params,
                                        const std::string& state) const
 {

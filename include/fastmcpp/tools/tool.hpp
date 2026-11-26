@@ -79,11 +79,11 @@ class Tool
     {
         return output_schema_;
     }
-    // P2/P3 (v3.4.4): run opt-in argument validation against the tool's inputSchema.
+    // Run opt-in argument validation against the tool's inputSchema.
     // No-op when disabled (default), so the existing contract is preserved. When enabled,
     // mismatched/missing-required args raise ValidationError, which the MCP handler maps to
-    // JSON-RPC -32602 (invalid params), matching fastmcp.ValidationError semantics. Exposed so
-    // the task path can validate BEFORE creating task state (avoids orphaned tasks).
+    // JSON-RPC -32602 (invalid params). Exposed so the task path can validate BEFORE
+    // creating task state (avoids orphaned tasks).
     void validate_input_if_enabled(const fastmcpp::Json& input) const
     {
         if (validate_args_)
@@ -206,7 +206,7 @@ class Tool
         sequential_ = seq;
         return *this;
     }
-    // P2/P3: opt-in argument validation against inputSchema (default off).
+    // Opt-in argument validation against inputSchema (default off).
     bool validate_args() const
     {
         return validate_args_;
@@ -228,8 +228,7 @@ class Tool
 
     /// Free-form metadata attached to this tool — surfaces in MCP `_meta`
     /// when a caller chooses to serialize it. Used by CatalogTransform to
-    /// publish `meta.fastmcp.versions` under the dedup contract (Python
-    /// fastmcp commit 03673d9f).
+    /// publish `meta.fastmcp.versions` under the dedup contract.
     const std::optional<fastmcpp::Json>& meta() const
     {
         return meta_;

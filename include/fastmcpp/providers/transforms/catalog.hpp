@@ -14,8 +14,6 @@ namespace fastmcpp::providers::transforms
 /// transform_prompts() / transform_resource_templates() instead of the
 /// list_*() methods. The base class owns list_*() and handles re-entrant
 /// bypass automatically.
-///
-/// Parity with Python fastmcp CatalogTransform (commit 03673d9f).
 class CatalogTransform : public Transform
 {
   public:
@@ -91,7 +89,7 @@ class CatalogTransform : public Transform
     /// version survives. When more than one concrete version was present,
     /// the surviving Tool's `meta()` is augmented with
     /// `{"fastmcp": {"versions": [...]}}` listing all available versions in
-    /// descending order. Parity with Python fastmcp commit 03673d9f.
+    /// descending order.
     std::vector<tools::Tool> get_tool_catalog(const ListToolsNext& call_next) const
     {
         BypassGuard guard(bypass_);

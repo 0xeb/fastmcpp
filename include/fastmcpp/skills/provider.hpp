@@ -5,7 +5,7 @@
 ///        Skills extension (SEP-2640) entries, plus the extension itself.
 ///
 /// These supersede the resource-only `fastmcpp::providers::SkillProvider` /
-/// `SkillsDirectoryProvider`, which upstream deprecates in fastmcp 4.2.
+/// `SkillsDirectoryProvider`.
 
 #include "fastmcpp/providers/provider.hpp"
 #include "fastmcpp/server/extension.hpp"
@@ -30,7 +30,6 @@ namespace fastmcpp::skills
 class SkillManifestProvider;
 
 /// Implemented by every provider `SkillsExtension` can discover skills from.
-// PYTHON REFERENCE: fastmcp/skills/_source.py (_SkillSource)
 class SkillSource
 {
   public:
@@ -45,7 +44,6 @@ class SkillSource
 
 /// Serve skills from their manifests and read each file only when a client
 /// reads it. Override `load_manifests()` and `read_file()`.
-// PYTHON REFERENCE: fastmcp/skills/provider.py:46-183 (SkillManifestProvider)
 class SkillManifestProvider : public providers::Provider, public SkillSource
 {
   public:
@@ -79,7 +77,6 @@ class SkillManifestProvider : public providers::Provider, public SkillSource
 /// Serve `Skill` objects. Each skill's files are served under `skill://{path}/`,
 /// where `path` defaults to the skill's name. Override `load_skills()` for
 /// skills that change at runtime.
-// PYTHON REFERENCE: fastmcp/skills/provider.py:211-277 (SkillCatalogProvider)
 class SkillCatalogProvider : public SkillManifestProvider
 {
   public:
@@ -104,7 +101,6 @@ class SkillCatalogProvider : public SkillManifestProvider
 /// An invalid folder throws at construction naming the fix; with `reload`, the
 /// folders are re-read on every request and the last valid scan keeps serving
 /// when a re-read finds an invalid folder.
-// PYTHON REFERENCE: fastmcp/skills/provider.py:280-354 (SkillsDirectoryProvider)
 class SkillsDirectoryProvider : public SkillCatalogProvider
 {
   public:
@@ -128,7 +124,6 @@ class SkillsDirectoryProvider : public SkillCatalogProvider
 /// The Skills extension: serves `skills/list` and `skills/get` on the
 /// 2026-07-28 era from every skill source registered on the server (and from
 /// mounted servers that register their own), or from an explicit list.
-// PYTHON REFERENCE: fastmcp/skills/extension.py:40-194 (SkillsExtension)
 class SkillsExtension : public server::ServerExtension
 {
   public:

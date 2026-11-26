@@ -1,7 +1,7 @@
 #pragma once
 /// @file client/types.hpp
 /// @brief MCP protocol result types for client operations
-/// @details These types mirror mcp.types from the Python MCP SDK and are used
+/// @details These types model MCP protocol results and are used
 ///          as return values from Client methods like list_tools(), call_tool(), etc.
 
 #include "fastmcpp/types.hpp"
@@ -60,7 +60,6 @@ using ContentBlock = std::variant<TextContent, ImageContent, AudioContent, Embed
 // ============================================================================
 
 /// Tool information as returned by tools/list
-/// Matches mcp.types.Tool from Python SDK
 struct ToolInfo
 {
     std::string name;
@@ -129,7 +128,6 @@ T get_typed_data_as(const CallToolResult& result)
 // ============================================================================
 
 /// Resource information as returned by resources/list
-/// Matches mcp.types.Resource from Python SDK
 struct ResourceInfo
 {
     std::string uri;
@@ -145,7 +143,6 @@ struct ResourceInfo
 };
 
 /// Resource template information
-/// Matches mcp.types.ResourceTemplate from Python SDK
 struct ResourceTemplate
 {
     std::string uriTemplate;
@@ -217,7 +214,6 @@ struct PromptArgument
 };
 
 /// Prompt information as returned by prompts/list
-/// Matches mcp.types.Prompt from Python SDK
 struct PromptInfo
 {
     std::string name;
@@ -323,7 +319,6 @@ namespace detail
 /// Component version from a list entry: `_meta.fastmcp.version` (fastmcp, and
 /// fastmcpp >= 4), else a top-level `version` (fastmcpp < 4). Integers are
 /// accepted because historic servers sent them.
-// PYTHON REFERENCE: fastmcp/utilities/components.py:190-215 (get_meta)
 inline std::optional<std::string> component_version(const fastmcpp::Json& j)
 {
     auto as_string = [](const fastmcpp::Json& v) -> std::optional<std::string>

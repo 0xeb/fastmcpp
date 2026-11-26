@@ -81,7 +81,6 @@ std::optional<std::string> current_principal()
     const AccessToken* token = current_access_token();
     if (!token)
         return std::nullopt;
-    // PYTHON REFERENCE: mcp/server/auth/provider.py (principal_components)
     Json issuer = nullptr;
     if (token->claims.is_object() && token->claims.contains("iss") &&
         !token->claims["iss"].is_null())

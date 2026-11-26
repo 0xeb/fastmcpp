@@ -5,7 +5,7 @@
 namespace fastmcpp::providers::transforms
 {
 
-// Default annotations for ResourcesAsTools-generated tools (parity with Python fastmcp e1338e06)
+// Default annotations for ResourcesAsTools-generated tools
 static const Json kReadOnlyAnnotations = Json{{"readOnlyHint", true}};
 
 tools::Tool ResourcesAsTools::make_list_resources_tool() const

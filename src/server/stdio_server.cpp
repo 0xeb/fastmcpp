@@ -81,10 +81,11 @@ std::optional<TaskNotificationInfo> extract_task_notification_info(const fastmcp
 
 StdioServerWrapper::StdioServerWrapper(McpHandler handler) : handler_(std::move(handler)) {}
 
-// PYTHON REFERENCE: mcp/server/runner.py:602-646 (serve_dual_era_loop)
 fastmcpp::Json StdioServerWrapper::dispatch(const fastmcpp::Json& request)
 {
     telemetry::NetworkTransportScope network_scope(telemetry::NetworkTransport{"pipe", "", ""});
+    if (auto invalid = mcp::invalid_request_response(request))
+        return *invalid;
     const std::string method = request.value("method", std::string());
     const bool is_request = request.contains("id") && !request["id"].is_null();
     const fastmcpp::Json params =
@@ -131,7 +132,6 @@ void StdioServerWrapper::write_line(const std::string& line)
 
 // A listen response on stdio is the ack, the events and the closing result,
 // written inline as JSON lines while the reader keeps serving requests.
-// PYTHON REFERENCE: mcp/server/subscriptions.py:180-243
 void StdioServerWrapper::serve_listen_stream(std::shared_ptr<ListenStream> stream)
 {
     reap_listen_writers();
@@ -173,10 +173,10 @@ void StdioServerWrapper::reap_listen_writers()
 
 // A client abandons a stdio listen with notifications/cancelled; the stream
 // ends abruptly (no closing result), as the reference dispatcher cancels it.
-// PYTHON REFERENCE: mcp/shared/jsonrpc_dispatcher.py:640-645
 bool StdioServerWrapper::cancel_listen_stream(const fastmcpp::Json& notification)
 {
-    if (notification.value("method", fastmcpp::Json()) != "notifications/cancelled")
+    if (!notification.is_object() ||
+        notification.value("method", fastmcpp::Json()) != "notifications/cancelled")
         return false;
     const fastmcpp::Json params = notification.value("params", fastmcpp::Json::object());
     if (!params.is_object() || !params.contains("requestId"))

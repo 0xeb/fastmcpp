@@ -14,8 +14,6 @@ namespace fastmcpp::providers::transforms
 {
 
 /// Transform that injects list_resources and read_resource as synthetic tools.
-///
-/// Parity with Python fastmcp ResourcesAsTools transform.
 class ResourcesAsTools : public Transform
 {
   public:

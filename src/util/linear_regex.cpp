@@ -1,7 +1,4 @@
 // Linear-time regex matcher with Rust `regex` syntax. See linear_regex.hpp.
-//
-// Parity target: fastmcp's RegexSearchTransform matches with Pydantic's Rust regex engine
-// (fastmcp_slim/fastmcp/server/transforms/search/regex.py:57), which never backtracks.
 
 #include "fastmcpp/util/linear_regex.hpp"
 

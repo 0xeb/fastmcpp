@@ -22,7 +22,6 @@ namespace
 
 bool is_valid_skill_name(const std::string& name)
 {
-    // PYTHON REFERENCE: fastmcp/skills/models.py:22 (_SKILL_NAME_PATTERN)
     if (name.empty() || name.size() > 64 || name.front() == '-' || name.back() == '-')
         return false;
     if (name.find("--") != std::string::npos)
@@ -85,7 +84,6 @@ SkillResource parse_skill_resource(const Json& value)
     if (!value.contains("digest") || !value["digest"].is_string() ||
         !is_sha256_digest(value["digest"].get<std::string>()))
         throw ValidationError("skill resource digest must match ^sha256:[0-9a-f]{64}$");
-    // PYTHON REFERENCE: fastmcp/skills/models.py:133-142 (validate_size_type)
     const Json& size = value.contains("size") ? value["size"] : Json();
     bool whole =
         size.is_number_unsigned() || (size.is_number_integer() && size.get<long long>() >= 0);
@@ -148,7 +146,6 @@ void validate_frontmatter(const Json& fm)
     reject_non_finite(fm);
 }
 
-// PYTHON REFERENCE: fastmcp/skills/skill.py:53-66 (_validate_relative_path)
 std::string validate_relative_path(const std::string& path)
 {
     if (path.empty())
@@ -182,7 +179,6 @@ void validate_limits(std::size_t file_count, std::uint64_t total_bytes)
                               " bytes");
 }
 
-// PYTHON REFERENCE: fastmcp/skills/skill.py:69-79 (_validate_files)
 void validate_files(const std::map<std::string, std::uint64_t>& sizes)
 {
     std::uint64_t total = 0;
@@ -318,7 +314,6 @@ std::string skill_file_uri(const std::string& skill_path, const std::string& fil
 // MCPSkill
 // ---------------------------------------------------------------------------
 
-// PYTHON REFERENCE: fastmcp/skills/models.py:154-189 (MCPSkill.validate_entry)
 void MCPSkill::validate() const
 {
     validate_frontmatter(frontmatter);
@@ -429,7 +424,6 @@ std::string SkillManifest::name() const
     return frontmatter_["name"].get<std::string>();
 }
 
-// PYTHON REFERENCE: fastmcp/skills/skill.py:111-128 (SkillManifest.to_mcp_skill)
 MCPSkill SkillManifest::to_mcp_skill(const std::optional<std::string>& path) const
 {
     const std::string prefix = "skill://" + percent_encode(path.value_or(name())) + "/";
@@ -481,7 +475,6 @@ Skill Skill::from_files(std::map<std::string, std::string> files)
     return skill;
 }
 
-// PYTHON REFERENCE: fastmcp/skills/skill.py:224-243 (Skill._initialize)
 void Skill::initialize(std::map<std::string, std::string> files)
 {
     std::map<std::string, std::uint64_t> sizes;
@@ -496,7 +489,6 @@ void Skill::initialize(std::map<std::string, std::string> files)
     data_ = std::move(data);
 }
 
-// PYTHON REFERENCE: fastmcp/skills/skill.py:254-273 (from_directory) + _snapshot.py:96-110
 Skill Skill::from_directory(const fs::path& path)
 {
     const fs::path root = fs::absolute(path);
@@ -531,7 +523,6 @@ Skill Skill::from_directory(const fs::path& path)
     return skill;
 }
 
-// PYTHON REFERENCE: fastmcp/skills/skill.py:298-344 (Skill.to_directory)
 fs::path Skill::to_directory(const fs::path& path, bool overwrite) const
 {
     const fs::path root = path;

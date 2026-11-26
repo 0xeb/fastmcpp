@@ -28,7 +28,6 @@ namespace fastmcpp::client
 
 /// Per-call cache behavior: Use serves and stores, Refresh stores without
 /// serving, Bypass skips the cache.
-// PYTHON REFERENCE: mcp/client/caching.py:37-39 (CacheMode)
 enum class CacheMode
 {
     Use,
@@ -40,7 +39,6 @@ enum class CacheMode
 inline constexpr std::int64_t kMaxCacheTtlMs = 24LL * 60 * 60 * 1000;
 
 /// Identity of one cached response.
-// PYTHON REFERENCE: mcp/client/caching.py:45-56 (CacheKey)
 struct CacheKey
 {
     std::string method;
@@ -58,7 +56,6 @@ struct CacheKey
 };
 
 /// One cached response.
-// PYTHON REFERENCE: mcp/client/caching.py:59-71 (CacheEntry)
 struct CacheEntry
 {
     Json value;
@@ -68,7 +65,6 @@ struct CacheEntry
 };
 
 /// Storage for the response cache. A throwing operation degrades to a miss.
-// PYTHON REFERENCE: mcp/client/caching.py:74-92 (ResponseCacheStore)
 class ResponseCacheStore
 {
   public:
@@ -80,7 +76,6 @@ class ResponseCacheStore
 };
 
 /// Default in-process store: LRU over the whole store (`max_entries` 0 = unbounded).
-// PYTHON REFERENCE: mcp/client/caching.py:139-175 (InMemoryResponseCacheStore)
 class InMemoryResponseCacheStore final : public ResponseCacheStore
 {
   public:
@@ -99,7 +94,6 @@ class InMemoryResponseCacheStore final : public ResponseCacheStore
 };
 
 /// Configuration for a client's response cache.
-// PYTHON REFERENCE: mcp/client/caching.py:95-136 (CacheConfig)
 struct CacheConfig
 {
     /// Backing store; null = a per-client in-memory store. A custom store
@@ -119,7 +113,6 @@ struct CacheConfig
 };
 
 /// Coordinates the client's cacheable calls with a store.
-// PYTHON REFERENCE: mcp/client/caching.py:184-387 (ClientResponseCache)
 class ClientResponseCache
 {
   public:

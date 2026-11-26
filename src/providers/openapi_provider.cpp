@@ -69,7 +69,6 @@ std::string url_encode_component(const std::string& value)
     return out;
 }
 
-// PYTHON REFERENCE: fastmcp_slim/fastmcp/utilities/openapi/director.py:431 (_build_url)
 constexpr int kMaxPathDecodings = 32;
 
 int hex_value(char c)
@@ -159,7 +158,6 @@ std::string to_string_value(const Json& value);
 
 // OpenAPI "simple" style for a path parameter: each item is encoded on its own so the
 // ',' / '=' separators stay literal; nested lists flatten one level.
-// PYTHON REFERENCE: fastmcp/utilities/openapi/director.py (_simple_param_to_path_segment)
 std::string simple_path_segment(const std::string& name, const Json& value, bool explode)
 {
     auto encode = [&](const std::string& raw)
@@ -201,7 +199,6 @@ std::string simple_path_segment(const std::string& name, const Json& value, bool
 
 // Turn a "simple" segment into the OpenAPI "label" or "matrix" form. Every item is
 // already percent-encoded, so each literal ',' is a delimiter.
-// PYTHON REFERENCE: fastmcp/utilities/openapi/director.py (_restyle_path_segment, #6725)
 std::string restyle_path_segment(const std::string& name, const Json& value, std::string segment,
                                  const std::string& style, bool explode)
 {
@@ -287,7 +284,7 @@ OpenAPIProvider::OpenAPIProvider(Json openapi_spec, std::optional<std::string> b
             openapi_spec_["servers"][0]["url"].is_string())
         {
             std::string url = openapi_spec_["servers"][0]["url"].get<std::string>();
-            // Python fastmcp commit 99eaeb8a (#3770): expand `{varName}` placeholders using the
+            // Expand `{varName}` placeholders using the
             // declared server variables' defaults so specs like
             //   servers: [{url: "{protocol}://api.example.com",
             //              variables: {protocol: {default: "https"}}}]
@@ -455,8 +452,8 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
                 std::string location;
                 Json schema;
                 bool required{false};
-                std::string style;           // F20: OpenAPI serialization style
-                std::optional<bool> explode; // F20: OpenAPI explode override
+                std::string style;           // OpenAPI serialization style
+                std::optional<bool> explode; // OpenAPI explode override
             };
 
             std::vector<ParsedParameter> parsed_parameters;
@@ -482,7 +479,7 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
                     Json schema = Json{{"type", "string"}};
                     if (param.contains("schema") && param["schema"].is_object())
                         schema = param["schema"];
-                    // Python fastmcp commit 042db1d0 (#3768): convert OpenAPI 3.0
+                    // Convert OpenAPI 3.0
                     // `nullable: true` to JSON Schema's `type: ["X", "null"]` form so
                     // downstream JSON Schema validators (and json_schema_to_value) accept null.
                     if (schema.is_object() && schema.value("nullable", false))
@@ -501,7 +498,6 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
                     if (param.contains("description") && param["description"].is_string() &&
                         (!schema.contains("description") || !schema["description"].is_string()))
                         schema["description"] = param["description"];
-                    // PYTHON REFERENCE: fastmcp/utilities/openapi/parser.py:321 (#4793)
                     if (param.contains("example") && !param["example"].is_null() &&
                         schema.is_object())
                     {
@@ -515,7 +511,7 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
                         schema,
                         param.value("required", false),
                     };
-                    // F20 (fastmcp #3595 / #3662): capture per-param style/explode overrides.
+                    // Capture per-param style/explode overrides.
                     if (param.contains("style") && param["style"].is_string())
                         parsed_param.style = param["style"].get<std::string>();
                     if (param.contains("explode") && param["explode"].is_boolean())
@@ -542,7 +538,6 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
 
             // A parameter whose name matches the whole-body argument, or another
             // parameter's name, becomes `name__location` so neither is lost.
-            // PYTHON REFERENCE: fastmcp/utilities/openapi/schemas.py:465-490 (#5113)
             bool has_body_schema = false;
             if (op.contains("requestBody") && op["requestBody"].is_object() &&
                 op["requestBody"].contains("content") && op["requestBody"]["content"].is_object())
@@ -597,8 +592,7 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
                 if (request_body.contains("content") && request_body["content"].is_object())
                 {
                     const auto& content = request_body["content"];
-                    // Python fastmcp commits 7dd57398 (#3932) + ca76b828 (#3611): respect the
-                    // declared request-body content type. Prefer JSON; fall back to
+                    // Respect the declared request-body content type. Prefer JSON; fall back to
                     // application/x-www-form-urlencoded; mark multipart for clarity but
                     // keep JSON-style serialization for now (multipart not yet implemented).
                     auto take_schema = [&](const std::string& ct) -> bool
@@ -698,10 +692,9 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
         first = false;
         query << url_encode_component(key) << "=" << url_encode_component(val);
     };
-    // Python fastmcp commits 6f30e89d (#3595) + 16eb2ffc (#3662): honor per-parameter OpenAPI
-    // style/explode. Defaults are style=form, explode=true (repeat the key for arrays; expand
-    // properties for objects). With explode=false, values are joined by the style delimiter:
-    // form=',', spaceDelimited=' ', pipeDelimited='|' (parity with director.py _STYLE_DELIMITERS).
+    // Honor per-parameter OpenAPI style/explode. Defaults are style=form, explode=true (repeat
+    // the key for arrays; expand properties for objects). With explode=false, values are joined
+    // by the style delimiter: form=',', spaceDelimited=' ', pipeDelimited='|'.
     auto style_delimiter = [](const std::string& style) -> std::string
     {
         if (style == "spaceDelimited")
@@ -726,7 +719,7 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
                 style = meta_it->second.style;
             if (meta_it->second.explode.has_value())
                 explode = *meta_it->second.explode;
-            // Delimited array styles default to explode=false (#5065).
+            // Delimited array styles default to explode=false.
             else if (val.is_array() && (style == "pipeDelimited" || style == "spaceDelimited"))
                 explode = false;
         }
@@ -764,8 +757,8 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
             if (explode)
             {
                 // explode=true: each property becomes its own key=value pair.
-                // PYTHON REFERENCE: fastmcp/utilities/openapi/director.py (#4523) — deepObject
-                // keeps the parent parameter name as `param[prop]`; form style emits a bare prop.
+                // deepObject keeps the parent parameter name as `param[prop]`; form style
+                // emits a bare prop.
                 for (auto it = val.cbegin(); it != val.cend(); ++it)
                 {
                     std::string property_name =
@@ -802,21 +795,19 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
 
     std::string body;
     httplib::MultipartFormDataItems mp_items;
-    // Python fastmcp commits 7dd57398 (#3932) + ca76b828 (#3611): dispatch on declared
-    // request-body content type. application/x-www-form-urlencoded → form-encode body
-    // arguments (object only); multipart/form-data (F21) → build multipart parts and let
-    // httplib own the boundary + Content-Type. JSON path unchanged.
+    // Dispatch on declared request-body content type. application/x-www-form-urlencoded →
+    // form-encode body arguments (object only); multipart/form-data → build multipart parts
+    // and let httplib own the boundary + Content-Type. JSON path unchanged.
     const std::string& ct = route.request_content_type;
     if (route.has_multipart_body && arguments.contains("body") && arguments["body"].is_object())
     {
-        // F21 (parity with director.py multipart branch): scalars become plain form fields
+        // Scalars become plain form fields
         // (stringified — booleans as true/false); {filename, content} objects (optionally
         // {contentType}) become file parts. httplib generates the multipart/form-data boundary.
         for (auto it = arguments["body"].cbegin(); it != arguments["body"].cend(); ++it)
         {
             const auto& v = it.value();
             // A string array under the default encoding repeats the field once per item
-            // PYTHON REFERENCE: fastmcp/utilities/openapi/director.py (#5121)
             if (v.is_array() && !v.empty() &&
                 std::all_of(v.begin(), v.end(), [](const Json& i) { return i.is_string(); }) &&
                 uses_default_multipart_encoding(route.multipart_encoding.value(it.key(), Json())))
@@ -870,7 +861,7 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
     }
 
     // Single dispatch shared by http/https (generic over Client/SSLClient). When the route
-    // declares multipart/form-data (F21) and there is a body, use httplib's multipart Post/Put
+    // declares multipart/form-data and there is a body, use httplib's multipart Post/Put
     // overload so it owns the boundary; otherwise the string-body overloads (JSON / form / GET).
     const bool use_multipart = route.has_multipart_body && !mp_items.empty();
     auto dispatch = [&](auto& client) -> httplib::Result

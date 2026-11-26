@@ -67,7 +67,6 @@ inline std::string read_skill_file(Client& client, const std::string& uri)
 }
 
 /// The `_manifest` resource FastMCP skill providers serve next to the files.
-// PYTHON REFERENCE: fastmcp/client/mixins/skills.py:331-354 (_resource_mode_manifest)
 inline std::map<std::string, SkillResource> resource_mode_manifest(Client& client,
                                                                    const std::string& uri)
 {
@@ -107,7 +106,6 @@ inline std::map<std::string, SkillResource> resource_mode_manifest(Client& clien
 } // namespace detail
 
 /// Why this connection can't send Skills requests, or nullopt if it can.
-// PYTHON REFERENCE: fastmcp/client/mixins/skills.py:49-71 (_skills_unavailable_reason)
 inline std::optional<std::string> skills_unavailable_reason(const Client& client)
 {
     if (!client.server_info())
@@ -130,7 +128,6 @@ inline void require_skills_extension(const Client& client)
 }
 
 /// Send one `skills/list` request and return its protocol result.
-// PYTHON REFERENCE: fastmcp/client/mixins/skills.py:78-115 (list_skills_mcp)
 inline ListSkillsResult list_skills_mcp(Client& client,
                                         const std::optional<std::string>& cursor = std::nullopt)
 {
@@ -150,7 +147,6 @@ inline ListSkillsResult list_skills_mcp(Client& client,
 }
 
 /// Every page returned by `skills/list`.
-// PYTHON REFERENCE: fastmcp/client/mixins/skills.py:117-163 (list_skills)
 inline std::vector<MCPSkill> list_skills(Client& client, int max_pages = kAutoPaginationMaxPages)
 {
     std::vector<MCPSkill> skills;
@@ -198,7 +194,6 @@ inline MCPSkill get_skill(Client& client, const std::string& uri)
 /// servers that serve skills as resources but not through the extension.
 /// Supporting `SKILL.md` files nested inside another skill are dropped when
 /// that skill's manifest lists them.
-// PYTHON REFERENCE: fastmcp/client/mixins/skills.py:215-267 (list_skill_resources)
 inline std::vector<ResourceInfo> list_skill_resources(Client& client)
 {
     auto resources = client.list_resources();
@@ -261,7 +256,6 @@ inline std::vector<ResourceInfo> list_skill_resources(Client& client)
 /// Fetch every file of a skill, verify each against its manifest's size and
 /// SHA-256 digest, and return the `Skill`. The manifest comes from `skills/get`
 /// when the extension was negotiated, otherwise from the `_manifest` resource.
-// PYTHON REFERENCE: fastmcp/client/mixins/skills.py:291-329 (read_skill, _skill_manifest)
 inline Skill read_skill(Client& client, const std::string& uri)
 {
     auto [scheme, authority, segments] = fastmcpp::skills::parse_resource_uri(uri);

@@ -42,7 +42,6 @@ using AfterHook = std::function<void(const std::string& route, const fastmcpp::J
 /// (rate limiting, logging, auth, ...) and every AfterHook like a registered tool, wherever the
 /// hooks were added. An injected tool takes precedence over a registered tool with the same name,
 /// which is no longer listed.
-/// PYTHON REFERENCE: fastmcp_slim/fastmcp/server/middleware/tool_injection.py:24 (0f8d1b9e)
 ///
 /// Usage:
 /// ```cpp
@@ -79,8 +78,8 @@ class ToolInjectionMiddleware
     AfterHook create_tools_list_hook();
 
     /// Register each injected tool as a route on `srv`, replacing a route with the same name.
-    /// A name another injection middleware registered earlier is skipped (first one wins, as
-    /// upstream), and this middleware's tools/list hook then leaves that name to the winner.
+    /// A name another injection middleware registered earlier is skipped (first one wins),
+    /// and this middleware's tools/list hook then leaves that name to the winner.
     /// Calls then run after every BeforeHook and before every AfterHook. A handler exception
     /// becomes an MCP error result (`isError: true`).
     void register_routes(Server& srv) const;

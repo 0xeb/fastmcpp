@@ -9,10 +9,9 @@
 namespace fastmcpp
 {
 
-/// Python `logging` module integer level constants. Mirrors Python fastmcp
-/// commit 73b7f2e4 (#4036) which added `FastMCPError.log_level` so
-/// downstream logging adapters can dispatch per-error severity. Values match
-/// Python `logging.{DEBUG,INFO,WARNING,ERROR,CRITICAL}`.
+/// Integer log levels carried by `Error::log_level()` so logging adapters can
+/// dispatch per-error severity. Values match Python
+/// `logging.{DEBUG,INFO,WARNING,ERROR,CRITICAL}`.
 namespace log_level
 {
 constexpr int Debug = 10;
@@ -33,7 +32,7 @@ struct Error : public std::runtime_error
     {
     }
 
-    /// Python `logging` integer level (10 Debug … 50 Critical). See `log_level::*` constants.
+    /// Integer log level (10 Debug … 50 Critical). See `log_level::*` constants.
     int log_level() const noexcept
     {
         return log_level_;
@@ -55,7 +54,6 @@ struct NotFoundError : public Error
 /// A templated resource read whose extracted parameters failed path-security
 /// screening. Surfaces as an unknown resource and ends the lookup: no other
 /// source is consulted for the URI.
-// PYTHON REFERENCE: fastmcp/exceptions.py:78 (ResourceSecurityError)
 struct ResourceSecurityError : public NotFoundError
 {
     using NotFoundError::NotFoundError;
@@ -78,7 +76,6 @@ struct TransportError : public Error
 
 /// A protocol-level failure a server handler raises to answer with a specific
 /// JSON-RPC error (code, message, optional data) rather than a tool error.
-// PYTHON REFERENCE: mcp/shared/exceptions.py (MCPError)
 struct McpError : public Error
 {
     McpError(int code, const std::string& msg, nlohmann::json data = nullptr)

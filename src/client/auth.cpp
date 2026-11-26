@@ -1,9 +1,4 @@
 // Client OAuth for the HTTP transports. See include/fastmcpp/client/auth.hpp.
-//
-// PYTHON REFERENCE: fastmcp_slim/fastmcp/client/auth/oauth.py (OAuth, TokenStorageAdapter,
-// check_if_auth_required), fastmcp_slim/fastmcp/client/oauth_callback.py, and the MCP SDK it
-// wraps: mcp/client/auth/oauth2.py (OAuthClientProvider._auth_flow and helpers),
-// mcp/client/auth/utils.py, mcp/shared/auth_utils.py, mcp/shared/_httpx_utils.py.
 
 #include "fastmcpp/client/auth.hpp"
 
@@ -59,7 +54,7 @@ namespace
 {
 
 constexpr const char* kLatestProtocolVersion = "2025-11-25";
-constexpr int kAuthRedirectLimit = 5; // mcp/shared/_httpx_utils.py _AUTH_REDIRECT_LIMIT
+constexpr int kAuthRedirectLimit = 5;
 
 // ------------------------------------------------------------------ crypto primitives
 
@@ -382,7 +377,7 @@ int default_port(const std::string& scheme)
 }
 
 /// The resource server origin rendered like Pydantic's AnyHttpUrl: lowercase host, default port
-/// dropped, trailing slash (mcp/client/auth/oauth2.py _origin_issuer).
+/// dropped, trailing slash.
 std::string origin_issuer(const std::string& server_url)
 {
     const auto parsed = fastmcpp::client::detail::parse_url(origin_of(server_url));
@@ -605,7 +600,6 @@ bool check_resource_allowed(const std::string& requested, const std::string& con
 std::optional<std::string> union_scopes(const std::optional<std::string>& previous,
                                         const std::optional<std::string>& added)
 {
-    // PYTHON REFERENCE: mcp/client/auth/utils.py (union_scopes)
     if (!previous || previous->empty())
         return added;
     if (!added || added->empty())
@@ -960,7 +954,7 @@ struct OAuth::State
     {
         const auto year = std::chrono::seconds(60LL * 60 * 24 * 365);
         store->put("mcp-oauth-token", tokens_key(), t.to_json(), year);
-        if (t.expires_in) // absolute expiry, so a reload does not reuse a stale expires_in (#2862)
+        if (t.expires_in) // absolute expiry, so a reload does not reuse a stale expires_in
             store->put("mcp-oauth-token-expiry", expiry_key(),
                        Json{{"expires_at", now_seconds() + static_cast<double>(*t.expires_in)}},
                        year);
@@ -1006,7 +1000,7 @@ struct OAuth::State
             store_client_info(*static_client_info);
         }
         // M2M re-exchanges instead of refreshing: a reloaded refresh token would be
-        // sent before discovery. PYTHON REFERENCE: client_credentials.py:106-133
+        // sent before discovery.
         if (m2m && tokens)
             tokens->refresh_token.reset();
         if (tokens && tokens->expires_in)
@@ -1096,7 +1090,7 @@ struct OAuth::State
         }
     }
 
-    // ---- HTTP with the SDK's redirect rule for auth-flow requests ----
+    // ---- HTTP with the redirect rule for auth-flow requests ----
     HttpResponse send(HttpRequest req) const
     {
         HttpResponse response = options.http(req);
@@ -1295,7 +1289,6 @@ struct OAuth::State
         if (step_up)
         {
             // SEP-2350: keep earlier grants when escalating one operation.
-            // PYTHON REFERENCE: mcp/client/auth/oauth2.py:727-734
             const std::optional<std::string> prior =
                 detail::union_scopes(str_field(client_metadata, "scope"), granted);
             scope = detail::union_scopes(prior, scope);
@@ -1448,7 +1441,6 @@ struct OAuth::State
     }
 
     // ---- client_credentials grant ----
-    // PYTHON REFERENCE: mcp/client/auth/extensions/client_credentials.py:52-160
     void exchange_client_credentials()
     {
         if (m2m_issuer)
@@ -1775,7 +1767,6 @@ ClientCredentialsOAuth::ClientCredentialsOAuth(ClientCredentialsOptions options)
     const std::string joined = join(options.scopes, " ");
     if (!joined.empty())
         s.m2m_scopes = joined;
-    // PYTHON REFERENCE: fastmcp/client/auth/client_credentials.py:64-70 (_cache_namespace)
     Json identity = Json::array({options.client_id, s.m2m_scopes ? Json(*s.m2m_scopes) : Json()});
     if (options.issuer)
         identity.push_back(*options.issuer);

@@ -62,8 +62,6 @@ using SearchResultSerializer = std::function<Json(const std::vector<tools::Tool>
 ///
 /// Replaces list_tools() output with synthetic search + call_tool proxy tools.
 /// Hidden tools remain callable via get_tool() (delegates to downstream).
-///
-/// Parity with Python fastmcp BaseSearchTransform (commit c96c0400).
 class BaseSearchTransform : public CatalogTransform
 {
   public:

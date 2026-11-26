@@ -63,8 +63,6 @@ struct CustomRouteResponse
 };
 
 /// User-registered HTTP endpoint outside the JSON-RPC core.
-/// Parity intent with Python fastmcp `@server.custom_route()` (commit 68e76fea
-/// fixed forwarding from mounted servers).
 struct CustomRoute
 {
     std::string method; // GET, POST, PUT, DELETE, PATCH
@@ -92,7 +90,7 @@ struct ProxyMountedApp
 
 /// MCP Application - bundles server metadata with managers
 ///
-/// Equivalent to Python's FastMCP class. Provides:
+/// Provides:
 /// - Server metadata (name, version, icons, etc.)
 /// - Tool, Resource, and Prompt managers
 /// - App mounting support with prefixes
@@ -216,10 +214,9 @@ class FastMCP
         return dereference_schemas_;
     }
 
-    /// Experimental capabilities advertised on `initialize`. Mirrors Python
-    /// `FastMCP(experimental_capabilities=...)` (#4042 / commit `a010927e`):
-    /// the dict is propagated verbatim under `capabilities.experimental` so
-    /// servers can announce protocol extensions without a structural change.
+    /// Experimental capabilities advertised on `initialize`, propagated verbatim under
+    /// `capabilities.experimental` so servers can announce protocol extensions without a
+    /// structural change.
     const std::optional<Json>& experimental_capabilities() const
     {
         return experimental_capabilities_;
@@ -267,7 +264,7 @@ class FastMCP
     }
 
     // =========================================================================
-    // Ergonomic registration helpers (Python FastMCP decorator-style analogs)
+    // Ergonomic registration helpers
     // =========================================================================
 
     /// Register a tool using either a full JSON Schema or a "simple" param map
@@ -280,7 +277,7 @@ class FastMCP
     FastMCP& tool(std::string name, tools::Tool::Fn fn, ToolOptions options);
     FastMCP& tool(std::string name, tools::Tool::Fn fn);
 
-    /// Register a prompt generator (equivalent to Python's @server.prompt).
+    /// Register a prompt generator.
     FastMCP& prompt(std::string name,
                     std::function<std::vector<prompts::PromptMessage>(const Json&)> generator,
                     PromptOptions options);
@@ -291,14 +288,14 @@ class FastMCP
     FastMCP& prompt_template(std::string name, std::string template_string, PromptOptions options);
     FastMCP& prompt_template(std::string name, std::string template_string);
 
-    /// Register a concrete resource (equivalent to Python's @server.resource for fixed URIs).
+    /// Register a concrete resource (fixed URI).
     FastMCP& resource(std::string uri, std::string name,
                       std::function<resources::ResourceContent(const Json&)> provider,
                       ResourceOptions options);
     FastMCP& resource(std::string uri, std::string name,
                       std::function<resources::ResourceContent(const Json&)> provider);
 
-    /// Register a resource template (equivalent to Python's @server.resource for templated URIs).
+    /// Register a resource template (templated URI).
     /// If parameters_schema_or_simple is empty, parameters are derived from the URI template.
     FastMCP&
     resource_template(std::string uri_template, std::string name,
@@ -313,7 +310,7 @@ class FastMCP
     // App Mounting
     // =========================================================================
 
-    /// Mount another app under an optional namespace (Python `mount(server, namespace=)`).
+    /// Mount another app under an optional namespace.
     ///
     /// A live composition: the child's components are looked up on every
     /// request, and its middleware runs on the tool calls, resource reads and
@@ -327,7 +324,6 @@ class FastMCP
     /// @param tool_names Renames keyed by the child's own tool names, applied
     ///                  before the namespace: {foo: bar} under "baz" is "baz_bar".
     /// @throws ValidationError when mounting an app onto itself.
-    // PYTHON REFERENCE: fastmcp/server/server.py:2634-2700 (mount)
     void mount(FastMCP& app, const std::string& prefix = "", bool as_proxy = false);
 
     /// Mount another app with optional tool name overrides.
@@ -346,8 +342,7 @@ class FastMCP
         return proxy_mounted_;
     }
 
-    /// Register a custom HTTP route handled outside the JSON-RPC core.
-    /// Parity with Python fastmcp `@server.custom_route()`. Re-registering the
+    /// Register a custom HTTP route handled outside the JSON-RPC core. Re-registering the
     /// same (method, path) replaces the previous handler.
     FastMCP& add_custom_route(CustomRoute route);
 
@@ -358,9 +353,7 @@ class FastMCP
     }
 
     /// Aggregate this app's custom routes plus those of every directly mounted
-    /// child app (paths are prefixed with the mount prefix). Parity with Python
-    /// fastmcp commit 68e76fea (forward custom_route endpoints from mounted
-    /// servers).
+    /// child app (paths are prefixed with the mount prefix).
     std::vector<CustomRoute> all_custom_routes() const;
 
     void add_provider(std::shared_ptr<providers::Provider> provider);
@@ -370,7 +363,7 @@ class FastMCP
     }
 
     // =========================================================================
-    // Middleware pipeline (Phase 4: full Middleware/MiddlewareContext unification)
+    // Middleware pipeline
     // =========================================================================
 
     /// Register a middleware. Middlewares run in registration order around request dispatch
@@ -397,7 +390,6 @@ class FastMCP
     /// @throws std::invalid_argument for an invalid identifier, a second
     ///         extension with the same identifier, or a method another extension
     ///         already serves.
-    // PYTHON REFERENCE: fastmcp/server/mixins/extensions.py:53-154 (add_extension)
     void add_extension(std::shared_ptr<server::ServerExtension> extension);
 
     /// Registered extensions, in registration order.
@@ -423,7 +415,6 @@ class FastMCP
     /// sharing across authorization contexts). A field a handler set explicitly
     /// is kept. Modern era only. Unset, the results carry `ttlMs: 0`.
     /// @throws ValidationError for a non-positive TTL or an unknown scope.
-    // PYTHON REFERENCE: fastmcp/server/caching.py:31-58 (build_cache_hints)
     void set_cache_hints(int ttl_seconds, const std::string& scope = "private");
 
     /// The configured hint as (ttlMs, scope), or nullopt.
@@ -439,19 +430,16 @@ class FastMCP
     /// Back session state with @p store (default: a process-local
     /// InMemorySessionStateStore, created on first use). Replicas behind one
     /// endpoint need a shared store.
-    // PYTHON REFERENCE: fastmcp/server/server.py:517,713-726 (session_state_store)
     void set_session_state_store(std::shared_ptr<server::SessionStateStore> store);
     std::shared_ptr<server::SessionStateStore> session_state_store() const;
 
     /// The per-user session of the request being served, keyed by its
     /// authenticated principal. @throws server::SessionAuthError when the
     /// request is unauthenticated.
-    // PYTHON REFERENCE: fastmcp/server/sessions.py:303-327 (UserSession)
     server::Session user_session() const;
 
     /// Resolve an id minted by `create_session` under the current principal.
     /// @throws server::InvalidSession for an unknown or foreign id.
-    // PYTHON REFERENCE: fastmcp/server/dependencies.py (get_session)
     server::Session get_session(const std::string& session_id) const;
 
     /// Register a SessionProvider (`create_session` / `end_session`) bound to
@@ -467,7 +455,6 @@ class FastMCP
     /// `..` segments, absolute paths and NUL are rejected as an unknown
     /// resource. nullopt disables it; a template's own `security` wins.
     /// Mounted children are screened against this default and their own.
-    // PYTHON REFERENCE: fastmcp/server/server.py:512,572-577 (resource_security)
     void set_resource_security(std::optional<resources::ResourceSecurity> security)
     {
         resources_.set_default_security(std::move(security));
@@ -489,7 +476,6 @@ class FastMCP
     /// method with -32601. Calling again replaces the handler. The handler runs
     /// only for a prompt or template a client could list; any other reference
     /// gets an empty completion.
-    // PYTHON REFERENCE: fastmcp/server/server.py:2556-2627 (add_completion_handler, completion)
     void add_completion_handler(server::CompletionHandler handler);
 
     /// The registered completion handler, or null.
@@ -507,7 +493,6 @@ class FastMCP
     /// from any thread, with no request in flight; servers this one is mounted
     /// on are notified too. Reaches 2026-07-28 clients only. Adding or removing
     /// tools never calls this automatically. Does nothing when listen is off.
-    // PYTHON REFERENCE: fastmcp/server/server.py:2062-2075 (notify_tools_changed)
     void notify_tools_changed();
     /// See notify_tools_changed().
     void notify_prompts_changed();
@@ -517,7 +502,6 @@ class FastMCP
     /// exactly against each stream's subscribed URIs, so pass the URI as this
     /// server's clients see it. Not propagated to parents (a mount prefix can
     /// rewrite the URI).
-    // PYTHON REFERENCE: fastmcp/server/server.py:2091-2102 (notify_resource_updated)
     void notify_resource_updated(const std::string& uri);
 
     /// Serve `subscriptions/listen` (on by default; Settings
@@ -573,7 +557,7 @@ class FastMCP
     std::vector<prompts::PromptMessage> get_prompt(const std::string& name, const Json& args) const;
 
     /// Get prompt result by name (handles prefixed routing)
-    /// Includes description and optional _meta parity with Python SDK (fastmcp 2.14.1+).
+    /// Includes description and optional _meta.
     prompts::PromptResult get_prompt_result(const std::string& name, const Json& args) const;
 
   private:

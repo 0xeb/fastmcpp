@@ -104,9 +104,8 @@ bool HttpServerWrapper::start()
     };
 
     // Register user-supplied custom routes BEFORE the catch-all so they
-    // shadow JSON-RPC dispatch on those paths. Parity with Python fastmcp
-    // `custom_route()` aggregation (commit 68e76fea forwards routes from
-    // mounted children, see FastMCP::all_custom_routes()).
+    // shadow JSON-RPC dispatch on those paths (routes from mounted children
+    // are included, see FastMCP::all_custom_routes()).
     for (const auto& route : custom_routes_)
     {
         if (!route.handler)

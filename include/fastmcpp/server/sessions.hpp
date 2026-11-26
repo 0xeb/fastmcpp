@@ -16,7 +16,6 @@
 ///          transport. Without one (stdio, static token, no auth) every caller
 ///          shares the anonymous principal, and a session id is just a bearer
 ///          capability.
-// PYTHON REFERENCE: fastmcp/server/sessions.py
 
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/providers/provider.hpp"
@@ -64,7 +63,6 @@ class InMemorySessionStateStore : public SessionStateStore
 };
 
 /// `session:<sha256(principal)|anon>:<session_id>`.
-// PYTHON REFERENCE: fastmcp/server/sessions.py:147-170
 std::string session_storage_key(const std::optional<std::string>& principal,
                                 const std::string& session_id);
 
@@ -93,8 +91,7 @@ struct InvalidSession : Error
 /// Accessors over one `(principal, session_id)` bucket. User state lives in a
 /// `state` sub-object beside a creation marker, so `clear()` keeps a created
 /// session valid while `end()` deletes it. Writes read-modify-write the
-/// stored object; concurrent writers to one session race, as upstream.
-// PYTHON REFERENCE: fastmcp/server/sessions.py:173-300 (Session)
+/// stored object; concurrent writers to one session race.
 class Session
 {
   public:
@@ -146,7 +143,6 @@ Session get_session(const std::shared_ptr<SessionStateStore>& store, const std::
 
 /// Contributes the `create_session` and `end_session` tools. Register it
 /// when a tool takes a session id; without it no id can be minted.
-// PYTHON REFERENCE: fastmcp/server/sessions.py:403-433 (SessionProvider)
 class SessionProvider : public providers::Provider
 {
   public:

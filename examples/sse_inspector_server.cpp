@@ -1,4 +1,4 @@
-﻿// Simple SSE server for MCP Inspector testing
+// Simple SSE server to try with MCP Inspector
 // Runs indefinitely until Ctrl+C
 
 #include "fastmcpp/mcp/handler.hpp"

@@ -2,11 +2,9 @@
 /// @file versions.hpp
 /// @brief Component-version comparison and deduplication helpers.
 ///
-/// Parity with Python fastmcp `src/fastmcp/utilities/versions.py` (commit
-/// 03673d9f). Versions compare token-by-token: numeric tokens compare
-/// numerically (so "10" > "2"), non-numeric tokens fall back to
-/// lexicographic comparison. Unversioned items (std::nullopt) sort
-/// strictly lowest.
+/// Versions compare token-by-token: numeric tokens compare numerically
+/// (so "10" > "2"), non-numeric tokens fall back to lexicographic
+/// comparison. Unversioned items (std::nullopt) sort strictly lowest.
 
 #include <algorithm>
 #include <cctype>
@@ -74,8 +72,7 @@ inline int compare_token(const std::string& a, const std::string& b)
 }
 } // namespace detail
 
-/// Strip a leading "v" prefix (e.g. "v1.2" -> "1.2") to match the Python
-/// reference's `lstrip("v")` behavior in VersionKey.__init__.
+/// Strip a leading "v" prefix (e.g. "v1.2" -> "1.2").
 inline std::string normalize_version(std::string v)
 {
     if (!v.empty() && v.front() == 'v')
@@ -122,7 +119,7 @@ struct DedupedEntry
 
 /// Group `items` by `key_fn(item)`, keep only the highest-version entry per
 /// group, and report the list of available concrete versions for each group
-/// (descending). Mirrors Python `dedupe_with_versions` from commit 03673d9f.
+/// (descending).
 template <typename T, typename KeyFn, typename VersionFn>
 std::vector<DedupedEntry<T>> dedupe_with_versions(const std::vector<T>& items, KeyFn key_fn,
                                                   VersionFn version_fn)

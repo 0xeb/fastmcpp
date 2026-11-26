@@ -203,7 +203,6 @@ HttpRpcTransport::request_headers(const fastmcpp::Json& rpc, const std::string& 
     auto headers = build_headers({"POST", url + path, path, body});
     // Sessionless-era routing headers mirror body fields so a gateway can route
     // without parsing JSON-RPC.
-    // PYTHON REFERENCE: mcp/client/session.py:153-191 (_make_modern_stamp)
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         if (modern_routing_ && rpc.contains("method") && rpc["method"].is_string())
@@ -229,7 +228,6 @@ void HttpRpcTransport::throw_http_error(HttpResponse response, bool expect_respo
     // The sessionless era maps JSON-RPC errors to HTTP 400/404 with the error
     // in a JSON body; surface that as the JSON-RPC error it is. A bare 404 is
     // method-not-found when there is no session yet.
-    // PYTHON REFERENCE: mcp/client/streamable_http.py:398-430
     const std::string content_type = detail::find_header(response.headers, "Content-Type");
     const bool auth_status = response.status == 401 || response.status == 403;
     if (expect_response && !auth_status &&
@@ -413,7 +411,6 @@ void HttpRpcTransport::post_stream(const std::string& url, const std::string& pa
         sink.on_body(response.body.data(), response.body.size());
 }
 
-// PYTHON REFERENCE: mcp/client/streamable_http.py (SSE response reading)
 void HttpRpcTransport::stream_request(const std::string& route, const fastmcpp::Json& payload,
                                       const fastmcpp::Json& id,
                                       const std::function<bool(const fastmcpp::Json&)>& on_message,

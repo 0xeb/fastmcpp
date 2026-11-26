@@ -227,7 +227,6 @@ ListenHandler::ListenHandler(std::shared_ptr<SubscriptionBus> bus, std::size_t m
         throw std::invalid_argument("ListenHandler requires a subscription bus");
 }
 
-// PYTHON REFERENCE: mcp/server/subscriptions.py:180-243 (ListenHandler.__call__)
 std::shared_ptr<ListenStream> ListenHandler::open(const Json& id, const Json& requested,
                                                   const Json& server_info)
 {
@@ -277,7 +276,6 @@ std::shared_ptr<ListenStream> ListenHandler::open(const Json& id, const Json& re
     return stream;
 }
 
-// PYTHON REFERENCE: mcp/server/subscriptions.py:245-259 (ListenHandler.close)
 void ListenHandler::close()
 {
     std::vector<std::shared_ptr<ListenStream>> live;
@@ -417,7 +415,6 @@ std::shared_ptr<SubscriptionBus> SubscriptionNode::bus() const
     return bus_;
 }
 
-// PYTHON REFERENCE: fastmcp/server/server.py:872-879 (_link_child_servers)
 void SubscriptionNode::link_parent(const std::shared_ptr<SubscriptionNode>& parent)
 {
     if (!parent || parent.get() == this)

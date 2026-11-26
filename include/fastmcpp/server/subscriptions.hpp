@@ -32,7 +32,6 @@ using mcp::ServerEvent;
 /// over an external pub/sub backend to fan events out across replicas.
 /// Listeners must not throw (a throwing one is skipped) and may run on the
 /// publishing thread.
-// PYTHON REFERENCE: mcp/server/subscriptions.py:72-92 (SubscriptionBus)
 class SubscriptionBus
 {
   public:
@@ -47,7 +46,6 @@ class SubscriptionBus
 };
 
 /// In-process bus: synchronous fan-out to listeners in subscription order.
-// PYTHON REFERENCE: mcp/server/subscriptions.py:95-127 (InMemorySubscriptionBus)
 class InMemorySubscriptionBus final : public SubscriptionBus,
                                       public std::enable_shared_from_this<InMemorySubscriptionBus>
 {
@@ -138,7 +136,6 @@ class ListenStream
 /// INTERNAL_ERROR before the ack). `max_buffered_events` bounds each stream's
 /// backlog: a stream whose consumer stopped reading is ended at the cap (it
 /// drains what it holds, then closes; the client re-listens and refetches).
-// PYTHON REFERENCE: mcp/server/subscriptions.py:146-259 (ListenHandler)
 class ListenHandler : public std::enable_shared_from_this<ListenHandler>
 {
   public:
@@ -173,7 +170,6 @@ class ListenHandler : public std::enable_shared_from_this<ListenHandler>
 
 /// The subset of @p requested the server will deliver: true flags and a
 /// non-empty URI list; everything else is dropped.
-// PYTHON REFERENCE: mcp/server/subscriptions.py:130-143 (_honored_subset)
 Json honored_subset(const Json& requested);
 
 /// Result key a base handler answers `subscriptions/listen` with: a token the
@@ -211,7 +207,6 @@ std::shared_ptr<ListenStream> claim_listen_stream(const Json& reply);
 /// Links a FastMCP server's bus to the servers it is mounted on, so list-change
 /// events published on a child also reach clients listening on its parents.
 /// Shared so the links survive moving the owning FastMCP.
-// PYTHON REFERENCE: fastmcp/server/server.py:649, 872-891 (_mounted_on, _live_parents)
 class SubscriptionNode
 {
   public:
@@ -222,7 +217,6 @@ class SubscriptionNode
     void link_parent(const std::shared_ptr<SubscriptionNode>& parent);
 
     /// Publish on this bus, then on every live parent's, each server once.
-    // PYTHON REFERENCE: fastmcp/server/server.py:2104-2117 (_publish_list_changed)
     void publish_list_changed(const ServerEvent& event);
 
     /// Publish on this bus only.

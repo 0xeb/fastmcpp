@@ -132,7 +132,7 @@ std::vector<client::ToolInfo> ProxyApp::list_all_tools() const
         // Surface bad URL/transport; otherwise apply error strategy.
         if (dynamic_cast<const std::invalid_argument*>(&e))
             throw;
-        // F7 (Python fastmcp #4227 / 2bff3725): when configured to raise,
+        // When configured to raise,
         // propagate upstream failures so the caller can fail fast instead of
         // silently degrading to local-only.
         if (error_strategy_ == ProxyErrorStrategy::Raise)

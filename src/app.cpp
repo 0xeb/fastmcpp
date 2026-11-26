@@ -40,7 +40,6 @@ FastMCP::FastMCP(std::string name, std::string version, std::optional<std::strin
     for (const auto& provider : providers_)
         register_bundled_extensions(provider->required_extensions());
     subscription_node_ = std::make_shared<server::SubscriptionNode>();
-    // PYTHON REFERENCE: fastmcp/server/low_level.py:461-476
     set_subscriptions_listen_enabled(Settings::from_env().enable_subscriptions_listen);
 }
 
@@ -303,7 +302,6 @@ using ToolNameOverrides = std::optional<std::unordered_map<std::string, std::str
 // its own server. The pipeline sees a JSON-RPC request naming the child's
 // component and answers with an envelope; an error envelope a middleware
 // returns becomes an McpError.
-// PYTHON REFERENCE: fastmcp/server/server.py:2642-2646 (mount: child middleware runs)
 Json run_child_pipeline(const FastMCP& child, const std::string& method, Json params,
                         const std::function<Json(const Json& params)>& core)
 {
@@ -440,7 +438,6 @@ prompts::PromptResult get_child_prompt(const FastMCP& child, const std::string& 
 }
 
 // Renames apply first, then the namespace: foo -> bar under "baz" is baz_bar.
-// PYTHON REFERENCE: fastmcp/server/server.py:2690-2700 (mount)
 std::string exposed_tool_name(const std::string& child_name, const std::string& prefix,
                               const ToolNameOverrides& tool_names)
 {
@@ -479,7 +476,6 @@ std::optional<std::string> resolve_mounted_tool_name(const std::string& name,
 void FastMCP::mount(FastMCP& app, const std::string& prefix, bool as_proxy,
                     std::optional<std::unordered_map<std::string, std::string>> tool_names)
 {
-    // PYTHON REFERENCE: fastmcp/server/server.py:2676-2677
     if (&app == this)
         throw ValidationError("Cannot mount a server onto itself");
     validate_tool_name_overrides(tool_names);
@@ -501,7 +497,6 @@ void FastMCP::mount(FastMCP& app, const std::string& prefix, bool as_proxy,
     else
     {
         // A mounted server contributes clones of its auto-registering extensions.
-        // PYTHON REFERENCE: fastmcp/server/providers/fastmcp_provider.py:418-420
         std::vector<std::shared_ptr<server::ServerExtension>> bundled;
         for (const auto& extension : app.extensions())
             if (extension->auto_register())
@@ -510,7 +505,6 @@ void FastMCP::mount(FastMCP& app, const std::string& prefix, bool as_proxy,
         mounted_.push_back({prefix, &app, std::move(tool_names)});
     }
     // The child's list-change notifications also reach clients listening here.
-    // PYTHON REFERENCE: fastmcp/server/server.py:866-879 (_link_child_servers)
     app.subscription_node_->link_parent(subscription_node_);
 }
 
@@ -602,7 +596,6 @@ void FastMCP::add_provider(std::shared_ptr<providers::Provider> provider)
     providers_.push_back(std::move(provider));
 }
 
-// PYTHON REFERENCE: fastmcp/server/mixins/extensions.py:156-224 (_register_bundled_extensions)
 void FastMCP::register_bundled_extensions(
     const std::vector<std::shared_ptr<server::ServerExtension>>& bundled)
 {
@@ -642,7 +635,6 @@ void FastMCP::add_extension(std::shared_ptr<server::ServerExtension> extension)
     auto_extensions_.erase(identifier);
 }
 
-// PYTHON REFERENCE: fastmcp/server/mixins/extensions.py:79-154 (_install_extension)
 void FastMCP::install_extension(std::shared_ptr<server::ServerExtension> extension)
 {
     const std::string identifier = extension->identifier();
@@ -734,8 +726,7 @@ FastMCP& FastMCP::add_custom_route(CustomRoute route)
 
     route.method = util::http::normalize_custom_route_method(std::move(route.method));
 
-    // Re-registering the same (method, path) replaces the previous entry —
-    // matches Python `@server.custom_route()` decorator semantics.
+    // Re-registering the same (method, path) replaces the previous entry.
     for (auto& existing : custom_routes_)
     {
         if (existing.method == route.method && existing.path == route.path)
@@ -773,7 +764,7 @@ std::vector<CustomRoute> FastMCP::all_custom_routes() const
             CustomRoute prefixed = child;
             prefixed.path = join_route_path(mounted.prefix, child.path);
             // First-registration wins: skip duplicates already produced by the
-            // parent's own list (parity with Python aggregation order).
+            // parent's own list.
             bool dup = false;
             for (const auto& existing : result)
             {
@@ -853,7 +844,6 @@ bool FastMCP::has_resource_prefix(const std::string& uri, const std::string& pre
         return true; // Empty prefix matches everything
 
     // A hostless URI (urn:thing) is listed unprefixed, so it reverses to itself.
-    // PYTHON REFERENCE: fastmcp_slim/fastmcp/server/transforms/namespace.py:91
     auto scheme_end = uri.find("://");
     if (scheme_end == std::string::npos)
         return true;
@@ -1246,7 +1236,6 @@ std::vector<std::pair<std::string, const prompts::Prompt*>> FastMCP::list_all_pr
 
 // A resource link a mounted tool returns points into the child's URI space, so it
 // gets the same namespace its resources are listed under.
-// PYTHON REFERENCE: fastmcp/server/transforms/namespace.py:98-120 (#6720)
 void FastMCP::namespace_resource_links(Json& result, const std::string& prefix)
 {
     Json* blocks = nullptr;
@@ -1388,7 +1377,6 @@ resources::ResourceContent FastMCP::read_resource(const std::string& uri, const 
 
     // Check provider resources: concrete resources first. One that exists but is hidden is
     // NotFound and must not fall through to a template (or later provider) matching the URI.
-    // PYTHON REFERENCE: fastmcp_slim/fastmcp/server/server.py:1540-1582 (read_resource)
     for (const auto& provider : providers_)
     {
         if (auto res = provider->get_resource_transformed(uri))
@@ -1412,7 +1400,7 @@ resources::ResourceContent FastMCP::read_resource(const std::string& uri, const 
                                                  resource_security());
 
             // Matched values are string-typed; coerce them per-param against the
-            // template's parameter schema. Parity with Python fastmcp 9ccaef2b.
+            // template's parameter schema.
             Json merged_params = templ->build_typed_params(*match_params);
             for (const auto& [key, value] : params.items())
                 merged_params[key] = value;

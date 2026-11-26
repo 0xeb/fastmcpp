@@ -6,7 +6,6 @@ namespace fastmcpp::mcp::tasks
 {
 
 /// Minimum interval (in ms) between task status checks, exposed in task responses.
-/// Parity with Python fastmcp's `minimum_check_interval` (commit 32f1118a).
 static constexpr int kDefaultMinimumCheckIntervalMs = 500;
 
 /// Report a status message for the currently executing background task (SEP-1686).

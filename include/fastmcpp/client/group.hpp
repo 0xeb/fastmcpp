@@ -30,7 +30,6 @@ struct ToolRoute
 };
 
 /// A group of independent clients keyed by server name.
-// PYTHON REFERENCE: fastmcp/client/group.py:48-387 (ClientGroup)
 class ClientGroup
 {
   public:

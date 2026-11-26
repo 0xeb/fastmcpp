@@ -10,7 +10,7 @@ namespace fastmcpp
 using Json = nlohmann::json;
 
 /// Background task execution support mode (SEP-1686).
-/// Mirrors fastmcp.server.tasks.TaskConfig.mode / MCP ToolExecution.taskSupport.
+/// Maps to MCP ToolExecution.taskSupport.
 enum class TaskSupport
 {
     Forbidden, ///< No task augmentation allowed
@@ -47,7 +47,6 @@ struct Id
 };
 
 /// Icon for display in user interfaces (v2.13.0+)
-/// Matches mcp.types.Icon from Python MCP SDK
 struct Icon
 {
     std::string src;                      ///< URL or data URI for the icon
@@ -56,7 +55,7 @@ struct Icon
         sizes; ///< Optional dimensions (e.g., ["48x48", "96x96"])
 };
 
-/// MCP Apps configuration metadata (FastMCP 3.x parity subset).
+/// MCP Apps configuration metadata (subset).
 /// This is serialized under `_meta.ui`.
 struct AppConfig
 {

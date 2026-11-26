@@ -42,7 +42,6 @@ static constexpr int kJsonRpcInvalidParams = -32602;
 static constexpr int kJsonRpcInternalError = -32603;
 static constexpr int kMcpMethodNotFound = -32001; // MCP "Method not found"
 // Resource not found is INVALID_PARAMS on every era (SEP-2164); -32002 is retired.
-// PYTHON REFERENCE: fastmcp/server/mixins/mcp_operations.py:403-411
 static constexpr int kMcpResourceNotFound = -32602;
 static constexpr int kMcpToolTimeout = -32000;
 static constexpr const char* kUiExtensionId = "io.modelcontextprotocol/ui";
@@ -68,7 +67,6 @@ static void attach_meta_ui(fastmcpp::Json& entry, const std::optional<fastmcpp::
 // component's version when it has one. A user-supplied `_meta.fastmcp` is kept
 // (minus `_`-prefixed internal keys), with tags/version taking precedence.
 // The port has no tag concept yet, so tags is always empty.
-// PYTHON REFERENCE: fastmcp/utilities/components.py:190-215 (get_meta)
 static void attach_fastmcp_meta(fastmcpp::Json& entry, const std::optional<std::string>& version)
 {
     fastmcpp::Json fastmcp_meta = fastmcpp::Json::object();
@@ -90,8 +88,7 @@ static void attach_fastmcp_meta(fastmcpp::Json& entry, const std::optional<std::
 }
 
 // Inject FastMCP::experimental_capabilities() into the `capabilities` block on `initialize`.
-// Mirrors Python `FastMCP(experimental_capabilities=...)` (#4042 / commit a010927e):
-// the dict is propagated verbatim so servers can advertise protocol extensions.
+// The object is propagated verbatim so servers can advertise protocol extensions.
 static void advertise_experimental(fastmcpp::Json& capabilities, const FastMCP& app)
 {
     const auto& exp = app.experimental_capabilities();
@@ -160,7 +157,6 @@ static void inject_client_extensions_meta(fastmcpp::Json& args,
     args["_meta"]["client_extensions"] = caps["extensions"];
 }
 
-// PYTHON REFERENCE: fastmcp/server/low_level.py:569-618 (get_capabilities)
 // Registered extensions are advertised on the sessionless era only: the
 // handshake-era capability schema has no `extensions` field and the SDK strips
 // it there, so a handshake client cannot negotiate one.
@@ -207,7 +203,6 @@ static fastmcpp::Json server_info_json(const FastMCP& app)
 
 // On the sessionless era change notifications ride subscriptions/listen only,
 // so listChanged/subscribe say whether it is served (DualEraHandler keeps them).
-// PYTHON REFERENCE: mcp/server/lowlevel/server.py:596-618
 static void advertise_listen(fastmcpp::Json& capabilities, const FastMCP& app,
                              const fastmcpp::Json& params)
 {
@@ -220,7 +215,6 @@ static void advertise_listen(fastmcpp::Json& capabilities, const FastMCP& app,
         capabilities["resources"]["subscribe"] = true;
 }
 
-// PYTHON REFERENCE: mcp/server/lowlevel/server.py (completions capability iff handler)
 static void advertise_completions(fastmcpp::Json& capabilities, const FastMCP& app)
 {
     if (app.completion_handler())
@@ -229,7 +223,6 @@ static void advertise_completions(fastmcpp::Json& capabilities, const FastMCP& a
 
 /// The template a completion reference names: the template itself first (its
 /// identifier is not always a URI it matches), then one a concrete URI matches.
-// PYTHON REFERENCE: fastmcp/server/mixins/mcp_operations.py:556-576 (_completion_target)
 static bool completion_target_exists(const FastMCP& app, const server::CompletionReference& ref)
 {
     if (ref.kind == server::CompletionReference::Kind::Prompt)
@@ -250,7 +243,6 @@ static bool completion_target_exists(const FastMCP& app, const server::Completio
 }
 
 /// Serve `completion/complete`.
-// PYTHON REFERENCE: fastmcp/server/mixins/mcp_operations.py:511-554 (_on_complete)
 static fastmcpp::Json serve_completion(const FastMCP& app, const fastmcpp::Json& id,
                                        const fastmcpp::Json& params)
 {
@@ -259,7 +251,6 @@ static fastmcpp::Json serve_completion(const FastMCP& app, const fastmcpp::Json&
         return make_error_response(id, kJsonRpcMethodNotFound, "Method not found",
                                    "completion/complete");
 
-    // PYTHON REFERENCE: mcp_types/_types.py (CompleteRequestParams)
     auto invalid = [&]
     { return make_error_response(id, kJsonRpcInvalidParams, "Invalid request parameters", ""); };
     auto str_field = [](const fastmcpp::Json& obj, const char* key) -> const fastmcpp::Json*
@@ -339,7 +330,6 @@ static fastmcpp::Json serve_completion(const FastMCP& app, const fastmcpp::Json&
 }
 
 /// Serve `subscriptions/listen`: open a stream and hand it to the transport.
-// PYTHON REFERENCE: mcp/server/subscriptions.py:180-243 (ListenHandler.__call__)
 static fastmcpp::Json serve_listen(const FastMCP& app, const fastmcpp::Json& id,
                                    const fastmcpp::Json& params)
 {
@@ -368,7 +358,6 @@ static fastmcpp::Json serve_listen(const FastMCP& app, const fastmcpp::Json& id,
 /// Serve @p method if a registered extension binds it. Returns nullopt when no
 /// extension serves it (or, on the handshake era, when the binding is for other
 /// versions and a built-in handler may still answer it).
-// PYTHON REFERENCE: fastmcp/server/extensions.py:320-346 (build_method_handler)
 static std::optional<fastmcpp::Json> dispatch_extension_method(const FastMCP& app,
                                                                const fastmcpp::Json& id,
                                                                const std::string& method,
@@ -432,14 +421,11 @@ static std::optional<fastmcpp::Json> dispatch_extension_method(const FastMCP& ap
 
 /// Run a `tools/call` through the registered extensions' interceptors (first
 /// registered outermost) and then the tool body.
-// PYTHON REFERENCE: fastmcp/server/mixins/extensions.py:226-245
-//                   (_compose_tool_call_interceptors)
 /// A failure raised by a tool body as the CallToolResult a client sees: an
 /// isError text result, as fastmcp does on every era. fastmcpp::Error carries
 /// its message (fastmcp's ToolError / FastMCPError); a timeout, a lookup
 /// failure, a protocol error or any other exception is prefixed with the
 /// tool name. An unknown tool reads "Unknown tool: '<name>'".
-// PYTHON REFERENCE: fastmcp/server/server.py (call_tool error handling)
 static fastmcpp::Json tool_error_result(const std::string& name, std::exception_ptr error)
 {
     std::string text;
@@ -509,12 +495,10 @@ run_tool_reporting_errors(const std::string& name, const fastmcpp::Json& args,
     }
 }
 
-/// Run @p run_tool, raising its failure as upstream's tool body does: an
-/// unknown tool (NotFoundError), a ValidationError, a timeout or any other
-/// fastmcpp::Error unchanged; anything else (an McpError from the body, a
-/// std::exception) as fastmcpp::Error "Error calling tool '<name>': ...",
-/// fastmcp's ToolError. Middleware then sees the typed failure.
-// PYTHON REFERENCE: fastmcp/server/server.py:1711-1776 (call_tool error handling)
+/// Run @p run_tool, raising its failure typed: an unknown tool (NotFoundError),
+/// a ValidationError, a timeout or any other fastmcpp::Error unchanged; anything
+/// else (an McpError from the body, a std::exception) as fastmcpp::Error
+/// "Error calling tool '<name>': ...". Middleware then sees the typed failure.
 static fastmcpp::Json
 run_tool_raising_errors(const std::string& name, const fastmcpp::Json& args,
                         const std::function<fastmcpp::Json(const fastmcpp::Json&)>& run_tool)
@@ -612,7 +596,6 @@ static fastmcpp::Json jsonrpc_error(const fastmcpp::Json& id, int code, const st
                           {"error", fastmcpp::Json{{"code", code}, {"message", message}}}};
 }
 
-// PYTHON REFERENCE: fastmcp/server/mixins/mcp_operations.py:403-411
 static fastmcpp::Json resource_not_found(const fastmcpp::Json& id, const std::string& uri)
 {
     return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -630,8 +613,8 @@ static fastmcpp::Json jsonrpc_tool_error(const fastmcpp::Json& id, const std::ex
         return jsonrpc_error(id, kMcpToolTimeout, e.what());
     if (dynamic_cast<const fastmcpp::NotFoundError*>(&e))
         return jsonrpc_error(id, kJsonRpcInvalidParams, e.what());
-    // P2/P3: opt-in argument validation surfaces ValidationError; map it to JSON-RPC
-    // -32602 (invalid params), matching fastmcp.ValidationError semantics.
+    // Opt-in argument validation surfaces ValidationError; map it to JSON-RPC
+    // -32602 (invalid params).
     if (dynamic_cast<const fastmcpp::ValidationError*>(&e))
         return jsonrpc_error(id, kJsonRpcInvalidParams, e.what());
     return jsonrpc_error(id, kJsonRpcInternalError, e.what());
@@ -641,7 +624,6 @@ static void apply_read_cache_hint(fastmcpp::Json& result, const resources::Resou
 {
     // A per-read hint wins over the server-wide one (DualEraHandler keeps
     // fields a handler set).
-    // PYTHON REFERENCE: fastmcp/resources/base.py:221-228 (#5380)
     if (content.ttl_ms)
         result["ttlMs"] = *content.ttl_ms;
     if (content.cache_scope)
@@ -654,7 +636,6 @@ static fastmcpp::Json apply_pagination(const fastmcpp::Json& items, const std::s
 {
     fastmcpp::Json result_obj = {{key, items}};
     // A cursor is validated even when pagination is off.
-    // PYTHON REFERENCE: fastmcp/server/mixins/mcp_operations.py:56-73 (_apply_pagination)
     if (params.contains("cursor") && params["cursor"].is_string() &&
         !params["cursor"].get<std::string>().empty() &&
         !util::pagination::parse_cursor(params["cursor"].get<std::string>()))
@@ -733,7 +714,7 @@ static fastmcpp::Json normalize_output_schema_for_mcp(const fastmcpp::Json& sche
     if (schema.is_null())
         return schema;
 
-    // Python fastmcp requires object-shaped output schemas (MCP structuredContent is a dict).
+    // Output schemas must be object-shaped (MCP structuredContent is an object).
     // For scalar/array outputs, wrap into {"result": ...} and annotate for clients.
     if (schema_is_object(schema))
         return schema;
@@ -1330,11 +1311,10 @@ class TaskRegistry
 };
 
 // Helper: convert a tool invocation JSON result into an MCP CallToolResult payload.
-// For tools that declare an outputSchema, include structuredContent for parity with Python fastmcp.
-// When wrap_result is true, adds _meta: {"fastmcp": {"wrap_result": true}} (parity with 139d2d8f).
+// For tools that declare an outputSchema, include structuredContent.
+// When wrap_result is true, adds _meta: {"fastmcp": {"wrap_result": true}}.
 /// JSON cannot carry NaN or Infinity (nlohmann would write `null`): a tool
 /// result holding one fails as a tool error naming where.
-// PYTHON REFERENCE: fastmcp/tools/base.py (_reject_nonfinite), commit 74e8220a9
 void reject_nonfinite(const fastmcpp::Json& value, const std::string& path = "$")
 {
     if (value.is_number_float())
@@ -1506,6 +1486,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
     return [server_name, version, &tools, descriptions, input_schemas_override,
             instructions](const fastmcpp::Json& message) -> fastmcpp::Json
     {
+        if (auto invalid = invalid_request_response(message))
+            return *invalid;
         try
         {
             const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
@@ -1673,6 +1655,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
     return
         [server_name, version, &server, tools_meta](const fastmcpp::Json& message) -> fastmcpp::Json
     {
+        if (auto invalid = invalid_request_response(message))
+            return *invalid;
         try
         {
             const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
@@ -1914,6 +1898,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
     return [server_name, version, &server, &tools,
             tools_meta](const fastmcpp::Json& message) -> fastmcpp::Json
     {
+        if (auto invalid = invalid_request_response(message))
+            return *invalid;
         try
         {
             const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
@@ -2121,6 +2107,8 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
     return [server_name, version, &server, &tools, &resources, &prompts,
             descriptions](const fastmcpp::Json& message) -> fastmcpp::Json
     {
+        if (auto invalid = invalid_request_response(message))
+            return *invalid;
         try
         {
             const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
@@ -2299,7 +2287,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 std::string uri = params.value("uri", "");
                 if (uri.empty())
                     return jsonrpc_error(id, kJsonRpcInvalidParams, "Missing resource URI");
-                // Strip trailing slashes for compatibility with Python fastmcp
+                // Strip trailing slashes
                 while (!uri.empty() && uri.back() == '/')
                     uri.pop_back();
                 auto span = telemetry::server_span(
@@ -2634,9 +2622,9 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
 
                     if (has_task_meta)
                     {
-                        // P2/P3: validate args BEFORE creating task state so invalid args return
+                        // Validate args BEFORE creating task state so invalid args return
                         // -32602 immediately rather than spawning an orphaned task that only fails
-                        // asynchronously (parity with Python coerce_task_arguments ordering).
+                        // asynchronously.
                         for (const auto& np : app.list_all_tools())
                         {
                             if (np.first != name || !np.second)
@@ -2700,8 +2688,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                     };
                     // With middleware registered, a tool failure is thrown past
                     // this core so on_call_tool sees the typed exception; the
-                    // isError result is applied above the chain, as upstream does.
-                    // PYTHON REFERENCE: fastmcp/server/mixins/mcp_operations.py:290-315
+                    // isError result is applied above the chain.
                     if (app.has_middleware())
                     {
                         try
@@ -2749,7 +2736,6 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
 
             // The SEP-1686 task methods below belong to the handshake era; the
             // sessionless era serves tasks only through the tasks extension.
-            // PYTHON REFERENCE: mcp/server/runner.py:206-208 (unhandled -> METHOD_NOT_FOUND)
             if (method.rfind("tasks/", 0) == 0 && era_of_request(params) == protocol::Era::Modern)
                 return make_error_response(id, kJsonRpcMethodNotFound, "Method not found", method);
 
@@ -3260,11 +3246,13 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
         }
     };
 
-    // Phase 4: run the registered Middleware pipeline around dispatch. With no middleware
+    // Run the registered Middleware pipeline around dispatch. With no middleware
     // registered (the default), `core` is invoked directly — byte-identical, zero overhead.
     return [&app, core = std::move(core),
             session_accessor](const fastmcpp::Json& message) -> fastmcpp::Json
     {
+        if (auto invalid = invalid_request_response(message))
+            return *invalid;
         if (!app.has_middleware())
             return core(message);
 
@@ -3296,7 +3284,6 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
         // NotFoundError for an unknown tool, fastmcpp::Error for anything else), and
         // becomes the isError result here, above the chain, when no middleware
         // answered it. An McpError a middleware raises stays a protocol error.
-        // PYTHON REFERENCE: fastmcp/server/mixins/mcp_operations.py:290-315 (_on_call_tool)
         const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
         const std::string name = ctx.tool_name.value_or("");
         bool from_tool = false;
@@ -3343,6 +3330,8 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
 {
     return [&app](const fastmcpp::Json& message) -> fastmcpp::Json
     {
+        if (auto invalid = invalid_request_response(message))
+            return *invalid;
         try
         {
             const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
@@ -3354,12 +3343,9 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
             {
                 fastmcpp::Json serverInfo = {{"name", app.name()}, {"version", app.version()}};
 
-                // F8 (Python fastmcp #4228 / 140d96aa): when configured,
-                // forward the inbound MCP initialize to the upstream so an
-                // unreachable backend surfaces as a JSON-RPC error here
-                // instead of failing later on the first tools/list. fastmcpp
-                // keeps this opt-in via ProxyAppOptions::validate_on_initialize
-                // (Python made it always-on; we preserve back-compat).
+                // When configured (ProxyAppOptions::validate_on_initialize), forward the
+                // inbound initialize to the upstream so an unreachable backend surfaces as
+                // a JSON-RPC error here instead of failing later on the first tools/list.
                 if (app.validate_on_initialize())
                 {
                     try
@@ -3629,7 +3615,6 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 catch (const fastmcpp::ValidationError& e)
                 {
                     // An unconvertible argument is a client error.
-                    // PYTHON REFERENCE: fastmcp/resources/template.py:687 (#6193)
                     if (span.active())
                         span.span().record_exception(e.what());
                     return jsonrpc_error(id, kJsonRpcInvalidParams, e.what());
@@ -3737,7 +3722,6 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 catch (const fastmcpp::ValidationError& e)
                 {
                     // An unconvertible argument is a client error.
-                    // PYTHON REFERENCE: fastmcp/resources/template.py:687 (#6193)
                     if (span.active())
                         span.span().record_exception(e.what());
                     return jsonrpc_error(id, kJsonRpcInvalidParams, e.what());
@@ -3823,6 +3807,8 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
 {
     return [&app, session_accessor](const fastmcpp::Json& message) -> fastmcpp::Json
     {
+        if (auto invalid = invalid_request_response(message))
+            return *invalid;
         try
         {
             const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
@@ -3962,9 +3948,9 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 // This allows tools to access sampling via Context
                 if (!session_id.empty())
                 {
-                    // Issue #47: preserve any client-provided `arguments._meta` members and only
+                    // Preserve any client-provided `arguments._meta` members and only
                     // add/overwrite session_id, rather than replacing the whole object (which
-                    // dropped every member except session_id). Mirrors the non-sampling
+                    // dropped every member except session_id). Same as the non-sampling
                     // tools/call handler above.
                     if (!args.contains("_meta") || !args["_meta"].is_object())
                         args["_meta"] = fastmcpp::Json::object();
@@ -4152,7 +4138,6 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 catch (const fastmcpp::ValidationError& e)
                 {
                     // An unconvertible argument is a client error.
-                    // PYTHON REFERENCE: fastmcp/resources/template.py:687 (#6193)
                     if (span.active())
                         span.span().record_exception(e.what());
                     return jsonrpc_error(id, kJsonRpcInvalidParams, e.what());
@@ -4240,7 +4225,6 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 catch (const fastmcpp::ValidationError& e)
                 {
                     // An unconvertible argument is a client error.
-                    // PYTHON REFERENCE: fastmcp/resources/template.py:687 (#6193)
                     if (span.active())
                         span.span().record_exception(e.what());
                     return jsonrpc_error(id, kJsonRpcInvalidParams, e.what());

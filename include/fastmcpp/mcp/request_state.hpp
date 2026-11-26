@@ -13,7 +13,6 @@
 ///          (`mcp.server.request_state.AESGCMRequestStateCodec`): replicas of
 ///          either implementation that share a key accept each other's tokens.
 ///
-/// PYTHON REFERENCE: mcp/server/request_state.py
 
 #include "fastmcpp/types.hpp"
 

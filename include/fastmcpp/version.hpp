@@ -3,13 +3,13 @@
 
 namespace fastmcpp
 {
-/// The first three components mirror the upstream fastmcp release this port is at
-/// parity with, so they answer "which fastmcp is this?".
+/// The first three components are the fastmcp release this library matches, so they
+/// answer "which fastmcp is this?".
 constexpr int VERSION_MAJOR = FASTMCPP_VERSION_MAJOR;
 constexpr int VERSION_MINOR = FASTMCPP_VERSION_MINOR;
 constexpr int VERSION_PATCH = FASTMCPP_VERSION_PATCH;
 
-/// Local revision on top of that parity level, for C++-side work with no upstream
+/// Local revision on top of that release, for C++-side work with no upstream
 /// delta. Zero when the port sits exactly on an upstream release; it resets when
 /// the upstream anchor moves.
 constexpr int VERSION_TWEAK = FASTMCPP_VERSION_TWEAK;

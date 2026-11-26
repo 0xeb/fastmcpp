@@ -24,8 +24,7 @@ std::string strip_leading_zeros(const std::string& s)
 }
 
 // Strip a leading 'v' or 'V' prefix when followed by a digit so versions
-// like "v1.2" compare equal to "1.2". Mirrors Python `parse_version_key`
-// behavior in fastmcp v3.4.0 (#4058 / commit 24b594b1).
+// like "v1.2" compare equal to "1.2".
 std::string strip_v_prefix(const std::string& version)
 {
     if (version.size() >= 2 && (version[0] == 'v' || version[0] == 'V') &&
@@ -107,7 +106,7 @@ VersionFilter::VersionFilter(std::string version_gte)
 
 bool VersionFilter::matches(const std::optional<std::string>& version) const
 {
-    // Python fastmcp lets unversioned components pass range filters by default.
+    // Unversioned components pass range filters by default.
     // When include_unversioned is false, unversioned components are excluded.
     if (!version)
         return include_unversioned_;

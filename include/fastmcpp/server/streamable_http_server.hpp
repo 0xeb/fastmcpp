@@ -78,7 +78,7 @@ class StreamableHttpServerWrapper
      * @return true if server started successfully
      */
     /// Enable the Host/Origin request guard (DNS-rebinding protection).
-    /// Call before start(). Default Off. PYTHON REFERENCE: host_origin_protection.
+    /// Call before start(). Default Off.
     void set_host_origin_guard(HostOriginGuardOptions options)
     {
         host_origin_guard_options_ = std::move(options);
@@ -97,7 +97,6 @@ class StreamableHttpServerWrapper
     /// accepted AccessToken is the request's principal (current_access_token,
     /// session state). Combines with a static auth_token if both are set.
     /// Call before start().
-    // PYTHON REFERENCE: mcp/server/auth/middleware/bearer_auth.py:114-160
     void set_token_verifier(TokenVerifier verifier)
     {
         token_verifier_ = std::move(verifier);
@@ -113,7 +112,7 @@ class StreamableHttpServerWrapper
     }
 
     /// Interval of the `: ping` keepalive comment on idle listen streams
-    /// (default 15 s, as upstream).
+    /// (default 15 s).
     void set_listen_ping_interval(std::chrono::milliseconds interval)
     {
         listen_ping_interval_ = interval;

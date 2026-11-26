@@ -22,7 +22,6 @@ namespace fastmcpp::server
 namespace
 {
 
-// PYTHON REFERENCE: fastmcp_tasks/creation.py (TASK_MAPPING_TTL_BUFFER_SECONDS)
 constexpr std::chrono::minutes kRetentionBuffer{15};
 
 /// `datetime.now(UTC).isoformat()`: microseconds and an explicit offset.
@@ -67,13 +66,11 @@ Json text_error_result(const std::string& message)
 
 McpError invalid_params()
 {
-    // PYTHON REFERENCE: mcp/shared/jsonrpc_dispatcher.py:104-105
     return McpError(mcp::kInvalidParams, "Invalid request parameters", "");
 }
 
 McpError task_not_found(const std::string& task_id)
 {
-    // PYTHON REFERENCE: fastmcp_tasks/handlers.py:85-92 (_task_not_found)
     return McpError(mcp::kInvalidParams, "Task " + task_id + " not found");
 }
 
@@ -241,7 +238,6 @@ struct TasksExtension::Impl
         }
     }
 
-    // PYTHON REFERENCE: fastmcp_tasks/input_loop.py:125-186 (reentrant_task_fn)
     void run_leg(const std::shared_ptr<Task>& task, int leg, const Json& arguments)
     {
         Json result;
@@ -271,7 +267,6 @@ struct TasksExtension::Impl
         }
         catch (const std::exception& e)
         {
-            // PYTHON REFERENCE: fastmcp_tasks/input_loop.py:105-122 (_error_result)
             result = text_error_result("Error calling tool '" + task->tool_name + "': " + e.what());
         }
         catch (...)
@@ -315,7 +310,6 @@ struct TasksExtension::Impl
             return;
         }
 
-        // PYTHON REFERENCE: fastmcp_tasks/input_store.py:242-280 (store_outstanding)
         task->outstanding.clear();
         for (const auto& [tool_key, request] : result["inputRequests"].items())
             task->outstanding[task->id + ":" + hex_token(8)] = Outstanding{request, tool_key};
@@ -337,7 +331,6 @@ struct TasksExtension::Impl
                     {"pollIntervalMs", options.poll_interval.count()}};
     }
 
-    // PYTHON REFERENCE: fastmcp_tasks/creation.py:56-143 (create_task)
     Json create(const ToolCallRequest& request)
     {
         auto task = std::make_shared<Task>();
@@ -365,7 +358,6 @@ struct TasksExtension::Impl
         return result;
     }
 
-    // PYTHON REFERENCE: fastmcp_tasks/handlers.py:239-317 (tasks_get)
     Json get(const std::string& task_id)
     {
         std::lock_guard<std::mutex> lock(mutex);
@@ -402,7 +394,6 @@ struct TasksExtension::Impl
         return out;
     }
 
-    // PYTHON REFERENCE: fastmcp_tasks/handlers.py:320-445 (tasks_update)
     Json update(const std::string& task_id, const Json& responses)
     {
         const Json ack = Json{{"resultType", "complete"}};
@@ -441,7 +432,6 @@ struct TasksExtension::Impl
         return ack;
     }
 
-    // PYTHON REFERENCE: fastmcp_tasks/handlers.py:448-501 (tasks_cancel)
     Json cancel(const std::string& task_id)
     {
         const Json ack = Json{{"resultType", "complete"}};
@@ -468,13 +458,11 @@ TasksExtension::~TasksExtension()
 
 Json TasksExtension::missing_capability_error_data()
 {
-    // PYTHON REFERENCE: fastmcp_tasks/models.py:136-146 (missing_capability_error_data)
     return Json{{"requiredCapabilities", {{"extensions", {{kTasksExtensionId, Json::object()}}}}}};
 }
 
 std::vector<MethodBinding> TasksExtension::methods()
 {
-    // PYTHON REFERENCE: fastmcp_tasks/extension.py:155-224
     // SEP-2663 methods exist only on the 2026-07-28 era.
     std::set<std::string> versions;
     for (const auto& v : protocol::kModernVersions)
@@ -538,7 +526,6 @@ std::vector<MethodBinding> TasksExtension::methods()
     };
 }
 
-// PYTHON REFERENCE: fastmcp_tasks/extension.py:226-294 (intercept_tool_call)
 Json TasksExtension::intercept_tool_call(const ToolCallRequest& request,
                                          const ToolCallContinuation& call_next)
 {

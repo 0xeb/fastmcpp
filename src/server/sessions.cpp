@@ -11,7 +11,6 @@ namespace fastmcpp::server
 
 namespace
 {
-// PYTHON REFERENCE: fastmcp/server/sessions.py:91-101
 constexpr const char* kMarkerKey = "_created";
 constexpr const char* kStateKey = "state";
 constexpr const char* kUserSessionId = "_user";
@@ -220,7 +219,6 @@ SessionProvider::SessionProvider(StoreGetter store) : store_(std::move(store)) {
 
 std::vector<tools::Tool> SessionProvider::list_tools() const
 {
-    // PYTHON REFERENCE: fastmcp/server/sessions.py:376-400 (create_session, end_session)
     const Json output_schema = Json{{"type", "string"}};
     auto store = store_;
 

@@ -31,7 +31,7 @@ class OpenAPIProvider : public Provider
     std::optional<tools::Tool> get_tool(const std::string& name) const override;
 
   private:
-    // Per-parameter OpenAPI serialization overrides (F20 / fastmcp #3595, #3662).
+    // Per-parameter OpenAPI serialization overrides.
     // Absent style => "form"; absent explode => true (the OpenAPI query defaults).
     struct ParameterMeta
     {

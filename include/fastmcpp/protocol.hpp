@@ -29,7 +29,6 @@ constexpr std::string_view kKnownVersions[] = {
 };
 
 /// Revisions negotiated through the `initialize` handshake, newest first.
-// PYTHON REFERENCE: mcp_types/version.py:33-38 (HANDSHAKE_PROTOCOL_VERSIONS)
 constexpr std::string_view kHandshakeVersions[] = {
     "2025-11-25",
     "2025-06-18",
@@ -39,7 +38,6 @@ constexpr std::string_view kHandshakeVersions[] = {
 
 /// Sessionless revisions: every request carries its own envelope and there is
 /// no `initialize`.
-// PYTHON REFERENCE: mcp_types/version.py:41 (MODERN_PROTOCOL_VERSIONS)
 constexpr std::string_view kModernVersions[] = {"2026-07-28"};
 
 constexpr const char* kLatestHandshake = "2025-11-25";
@@ -83,8 +81,7 @@ constexpr bool is_modern(std::string_view version)
 /// Echoing a recognised request is what lets a client that only speaks an older
 /// revision keep working after @ref kDefaultVersion moves; answering an
 /// unrecognised one with the newest revision we implement tells that client what
-/// we can actually do, and leaves it to decide whether that is acceptable. This
-/// mirrors how Python fastmcp negotiates.
+/// we can actually do, and leaves it to decide whether that is acceptable.
 ///
 /// `initialize` is a handshake-era request, so a client asking it for a modern
 /// revision is answered with the newest handshake revision.

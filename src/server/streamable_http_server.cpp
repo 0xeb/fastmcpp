@@ -24,7 +24,6 @@ namespace
 // A present MCP-Protocol-Version that is not a handshake revision (an unknown
 // value included) routes to the sessionless entry, which then tells the client
 // what it serves.
-// PYTHON REFERENCE: mcp/server/streamable_http_manager.py:186-199
 bool routes_to_modern(const httplib::Request& req)
 {
     if (!req.has_header("MCP-Protocol-Version"))
@@ -32,7 +31,6 @@ bool routes_to_modern(const httplib::Request& req)
     return !protocol::is_handshake(req.get_header_value("MCP-Protocol-Version"));
 }
 
-// PYTHON REFERENCE: mcp/server/streamable_http.py:87-101 (check_accept_headers)
 std::pair<bool, bool> accept_types(const httplib::Request& req)
 {
     std::string header = req.get_header_value("Accept");
@@ -76,7 +74,6 @@ void write_jsonrpc(httplib::Response& res, const Json& msg)
 void StreamableHttpServerWrapper::handle_modern_post(const httplib::Request& req,
                                                      httplib::Response& res)
 {
-    // PYTHON REFERENCE: mcp/server/_streamable_http_modern.py:380-520
     auto [has_json, has_sse] = accept_types(req);
     if (!has_json && !has_sse)
     {
@@ -129,7 +126,6 @@ void StreamableHttpServerWrapper::handle_modern_post(const httplib::Request& req
     }
 
     // A listen response IS a notification stream, never JSON.
-    // PYTHON REFERENCE: mcp/server/_streamable_http_modern.py:429-434
     if (decoded["method"] == "subscriptions/listen" && !has_sse)
     {
         res.status = 406;
@@ -139,7 +135,6 @@ void StreamableHttpServerWrapper::handle_modern_post(const httplib::Request& req
     mcp::HeaderMap headers;
     for (const char* name : {mcp::kProtocolVersionHeader, mcp::kMethodHeader, mcp::kNameHeader})
     {
-        // PYTHON REFERENCE: mcp/shared/inbound.py:340-355 (duplicated routing header)
         if (req.get_header_value_count(name) > 1)
         {
             write_jsonrpc(res, mcp::make_error_response(decoded["id"], mcp::kHeaderMismatch,
@@ -217,7 +212,6 @@ size_t StreamableHttpServerWrapper::max_listen_streams() const
     return worker_threads_ > reserve ? worker_threads_ - reserve : 0;
 }
 
-// PYTHON REFERENCE: mcp/server/_streamable_http_modern.py:465-534 (SSE response path)
 void StreamableHttpServerWrapper::serve_listen_stream(std::shared_ptr<ListenStream> stream,
                                                       const httplib::Request& req,
                                                       httplib::Response& res)
@@ -499,6 +493,12 @@ bool StreamableHttpServerWrapper::start()
 
                 // Parse JSON-RPC message
                 auto message = fastmcpp::util::json::parse(req.body);
+                if (auto invalid = mcp::invalid_request_response(message))
+                {
+                    res.set_content(invalid->dump(), "application/json");
+                    res.status = 400;
+                    return;
+                }
 
                 // Check for Mcp-Session-Id header
                 std::string session_id;
@@ -507,7 +507,8 @@ bool StreamableHttpServerWrapper::start()
                     session_id = session_it->second;
 
                 // Handle initialize request - creates new session
-                bool is_initialize = message.contains("method") &&
+                bool is_initialize = message.is_object() && message.contains("method") &&
+                                     message["method"].is_string() &&
                                      message["method"].get<std::string>() == "initialize";
 
                 if (is_initialize)
@@ -832,7 +833,7 @@ void StreamableHttpServerWrapper::stop()
 
     running_ = false;
 
-    // Python fastmcp commit 82090938 (#4118): drain active streamable-HTTP responses
+    // Drain active streamable-HTTP responses
     // before tearing down session state. httplib's svr_->stop() begins quiescing
     // in-flight requests; we keep `sessions_` populated so any handler still flushing
     // a final SSE event can resolve its session_id, then clear after the listening

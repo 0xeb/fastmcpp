@@ -17,7 +17,6 @@ namespace fastmcpp::mcp
 inline constexpr const char* kSubscriptionIdMetaKey = "io.modelcontextprotocol/subscriptionId";
 
 /// An event a server publishes for delivery to listen subscribers.
-// PYTHON REFERENCE: mcp/shared/subscriptions.py:38-65
 struct ServerEvent
 {
     enum class Kind
@@ -60,20 +59,17 @@ struct ServerEvent
 };
 
 /// The stamped wire notification for @p event (the server's direction).
-// PYTHON REFERENCE: mcp/shared/subscriptions.py:68-77 (event_to_notification)
 Json event_to_notification(const ServerEvent& event, const Json& meta);
 
 /// The event a raw listen-stream frame announces, or nullopt if it carries none.
-// PYTHON REFERENCE: mcp/shared/subscriptions.py:89-100 (event_from_wire)
 std::optional<ServerEvent> event_from_wire(const std::string& method, const Json& params);
 
 /// Whether @p event is within a stream's honored filter. @p uris is the honored
 /// `resourceSubscriptions` as a set.
-// PYTHON REFERENCE: mcp/shared/subscriptions.py:103-114 (event_matches)
 bool event_matches(const Json& honored, const std::set<std::string>& uris,
                    const ServerEvent& event);
 
-/// Validate a `SubscriptionFilter` the way the reference SDK's model does:
+/// Validate a `SubscriptionFilter`:
 /// an object whose three flags are lax booleans (or null) and whose
 /// `resourceSubscriptions` is a list of strings (or null). Unknown keys pass.
 /// Returns the filter with the flags normalized to booleans, or nullopt when

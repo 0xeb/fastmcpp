@@ -112,6 +112,9 @@ class DualEraHandler
 Json make_error_response(const Json& id, int code, const std::string& message,
                          const Json& data = nullptr);
 
+/// -32600 response for a malformed JSON-RPC message, else nullopt.
+std::optional<Json> invalid_request_response(const Json& message);
+
 /// The era a base handler is running under for @p params (set by DualEraHandler).
 protocol::Era era_of_request(const Json& params);
 

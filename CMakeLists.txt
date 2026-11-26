@@ -4,7 +4,7 @@ if(POLICY CMP0169)
   cmake_policy(SET CMP0169 OLD)
 endif()
 # major.minor.patch = upstream fastmcp parity level; optional 4th = local revision.
-project(fastmcpp VERSION 4.2.6.1 LANGUAGES CXX)
+project(fastmcpp VERSION 4.2.6.2 LANGUAGES CXX)
 
 # Empty for a 3-component version, which would expand to FASTMCPP_VERSION_TWEAK=.
 if(NOT DEFINED PROJECT_VERSION_TWEAK OR PROJECT_VERSION_TWEAK STREQUAL "")
@@ -382,8 +382,8 @@ if(FASTMCPP_BUILD_EXAMPLES)
   target_link_libraries(fastmcpp_example_sse_robustness PRIVATE fastmcpp_core)
 
   # SSE Inspector Test - Long-running server for MCP Inspector testing
-  add_executable(fastmcpp_example_sse_inspector_test examples/sse_inspector_test.cpp)
-  target_link_libraries(fastmcpp_example_sse_inspector_test PRIVATE fastmcpp_core)
+  add_executable(fastmcpp_example_sse_inspector_server examples/sse_inspector_server.cpp)
+  target_link_libraries(fastmcpp_example_sse_inspector_server PRIVATE fastmcpp_core)
 
   # Streaming demo (SSE via GET). This demonstrates the client streaming API.
   add_executable(fastmcpp_example_streaming_demo examples/streaming_demo.cpp)

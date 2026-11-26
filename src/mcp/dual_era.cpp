@@ -12,7 +12,6 @@ namespace fastmcpp::mcp
 namespace
 {
 
-// PYTHON REFERENCE: mcp_types/methods.py:113-124 vs the handshake request set.
 // Requests that exist only on the handshake era; the sessionless wire answers
 // them with method-not-found.
 const std::set<std::string>& handshake_only_methods()
@@ -23,7 +22,6 @@ const std::set<std::string>& handshake_only_methods()
     return methods;
 }
 
-// PYTHON REFERENCE: mcp_types/methods.py:411-425 (CacheableMethod)
 bool is_cacheable(const std::string& method)
 {
     return method == "prompts/list" || method == "resources/list" || method == "resources/read" ||
@@ -40,7 +38,6 @@ bool flag_true(const Json& object, const char* key)
 // subscriptions/listen, so listChanged/subscribe say whether that is served.
 // The base handler reports it by setting them true on the modern-era identity;
 // anything else reads as false.
-// PYTHON REFERENCE: mcp/server/lowlevel/server.py:589-618
 Json modern_capabilities(Json caps)
 {
     if (!caps.is_object())
@@ -58,7 +55,6 @@ Json modern_capabilities(Json caps)
     return caps;
 }
 
-// PYTHON REFERENCE: mcp_types/_types.py:1048-1050 (SubscriptionsListenRequestParams)
 bool listen_params_valid(const Json& message)
 {
     if (!message.contains("params") || !message["params"].is_object())
@@ -127,13 +123,11 @@ void deliver_input(Json& message, const std::string& method, const Json* respons
 
 Json invalid_request_state(const Json& id)
 {
-    // PYTHON REFERENCE: mcp/server/request_state.py:268-277 (_reject)
     return make_error_response(id, kInvalidParams, "Invalid or expired requestState",
                                Json{{"reason", "invalid_request_state"}});
 }
 
 /// The handshake-era refusal for a handler that asked for input.
-// PYTHON REFERENCE: fastmcp/server/mixins/mcp_operations.py:344-357, 425-438, 467-480
 Json input_required_on_handshake(const Json& id, const std::string& method, const Json& params,
                                  const std::optional<std::string>& negotiated)
 {
@@ -206,6 +200,22 @@ std::string wire_version_of_request(const Json& params)
     return {};
 }
 
+std::optional<Json> invalid_request_response(const Json& message)
+{
+    Json id = nullptr;
+    if (message.is_object() && message.contains("id"))
+    {
+        const Json& raw = message["id"];
+        if (raw.is_string() || raw.is_number())
+            id = raw;
+    }
+    if (!message.is_object() || (message.contains("method") && !message["method"].is_string()) ||
+        (message.contains("params") && !message["params"].is_object() &&
+         !message["params"].is_null()))
+        return make_error_response(id, kInvalidRequest, "Invalid Request");
+    return std::nullopt;
+}
+
 protocol::Era era_of_request(const Json& params)
 {
     if (params.is_object() && params.contains("_meta") && params["_meta"].is_object() &&
@@ -243,7 +253,6 @@ Json DualEraHandler::server_identity() const
 
 Json DualEraHandler::discover(const Json& id, const Envelope&) const
 {
-    // PYTHON REFERENCE: mcp/server/lowlevel/server.py:673-686 (_handle_discover)
     Json identity = server_identity();
     Json supported = Json::array();
     for (const auto& v : protocol::kModernVersions)
@@ -261,16 +270,16 @@ Json DualEraHandler::discover(const Json& id, const Envelope&) const
 Json DualEraHandler::handle_handshake(const Json& message,
                                       const std::optional<std::string>& negotiated_version) const
 {
+    if (auto invalid = invalid_request_response(message))
+        return *invalid;
     const std::string method = message.value("method", std::string());
     const bool is_request = message.contains("id") && !message["id"].is_null();
-    // PYTHON REFERENCE: mcp/server/runner.py:~710-714
     if (is_request && method != "initialize" && message.contains("params") &&
         has_modern_envelope(message["params"]))
         return make_error_response(message["id"], kInvalidRequest,
                                    "this connection serves the handshake protocol era; requests "
                                    "carrying the 2026-07-28 envelope are not accepted on it");
     // subscriptions/listen exists only at 2026-07-28.
-    // PYTHON REFERENCE: mcp/server/runner.py:193-197
     if ((method == "server/discover" || method == "subscriptions/listen") && is_request)
         return make_error_response(message["id"], kMethodNotFound, "Method not found", method);
     Json private_meta = Json::object();
@@ -283,7 +292,6 @@ Json DualEraHandler::handle_handshake(const Json& message,
     return reply;
 }
 
-// PYTHON REFERENCE: mcp/server/request_state.py:375-386 (RequestStateBoundary.__call__)
 Json DualEraHandler::call_input_required_method(const Json& message, const Json& id,
                                                 const std::string& method,
                                                 const Json& private_meta) const
@@ -316,7 +324,6 @@ Json DualEraHandler::call_input_required_method(const Json& message, const Json&
     if (!reply_is_input_required(reply))
         return reply;
 
-    // PYTHON REFERENCE: mcp_types/_types.py:2093-2097 (at least one field)
     Json& result = reply["result"];
     const bool has_requests = result.contains("inputRequests") &&
                               result["inputRequests"].is_object() &&
@@ -344,13 +351,14 @@ Json DualEraHandler::call_input_required_method(const Json& message, const Json&
 
 Json DualEraHandler::handle_modern(const Json& message, const HeaderMap* headers) const
 {
+    if (auto invalid = invalid_request_response(message))
+        return *invalid;
     const Json id = message.contains("id") ? message["id"] : Json();
     const std::string method = message.value("method", std::string());
 
     // Notifications carry no envelope; the only client notification on this
     // era is notifications/cancelled, and a stateless server has nothing to
     // cancel by a client-chosen id, so it is acknowledged and dropped.
-    // PYTHON REFERENCE: mcp/server/_streamable_http_modern.py:224-251
     if (!message.contains("id"))
         return Json();
 
@@ -371,11 +379,9 @@ Json DualEraHandler::handle_modern(const Json& message, const HeaderMap* headers
     if (method == "server/discover")
         reply = discover(id, env);
     else if (handshake_only_methods().count(method))
-        // PYTHON REFERENCE: mcp/server/runner.py:197-210
         reply = make_error_response(id, kMethodNotFound, "Method not found", method);
     else if (method == "subscriptions/listen")
     {
-        // PYTHON REFERENCE: mcp/server/runner.py:193-197 (validate_client_request)
         if (!listen_params_valid(message))
             return make_error_response(id, kInvalidParams, "Invalid request parameters", "");
         server::ListenStreamScope scope(listen_streams_);
@@ -393,12 +399,10 @@ Json DualEraHandler::handle_modern(const Json& message, const HeaderMap* headers
     if (!reply.is_object() || !reply.contains("result") || !reply["result"].is_object())
         return reply;
 
-    // PYTHON REFERENCE: mcp/server/runner.py:340-417 (_serialize, _stamp_server_info)
     Json& result = reply["result"];
     Json identity = server_identity();
     // Interim input_required results never carry cache hints. A field the
     // handler set wins over the server-wide hint, per field.
-    // PYTHON REFERENCE: mcp/server/caching.py:47-61 (apply_cache_hint)
     if (is_cacheable(method) && !is_input_required(result))
     {
         Json hint = identity.value(kCacheHintKey, Json::object());
@@ -422,6 +426,8 @@ Json DualEraHandler::handle_modern(const Json& message, const HeaderMap* headers
 
 Json DualEraHandler::operator()(const Json& message) const
 {
+    if (auto invalid = invalid_request_response(message))
+        return *invalid;
     const std::string method = message.value("method", std::string());
     if (method != "initialize" && message.contains("params") &&
         has_modern_envelope(message["params"]))

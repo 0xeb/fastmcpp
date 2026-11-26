@@ -28,7 +28,6 @@ Settings Settings::from_env()
     if (!transport.empty())
         s.transport = transport;
 
-    // Host/Origin guard (PYTHON REFERENCE: FASTMCP_HTTP_HOST_ORIGIN_PROTECTION et al.)
     auto guard = getenv_str("FASTMCPP_HTTP_HOST_ORIGIN_PROTECTION", "");
     std::transform(guard.begin(), guard.end(), guard.begin(), ::tolower);
     if (guard == "true" || guard == "1" || guard == "strict")

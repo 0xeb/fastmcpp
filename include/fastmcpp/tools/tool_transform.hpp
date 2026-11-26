@@ -1,6 +1,6 @@
 #pragma once
 /// @file tool_transform.hpp
-/// @brief Tool transformation system for fastmcpp (matching Python fastmcp)
+/// @brief Tool transformation system for fastmcpp
 ///
 /// Provides tool transformation capabilities:
 /// - ArgTransform: Configuration for transforming individual arguments
@@ -68,8 +68,7 @@ struct TransformResult
 ///
 /// Throws fastmcpp::ValidationError if the requested transforms would map two
 /// distinct parent arguments to the same effective name (rename collides with
-/// either another rename or an untouched passthrough param). Parity with
-/// Python fastmcp commit d316f193.
+/// either another rename or an untouched passthrough param).
 inline TransformResult
 build_transformed_schema(const Json& parent_schema,
                          const std::unordered_map<std::string, ArgTransform>& transform_args)
@@ -146,7 +145,7 @@ build_transformed_schema(const Json& parent_schema,
 
             if (transform.type_schema.has_value())
             {
-                // Python fastmcp commit b8597f94 (#4101): hoist `$defs` introduced by an
+                // Hoist `$defs` introduced by an
                 // ArgTransform.type_schema to the schema root so MCP clients can resolve any
                 // $ref the new property type references. Without this, properties using complex
                 // annotated types reference `$defs/X` that does not exist anywhere in the
@@ -216,10 +215,10 @@ build_transformed_schema(const Json& parent_schema,
         }
     }
     result.schema["properties"] = new_properties;
-    // PYTHON REFERENCE: fastmcp/tools/tool_transform.py (#4564) — iterate properties (not the
-    // set) for deterministic `required` ordering. new_required is an unordered_set, so emitting
-    // it directly yields hash/bucket order that varies across runs/platforms; iterating
-    // new_properties (a stable-key Json object) and filtering by membership is deterministic.
+    // Iterate properties (not the set) for deterministic `required` ordering. new_required is
+    // an unordered_set, so emitting it directly yields hash/bucket order that varies across
+    // runs/platforms; iterating new_properties (a stable-key Json object) and filtering by
+    // membership is deterministic.
     result.schema["required"] = Json::array();
     for (auto it = new_properties.begin(); it != new_properties.end(); ++it)
         if (new_required.count(it.key()) > 0)

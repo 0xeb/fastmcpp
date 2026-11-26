@@ -20,11 +20,9 @@ namespace
 
 McpError invalid_params()
 {
-    // PYTHON REFERENCE: mcp/shared/jsonrpc_dispatcher.py:104-105
     return McpError(mcp::kInvalidParams, "Invalid request parameters", "");
 }
 
-// PYTHON REFERENCE: fastmcp/skills/provider.py:17 (mimetypes + text/markdown)
 std::string guess_mime_type(const std::string& file_path)
 {
     auto dot = file_path.rfind('.');
@@ -79,7 +77,6 @@ bool valid_utf8(const std::string& s)
 }
 
 /// Check that each path ends with its skill's name and holds no other skill.
-// PYTHON REFERENCE: fastmcp/skills/provider.py:399-410 (_validate_skill_paths)
 void validate_skill_paths(const std::map<std::string, std::string>& names)
 {
     for (const auto& [path, name] : names)
@@ -98,7 +95,6 @@ void validate_skill_paths(const std::map<std::string, std::string>& names)
 }
 
 /// (skill path, file path) a `skill://` URI addresses in @p paths.
-// PYTHON REFERENCE: fastmcp/skills/provider.py:440-447 (_locate)
 template <typename Map>
 std::optional<std::pair<std::string, std::string>> locate(const std::string& uri,
                                                           const Map& catalog)
@@ -115,8 +111,6 @@ std::optional<std::pair<std::string, std::string>> locate(const std::string& uri
     }
     return std::nullopt;
 }
-
-// --- How a read of a URI would be routed (PYTHON REFERENCE: skills/_routing.py) ---
 
 std::string add_prefix(const std::string& uri, const std::string& prefix)
 {
@@ -200,7 +194,6 @@ bool routes_to_mount(const FastMCP& app, std::size_t index, const std::string& u
 
 std::optional<std::size_t> parse_cursor_offset(const std::string& cursor)
 {
-    // PYTHON REFERENCE: fastmcp/utilities/pagination.py:31-57 (CursorState.decode)
     try
     {
         auto decoded = util::pagination::base64_decode(cursor);
@@ -256,7 +249,6 @@ struct DirectSource : SkillsExtension::Source
 
 /// A mounted server with its own SkillsExtension; entries are rewritten to the
 /// URIs the parent serves them at and kept only when every file routes back.
-// PYTHON REFERENCE: fastmcp/skills/_composition.py:39-128 (_MountedSkills)
 struct MountedSource : SkillsExtension::Source
 {
     const FastMCP* child;
@@ -333,7 +325,6 @@ SkillManifestProvider::required_extensions() const
     return {std::make_shared<SkillsExtension>()};
 }
 
-// PYTHON REFERENCE: fastmcp/skills/provider.py:89-104 (_request_manifests)
 std::map<std::string, SkillManifest> SkillManifestProvider::validated_manifests() const
 {
     std::map<std::string, SkillManifest> manifests;
@@ -353,7 +344,6 @@ resources::Resource SkillManifestProvider::file_resource(const std::string& path
                                                          const std::string& file_path,
                                                          const SkillFile& file) const
 {
-    // PYTHON REFERENCE: fastmcp/skills/provider.py:450-471 (_file_resource)
     resources::Resource resource;
     resource.uri = skill_file_uri(path, file_path);
     resource.name = path + "/" + file_path;
@@ -368,7 +358,6 @@ resources::Resource SkillManifestProvider::file_resource(const std::string& path
         resources::ResourceContent out;
         out.uri = uri;
         out.mime_type = mime;
-        // PYTHON REFERENCE: fastmcp/skills/provider.py:186-198 (SkillFileResource.read)
         if (mime.compare(0, 5, "text/") == 0 && valid_utf8(content))
             out.data = std::move(content);
         else
@@ -380,7 +369,6 @@ resources::Resource SkillManifestProvider::file_resource(const std::string& path
 
 namespace
 {
-// PYTHON REFERENCE: fastmcp/skills/provider.py:201-208, 474-481 (SkillManifestResource)
 resources::Resource manifest_resource(const std::string& path, const SkillManifest& manifest)
 {
     resources::Resource resource;
@@ -427,7 +415,6 @@ std::optional<resources::Resource> SkillManifestProvider::get_resource(const std
     return file_resource(path, manifest, file_path, it->second);
 }
 
-// PYTHON REFERENCE: fastmcp/skills/provider.py:166-180 (_is_served)
 bool SkillManifestProvider::is_served(const FastMCP& server, const std::string& path,
                                       const SkillManifest& manifest) const
 {
@@ -474,7 +461,6 @@ SkillManifestProvider::skill_uris(const std::optional<std::string>& uri) const
 
 namespace
 {
-// PYTHON REFERENCE: fastmcp/skills/provider.py:378-396 (_normalize)
 std::map<std::string, Skill> normalize(const std::map<std::string, Skill>& skills)
 {
     std::map<std::string, std::string> names;
@@ -537,7 +523,6 @@ namespace
 
 /// Skill folders below @p root as (relative path, folder) pairs. A skill
 /// folder's subfolders belong to the skill; hidden folders are skipped.
-// PYTHON REFERENCE: fastmcp/skills/provider.py:337-370 (_skill_folders)
 void visit_skill_folders(const fs::path& directory, const std::string& prefix,
                          std::vector<std::pair<std::string, fs::path>>& found)
 {
@@ -572,7 +557,6 @@ void visit_skill_folders(const fs::path& directory, const std::string& prefix,
     }
 }
 
-// PYTHON REFERENCE: fastmcp/skills/provider.py:316-334 (_invalid_folder)
 std::string invalid_folder(const fs::path& folder, const std::string& folder_name,
                            const std::string& reason, bool filesystem_error)
 {
@@ -632,7 +616,6 @@ SkillsDirectoryProvider::SkillsDirectoryProvider(std::vector<fs::path> roots, bo
     static_ = last_good_;
 }
 
-// PYTHON REFERENCE: fastmcp/skills/provider.py:282-313 (_scan_skill_roots)
 std::map<std::string, Skill> SkillsDirectoryProvider::scan() const
 {
     std::map<std::string, Skill> skills;
@@ -731,7 +714,6 @@ std::shared_ptr<server::ServerExtension> SkillsExtension::clone() const
     return std::make_shared<SkillsExtension>();
 }
 
-// PYTHON REFERENCE: fastmcp/skills/extension.py:73-92 (_validate_configuration)
 void SkillsExtension::validate_configuration() const
 {
     if (!providers_)
@@ -812,7 +794,6 @@ std::vector<std::string> SkillsExtension::identities(const std::optional<std::st
     return out;
 }
 
-// PYTHON REFERENCE: fastmcp/skills/extension.py:146-170 (_list_entries)
 std::vector<MCPSkill> SkillsExtension::list_entries() const
 {
     const FastMCP& app = server();
@@ -851,7 +832,6 @@ std::vector<MCPSkill> SkillsExtension::list_entries() const
     return entries;
 }
 
-// PYTHON REFERENCE: fastmcp/skills/extension.py:172-184 (_get_entry)
 std::optional<MCPSkill> SkillsExtension::get_entry(const std::string& uri) const
 {
     auto ids = identities(uri);
@@ -886,7 +866,6 @@ std::vector<server::MethodBinding> SkillsExtension::methods()
 
     auto list = [this](const server::ExtensionRequest& request) -> Json
     {
-        // PYTHON REFERENCE: fastmcp/skills/extension.py:186-194 (_handle_list)
         const Json& params = request.params;
         std::optional<std::string> cursor;
         if (params.is_object() && params.contains("cursor") && !params["cursor"].is_null())
@@ -928,7 +907,6 @@ std::vector<server::MethodBinding> SkillsExtension::methods()
     };
     auto get = [this](const server::ExtensionRequest& request) -> Json
     {
-        // PYTHON REFERENCE: fastmcp/skills/extension.py:196-206 (_handle_get)
         const Json& params = request.params;
         if (!params.is_object() || !params.contains("uri") || !params["uri"].is_string())
             throw invalid_params();

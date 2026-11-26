@@ -52,7 +52,7 @@ const std::regex* cached_regex(const std::string& key, const std::string& patter
     auto it = cache.find(key);
     if (it != cache.end())
         return &it->second;
-    // Python fastmcp commit 789a2986 (#3959): silently drop unsupported regex patterns
+    // Silently drop unsupported regex patterns
     // (lookahead, certain Unicode escapes) so real-world OpenAPI specs (AWS, Azure) do
     // not crash json_schema_to_value. Return nullptr — callers must treat as "no
     // pattern constraint".
@@ -77,8 +77,7 @@ const std::regex& cached_regex_required(const std::string& key, const std::strin
     return *p;
 }
 
-// ---- Conversion limits (Python fastmcp 5f7d4d58: bounded caches, nesting and work limits) ----
-// PYTHON REFERENCE: fastmcp_slim/fastmcp/utilities/json_schema_type.py:216-220
+// ---- Conversion limits (bounded caches, nesting and work limits) ----
 constexpr int kMaxConversionDepth = 64;
 constexpr int kMaxNesting = 4 * kMaxConversionDepth;
 constexpr size_t kMaxConversionSteps = 50000;
@@ -132,7 +131,7 @@ struct DepthGuard
 // User `pattern` keywords: Rust-syntax, linear-time, unanchored search like Pydantic's
 // rust-regex engine. Compiled patterns live in a bounded LRU cache shared across threads.
 // A pattern that does not compile (look-around, unsupported escapes) is cached as nullptr,
-// meaning "no constraint" (Python fastmcp 789a2986, #3959).
+// meaning "no constraint".
 class PatternCache
 {
   public:
@@ -210,7 +209,7 @@ void enforce_enum_const(const fastmcpp::Json& schema, const fastmcpp::Json& inst
     }
     if (schema.contains("enum"))
     {
-        // Python fastmcp commit 4b59e0d9 (#3818): empty enum still rejects gracefully.
+        // Empty enum still rejects gracefully.
         if (!schema["enum"].is_array())
             throw fastmcpp::ValidationError("Enum schema must be an array at " + path);
         bool ok = false;
@@ -280,7 +279,7 @@ SchemaValue handle_string(const fastmcpp::Json& schema, const fastmcpp::Json& in
         throw fastmcpp::ValidationError("maxLength violation at " + path);
     if (schema.contains("pattern") && schema["pattern"].is_string())
     {
-        // Python fastmcp commit 789a2986 (#3959): if the pattern fails to compile (lookahead,
+        // If the pattern fails to compile (lookahead,
         // unsupported Unicode escapes, etc.), gracefully drop the constraint instead of crashing.
         // JSON Schema `pattern` is unanchored (ECMA-262 search), as in Pydantic's rust-regex.
         const auto pat = pattern_cache().get(schema["pattern"].get<std::string>());
@@ -312,7 +311,6 @@ SchemaValue handle_number(const fastmcpp::Json& schema, const fastmcpp::Json& in
 
     // Draft 4 spells exclusivity as a boolean that tightens its sibling bound;
     // later drafts as a number of its own.
-    // PYTHON REFERENCE: fastmcp commit 18aa08613
     const bool draft4_min_exclusive = schema.contains("exclusiveMinimum") &&
                                       schema["exclusiveMinimum"].is_boolean() &&
                                       schema["exclusiveMinimum"].get<bool>();
@@ -449,7 +447,6 @@ SchemaValue handle_object(const fastmcpp::Json& schema, const fastmcpp::Json& in
             else if (subschema.contains("default"))
             {
                 // A declared default that does not validate is kept as declared.
-                // PYTHON REFERENCE: fastmcp commit af562ae48
                 try
                 {
                     out[key] = convert(subschema, subschema["default"], sub_path);
@@ -499,8 +496,8 @@ SchemaValue convert(const fastmcpp::Json& schema, const fastmcpp::Json& instance
 {
     DepthGuard guard(path);
     // JSON Schema permits boolean schemas: `true` accepts any value; `false` rejects all.
-    // Python fastmcp commits 4b59e0d9 (#3818) and e5b96343 (#3785) ensure these don't crash
-    // json_schema_to_value when they appear as a property schema or root schema.
+    // These must not crash json_schema_to_value when they appear as a property schema or
+    // root schema.
     if (schema.is_boolean())
     {
         if (schema.get<bool>())

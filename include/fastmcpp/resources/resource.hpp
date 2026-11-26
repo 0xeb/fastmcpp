@@ -20,7 +20,6 @@ struct ResourceContent
     /// Per-read cache hint (SEP-2549) overriding the server-wide one on the
     /// modern era: `ttl_ms` (0 = immediately stale) and `cache_scope`
     /// ("public" or "private").
-    // PYTHON REFERENCE: fastmcp/resources/base.py:156-157 (#5380)
     std::optional<std::int64_t> ttl_ms;
     std::optional<std::string> cache_scope;
 };

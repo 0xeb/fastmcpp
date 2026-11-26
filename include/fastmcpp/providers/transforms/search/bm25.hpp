@@ -106,7 +106,6 @@ inline char32_t fold_code_point(char32_t cp)
 }
 
 /// Tokenize text into case-folded Unicode word tokens of two or more code points.
-// PYTHON REFERENCE: fastmcp/server/transforms/search/bm25.py (_tokenize: NFKC + casefold,
 // `[^\W_]{2,}`). Normalization is approximated: no decomposition tables here.
 inline std::vector<std::string> tokenize(const std::string& text)
 {
@@ -237,8 +236,6 @@ class BM25Index
 ///
 /// Maintains an in-memory index that is lazily rebuilt when the tool
 /// catalog changes (detected via hash of tool searchable text).
-///
-/// Parity with Python fastmcp BM25SearchTransform (commit c96c0400).
 class BM25SearchTransform : public BaseSearchTransform
 {
   public:
@@ -265,7 +262,6 @@ class BM25SearchTransform : public BaseSearchTransform
 
         // Results come from the current catalog, so a schema change that leaves the
         // searchable text alone is still served fresh.
-        // PYTHON REFERENCE: fastmcp commit 32f981cac
         std::unordered_map<std::string, const tools::Tool*> by_name;
         for (const auto& t : tools)
             by_name.emplace(t.name(), &t);

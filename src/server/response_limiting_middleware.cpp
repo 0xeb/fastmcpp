@@ -65,7 +65,6 @@ void ResponseLimitingMiddleware::limit_result(const std::string& tool_name, Json
     // Longest prefix (on UTF-8 character boundaries) whose serialized result fits, so
     // JSON escaping, the suffix and preserved metadata all count. If even the bare
     // suffix does not fit, it is returned anyway.
-    // PYTHON REFERENCE: fastmcp/server/middleware/response_limiting.py:75-111 (#6746)
     const Json meta = result.contains("_meta") ? result["_meta"] : Json();
     const bool is_error = result.value("isError", false);
     auto build = [&](size_t prefix_bytes)

@@ -21,7 +21,6 @@ namespace fastmcpp::server
 ///
 /// Register on a FastMCP with `add_middleware(std::make_shared<...>(...))`,
 /// or on a low-level Server with `add_after(make_hook())` (no list hook).
-// PYTHON REFERENCE: fastmcp/server/middleware/response_limiting.py:21-170
 class ResponseLimitingMiddleware : public Middleware
 {
   public:

@@ -57,7 +57,6 @@ struct ExtensionRequest
 /// request method, which would shadow the server's own handler.
 /// @p protocol_versions, when set, restricts the method to those wire versions;
 /// a request at any other version is answered with method-not-found.
-// PYTHON REFERENCE: fastmcp/server/extensions.py:125-157 (MethodBinding)
 struct MethodBinding
 {
     using Handler = std::function<Json(const ExtensionRequest&)>;
@@ -101,7 +100,6 @@ using ToolCallContinuation = std::function<Json()>;
 
 /// Base class for an opt-in server extension. Every contribution has a default,
 /// so a subclass overrides only `identifier()` and what it contributes.
-// PYTHON REFERENCE: fastmcp/server/extensions.py:160-285 (ServerExtension)
 class ServerExtension
 {
   public:
@@ -158,16 +156,13 @@ class ServerExtension
 
 /// Throw `std::invalid_argument` unless @p identifier is a `vendor-prefix/name`
 /// string with a reverse-DNS prefix. @p owner names the offender in the message.
-// PYTHON REFERENCE: mcp/shared/extension.py:19-29 (validate_extension_identifier)
 void validate_extension_identifier(const std::string& identifier, const std::string& owner);
 
 /// `_meta[clientCapabilities].extensions[identifier]` from a request's `_meta`,
 /// or nullopt when the client did not opt the extension in for the request.
-// PYTHON REFERENCE: fastmcp/server/extensions.py:288-303
 std::optional<Json> read_client_extension_settings(const Json& meta, const std::string& identifier);
 
 /// True for a request method the MCP spec defines at any version.
-// PYTHON REFERENCE: mcp_types/methods.py:57-127, 334 (SPEC_CLIENT_METHODS)
 bool is_spec_client_method(const std::string& method);
 
 } // namespace fastmcpp::server

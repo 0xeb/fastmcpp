@@ -77,7 +77,6 @@ class StreamCancel
 };
 
 /// `subscriptions/listen` requires a 2026-07-28 connection.
-// PYTHON REFERENCE: mcp/client/subscriptions.py:56-66 (ListenNotSupportedError)
 struct ListenNotSupportedError : public fastmcpp::Error
 {
     explicit ListenNotSupportedError(const std::string& negotiated_version)
@@ -99,7 +98,6 @@ struct ListenNotSupportedError : public fastmcpp::Error
 };
 
 /// The stream ended without the server's graceful close; re-listen and refetch.
-// PYTHON REFERENCE: mcp/client/subscriptions.py:69-70 (SubscriptionLost)
 struct SubscriptionLost : public fastmcpp::Error
 {
     using fastmcpp::Error::Error;
@@ -121,7 +119,6 @@ namespace detail
 {
 
 /// Demux state for one listen stream, fed in receive order by its driver.
-// PYTHON REFERENCE: mcp/client/subscriptions.py:73-145 (ListenRoute)
 class ListenRoute
 {
   public:
@@ -273,7 +270,6 @@ class ListenRoute
 
 /// One open `subscriptions/listen` stream. Produced by Client::listen().
 /// Destroying it (or close()) ends the subscription.
-// PYTHON REFERENCE: mcp/client/subscriptions.py:152-196 (Subscription)
 class Subscription
 {
   public:

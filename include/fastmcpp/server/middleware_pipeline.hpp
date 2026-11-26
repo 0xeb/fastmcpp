@@ -1,6 +1,6 @@
 #pragma once
 /// @file middleware_pipeline.hpp
-/// @brief Full middleware pipeline system for fastmcpp (matching Python fastmcp)
+/// @brief Full middleware pipeline system for fastmcpp
 ///
 /// Provides composable middleware with:
 /// - MiddlewareContext for request/response context
@@ -325,7 +325,7 @@ class TimingMiddleware : public Middleware
     std::unordered_map<std::string, TimingStats> stats_;
 };
 
-/// Response caching middleware (parity with Python `ResponseCachingMiddleware`, commit 257fe325).
+/// Response caching middleware.
 ///
 /// Caches read-style operations keyed by method + the request params (so paginated lists and
 /// distinct tool arguments don't collide), optionally partitioned per client/user. In addition to
@@ -507,14 +507,13 @@ class CachingMiddleware : public Middleware
     size_t misses_{0};
 };
 
-/// Parity alias for the Python middleware name.
+/// Alias for CachingMiddleware.
 using ResponseCachingMiddleware = CachingMiddleware;
 
 /// Rate limiting middleware using token bucket algorithm.
 ///
-/// Global by default. Provide a `get_client_id` function (parity with Python commit 4ce8e2a5) to
-/// maintain an independent token bucket per client/user, so one noisy client can't exhaust the
-/// budget for everyone.
+/// Global by default. Provide a `get_client_id` function to maintain an independent token
+/// bucket per client/user, so one noisy client can't exhaust the budget for everyone.
 class RateLimitingMiddleware : public Middleware
 {
   public:

@@ -99,7 +99,6 @@ std::size_t InMemoryResponseCacheStore::size() const
 // ClientResponseCache
 // ---------------------------------------------------------------------------
 
-// PYTHON REFERENCE: fastmcp/client/client.py:620-665 (_build_response_cache)
 ClientResponseCache::ClientResponseCache(CacheConfig config) : config_(std::move(config))
 {
     if (config_.store && config_.partition.empty())
@@ -124,7 +123,6 @@ ClientResponseCache::ClientResponseCache(CacheConfig config) : config_(std::move
     arm_id_ = hex(digest.data(), digest.size());
 }
 
-// PYTHON REFERENCE: mcp/client/caching.py:209-218 (_arm)
 std::string ClientResponseCache::arm(const std::string& scope, const std::string& version) const
 {
     // A JSON array so crafted values cannot collide across field boundaries;
@@ -143,7 +141,6 @@ std::optional<CacheEntry> ClientResponseCache::get_fresh(const CacheKey& key)
     return entry;
 }
 
-// PYTHON REFERENCE: mcp/client/caching.py:220-239 (read)
 std::optional<Json> ClientResponseCache::read(const std::string& method,
                                               const std::string& params_key,
                                               const std::string& version)
@@ -177,7 +174,6 @@ std::uint64_t ClientResponseCache::capture(const std::string& method, const std:
     return generations_[key];
 }
 
-// PYTHON REFERENCE: mcp/client/caching.py:253-293 (write), 350-361 (_resolve)
 void ClientResponseCache::write(const std::string& method, const std::string& params_key,
                                 const Json& result, std::uint64_t generation, CacheMode mode,
                                 const std::string& version)
@@ -248,7 +244,6 @@ void ClientResponseCache::erase_both(const std::string& method, const std::strin
     }
 }
 
-// PYTHON REFERENCE: mcp/client/caching.py:295-316 (evict_method, evict_key)
 void ClientResponseCache::evict_method(const std::string& method, const std::string& version)
 {
     evict_key(method, "", version);
@@ -267,7 +262,6 @@ void ClientResponseCache::evict_key(const std::string& method, const std::string
     erase_both(method, params_key, version);
 }
 
-// PYTHON REFERENCE: mcp/client/caching.py:318-341 (evict_for_notification)
 void ClientResponseCache::evict_for_event(const mcp::ServerEvent& event, const std::string& version)
 {
     switch (event.kind)

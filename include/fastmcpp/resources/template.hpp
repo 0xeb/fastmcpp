@@ -17,7 +17,7 @@ namespace fastmcpp::resources
 ///
 /// When a parameter's kind is anything other than String, matched values go
 /// through typed coercion (see build_typed_params()). Invalid literals raise
-/// fastmcpp::ValidationError — parity with Python fastmcp commit 9ccaef2b.
+/// fastmcpp::ValidationError.
 enum class ParamKind
 {
     String,
@@ -76,8 +76,8 @@ struct ResourceTemplate
 
     /// Build a typed JSON object from a raw string -> string parameter map,
     /// coercing each value using the per-parameter kind populated by parse().
-    /// Parity with Python fastmcp commit 9ccaef2b — invalid booleans / numbers
-    /// raise fastmcpp::ValidationError instead of silently passing through.
+    /// Invalid booleans / numbers raise fastmcpp::ValidationError instead of
+    /// silently passing through.
     Json build_typed_params(const std::unordered_map<std::string, std::string>& raw) const;
 };
 

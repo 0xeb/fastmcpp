@@ -293,7 +293,6 @@ SpanScope client_span(const std::string& name, const std::string& method,
 
     span.span().set_attributes(
         {{"rpc.system", "mcp"}, {"rpc.method", method}, {"fastmcp.component.key", component_key}});
-    // PYTHON REFERENCE: fastmcp #4059 (2d61d8a4) — OTEL semantic-convention attribute.
     span.span().set_attribute("mcp.method.name", method);
     if (session_id && !session_id->empty())
         span.span().set_attribute("fastmcp.session.id", *session_id);
@@ -348,8 +347,8 @@ SpanScope server_span(const std::string& name, const std::string& method,
                                 {"fastmcp.server.name", server_name},
                                 {"fastmcp.component.type", component_type},
                                 {"fastmcp.component.key", component_key}});
-    // PYTHON REFERENCE: fastmcp #4059 (2d61d8a4) — OTEL gen_ai/mcp semantic conventions.
-    // Centralized here so every tools/call span site inherits them.
+    // OTEL gen_ai/mcp semantic-convention attributes, centralized here so every
+    // tools/call span site inherits them.
     span.span().set_attribute("mcp.method.name", method);
     if (component_type == "tool")
         span.span().set_attribute("gen_ai.tool.name", component_key);

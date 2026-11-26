@@ -49,7 +49,6 @@ struct Completion
 /// argument values when the client sent any (`context.arguments`). Return
 /// nullopt or no values for a reference/argument it does not handle: that is
 /// an empty completion, not an error.
-// PYTHON REFERENCE: fastmcp/server/completions.py:36-48 (CompletionHandler)
 using CompletionHandler = std::function<std::optional<Completion>(
     const CompletionReference& ref, const CompletionArgument& argument,
     const std::optional<Json>& context)>;
@@ -58,7 +57,6 @@ using CompletionHandler = std::function<std::optional<Completion>(
 inline constexpr std::size_t kMaxCompletionValues = 100;
 
 /// Truncate to the cap and serialize as the wire `completion` object.
-// PYTHON REFERENCE: fastmcp/server/completions.py:55-87 (normalize_completion)
 Json completion_to_json(const std::optional<Completion>& completion);
 
 } // namespace fastmcpp::server

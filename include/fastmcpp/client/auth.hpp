@@ -2,9 +2,8 @@
 /// @file client/auth.hpp
 /// @brief Client authentication for the HTTP transports: bearer tokens and OAuth.
 ///
-/// Parity with Python fastmcp's client auth (fastmcp_slim/fastmcp/client/auth/bearer.py,
-/// oauth.py) and the MCP SDK flow it builds on (mcp/client/auth/oauth2.py):
-/// protected-resource and authorization-server discovery (RFC 9728, RFC 8414, SEP-985),
+/// Implements the MCP authorization flow: protected-resource and authorization-server
+/// discovery (RFC 9728, RFC 8414, SEP-985),
 /// issuer validation (SEP-2468) and issuer-bound credentials (SEP-2352), scope selection and
 /// step-up on 403 insufficient_scope, dynamic client registration (RFC 7591), URL-based client
 /// IDs (CIMD), static client credentials, authorization code + PKCE S256 (RFC 7636) with the
@@ -189,7 +188,7 @@ struct OAuthToken
     static OAuthToken from_json(const Json& j);
 };
 
-/// Options mirroring fastmcp's OAuth(...) constructor.
+/// Options for OAuth.
 struct OAuthOptions
 {
     /// MCP endpoint URL. Optional: HttpRpcTransport::set_auth() binds the transport's URL.
@@ -249,7 +248,7 @@ class OAuth : public ClientAuth
     std::unique_ptr<State> state_;
 };
 
-/// Options mirroring fastmcp's ClientCredentialsOAuthProvider(...).
+/// Options for ClientCredentialsOAuth.
 struct ClientCredentialsOptions
 {
     /// MCP endpoint URL. Optional: HttpRpcTransport::set_auth() binds the transport's URL.
@@ -274,7 +273,6 @@ struct ClientCredentialsOptions
 /// The token endpoint is discovered from the MCP server's metadata (RFC 9728 / 8414); no
 /// browser, registration or refresh token is involved. A 403 insufficient_scope steps up to
 /// the union of the held and challenged scopes (SEP-2350).
-// PYTHON REFERENCE: fastmcp/client/auth/client_credentials.py:172-307
 class ClientCredentialsOAuth : public ClientAuth
 {
   public:

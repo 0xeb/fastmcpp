@@ -82,8 +82,7 @@ class ResourceManager
                 enforce_resource_security(templ.security, *match_params, uri, default_security_);
                 // Merge explicit params with matched params (explicit takes precedence).
                 // Matched values are string-typed; coerce them per-param against the
-                // template's parameter schema. Parity with Python fastmcp 9ccaef2b:
-                // invalid booleans / numbers raise ValidationError.
+                // template's parameter schema; invalid booleans / numbers raise ValidationError.
                 Json merged_params = templ.build_typed_params(*match_params);
                 for (const auto& [key, value] : params.items())
                     merged_params[key] = value;

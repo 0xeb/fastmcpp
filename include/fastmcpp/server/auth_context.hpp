@@ -21,7 +21,6 @@ namespace fastmcpp::server
 {
 
 /// A token a TokenVerifier accepted.
-// PYTHON REFERENCE: mcp/server/auth/provider.py (AccessToken)
 struct AccessToken
 {
     std::string token;
@@ -39,7 +38,6 @@ using TokenVerifier = std::function<std::optional<AccessToken>(const std::string
 /// maps a token to claims carrying `client_id`, optional `scopes`, `sub` and
 /// `expires_at` (epoch seconds; an expired token is rejected). Tokens lacking
 /// any of @p required_scopes are rejected.
-// PYTHON REFERENCE: fastmcp/server/auth/providers/jwt.py (StaticTokenVerifier)
 TokenVerifier static_token_verifier(std::map<std::string, Json> tokens,
                                     std::vector<std::string> required_scopes = {});
 
@@ -66,7 +64,6 @@ std::shared_ptr<const AccessToken> current_access_token_handle();
 /// `[client_id, issuer, subject]` as compact JSON, or nullopt when the
 /// request is unauthenticated. Two users of one client are distinct whenever
 /// the verifier supplies a subject.
-// PYTHON REFERENCE: fastmcp/server/sessions.py:134-144 (current_principal)
 std::optional<std::string> current_principal();
 
 } // namespace fastmcpp::server

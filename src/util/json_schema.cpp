@@ -89,7 +89,6 @@ static bool contains_ref_impl(const Json& schema)
 // Inlining a `$ref` copies its target, so an acyclic reference graph can expand to many times
 // its own size. `dereference_refs` only inlines when the result stays within these limits;
 // larger graphs keep their references.
-// PYTHON REFERENCE: fastmcp_slim/fastmcp/utilities/json_schema.py:50
 static constexpr size_t kMaxInlinedNodes = 100000;
 static constexpr size_t kMaxInlinedDepth = 128;
 static constexpr size_t kMaxInlinedText = 5000000;
@@ -115,7 +114,6 @@ static bool is_local_ref(const Json& value)
 /// Return a deep copy of `source` without recursing, so any nesting depth is safe. With
 /// `strip_remote`, non-local `$ref` values are dropped (security: prevents SSRF/LFI when
 /// proxying schemas); local refs (starting with #) are kept intact.
-/// PYTHON REFERENCE: fastmcp_slim/fastmcp/utilities/json_schema.py:12 (_copy_schema),
 /// :180 (_strip_remote_refs)
 static Json copy_schema(const Json& source, bool strip_remote)
 {
@@ -240,7 +238,6 @@ static std::optional<long long> parse_index(const std::string& text)
 /// that reference's target, so `#/$defs/Alias/properties/x` resolves when `Alias` refers to
 /// another definition. The references followed during one lookup are limited, which also stops
 /// reference cycles. The root itself is never followed.
-/// PYTHON REFERENCE: fastmcp_slim/fastmcp/utilities/json_schema.py:60 (_resolve_local_ref)
 static const Json& resolve_local_ref(const Json& root, const std::string& ref, int& hops)
 {
     std::vector<std::string> parts;
@@ -248,7 +245,6 @@ static const Json& resolve_local_ref(const Json& root, const std::string& ref, i
     if (!fragment.empty())
     {
         // Decode first: `#%2F$defs/X` names the same pointer as `#/$defs/X`.
-        // PYTHON REFERENCE: fastmcp commit 5f1d1529c (decode before stripping '/')
         const std::string full = percent_decode(fragment);
         const size_t first = full.find_first_not_of('/');
         const std::string decoded = first == std::string::npos ? std::string() : full.substr(first);
@@ -309,7 +305,6 @@ static const Json& resolve_local_ref(const Json& root, const std::string& ref, i
 /// being measured means there is a cycle, which can't be expanded. With `follow_refs`, each local
 /// `$ref` also counts the target it resolves to, which measures what inlining would produce
 /// without building it (including unused `$defs` and keywords next to `$ref`).
-/// PYTHON REFERENCE: fastmcp_slim/fastmcp/utilities/json_schema.py:94 (_within_inline_limits)
 static bool within_inline_limits(const Json& root, bool follow_refs)
 {
     std::unordered_map<const Json*, std::pair<size_t, size_t>> sizes;
@@ -379,7 +374,6 @@ static bool within_inline_limits(const Json& root, bool follow_refs)
 }
 
 /// Check the total length of every key and scalar value in `schema`.
-/// PYTHON REFERENCE: fastmcp_slim/fastmcp/utilities/json_schema.py:150 (_text_within_limit)
 static bool text_within_limit(const Json& schema)
 {
     size_t total = 0;
@@ -486,7 +480,6 @@ static Json inline_refs(const Json& node, const Json& root, std::vector<std::str
 /// unchanged (explicit `type`, no local root ref, alias cycle, missing or non-object target).
 /// Sibling keywords are kept, `$defs`/`definitions` included, with the outer schema winning over
 /// each alias along the chain.
-/// PYTHON REFERENCE: fastmcp_slim/fastmcp/utilities/json_schema.py:422 (resolve_root_ref)
 static std::optional<Json> try_resolve_root_ref(const Json& schema)
 {
     if (!schema.is_object() || schema.contains("type"))
@@ -554,10 +547,10 @@ bool contains_ref(const Json& schema)
 }
 
 // Recursively remove `discriminator` keys at union boundaries (anyOf/oneOf) after refs were
-// inlined. Mirrors Python `_strip_discriminator()` (commit 923695bd / #3682): once $defs are
-// dereferenced, OpenAPI discriminator hints reference now-removed paths and confuse strict
-// JSON Schema validators. Properties literally named "discriminator" inside `properties:` are
-// preserved (only the schema-level keyword is stripped).
+// inlined: once $defs are dereferenced, OpenAPI discriminator hints reference now-removed
+// paths and confuse strict JSON Schema validators. Properties literally named
+// "discriminator" inside `properties:` are preserved (only the schema-level keyword is
+// stripped).
 static void strip_discriminator(Json& node)
 {
     if (node.is_array())
@@ -572,9 +565,8 @@ static void strip_discriminator(Json& node)
     if (has_union && node.contains("discriminator"))
     {
         // Before dropping the discriminator hint, keep its property REQUIRED in each variant.
-        // Mirrors Python `_require_property` (commits 9b1a1a04 / 5fa4f32c, #4297 / #4362): strict
-        // validators would otherwise no longer enforce the discriminator field once the hint is
-        // gone.
+        // Strict validators would otherwise no longer enforce the discriminator field once the
+        // hint is gone.
         const Json& disc = node["discriminator"];
         if (disc.is_object() && disc.contains("propertyName") && disc["propertyName"].is_string())
         {
@@ -631,7 +623,6 @@ Json resolve_root_ref(const Json& schema)
 /// For circular schemas, and for schemas whose inlined form would be very large or deeply
 /// nested, only the root-level `$ref` is resolved and `$defs` is kept for nested references.
 /// Remote `$ref` values are stripped first (SSRF/LFI guard when proxying schemas).
-/// PYTHON REFERENCE: fastmcp_slim/fastmcp/utilities/json_schema.py:263 (dereference_refs)
 Json dereference_refs(const Json& schema)
 {
     if (!schema.is_structured())
@@ -655,7 +646,6 @@ Json dereference_refs(const Json& schema)
         std::vector<std::string> stack;
         Json dereferenced = inline_refs(sanitized, sanitized, stack, 0, true);
         // A root `$ref` to a boolean schema leaves no object to serve.
-        // PYTHON REFERENCE: fastmcp commit 6c6b34e40
         if (!dereferenced.is_object())
             return fallback();
         dereferenced.erase("$defs");

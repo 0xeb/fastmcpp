@@ -1,7 +1,7 @@
 #pragma once
 /// @file client/client.hpp
 /// @brief MCP Client implementation for fastmcpp
-/// @details Provides a full MCP client API matching Python fastmcp's Client class.
+/// @details Provides a full MCP client API.
 ///          Supports tool invocation, resource access, prompt retrieval, and more.
 
 #include "fastmcpp/client/response_cache.hpp"
@@ -36,9 +36,9 @@
 namespace fastmcpp::client
 {
 
-/// Maximum number of pages to auto-fetch in convenience list methods (parity with Python 85c71fa8)
+/// Maximum number of pages to auto-fetch in convenience list methods
 static constexpr int kAutoPaginationMaxPages = 250;
-/// Matches the MCP SDKs: mcp/client/_input_required.py DEFAULT_INPUT_REQUIRED_MAX_ROUNDS.
+/// Default maximum number of input-required rounds (the MCP SDKs' default).
 static constexpr int kDefaultInputRequiredMaxRounds = 10;
 
 /// Extension identifier for SEP-2663 background tasks.
@@ -272,7 +272,7 @@ struct CallToolOptions
 
 /// MCP Client for communicating with MCP servers
 ///
-/// This class provides methods matching Python fastmcp's Client:
+/// This class provides:
 /// - list_tools(), call_tool() - Tool operations
 /// - list_resources(), read_resource() - Resource operations
 /// - list_prompts(), get_prompt() - Prompt operations
@@ -839,7 +839,6 @@ class Client
     {
 
         fastmcpp::Json payload = {{"ref", ref}, {"argument", argument}};
-        // PYTHON REFERENCE: mcp/client/session.py:1264-1265 (CompletionContext)
         if (context_arguments)
             payload["context"] = fastmcpp::Json{{"arguments", *context_arguments}};
 
@@ -922,7 +921,6 @@ class Client
     /// verdict and propagates.
     ///
     /// Returns the facts either era yields, as an InitializeResult.
-    // PYTHON REFERENCE: mcp/client/_probe.py:53-113 (negotiate_auto)
     InitializeResult connect(ConnectMode mode = ConnectMode::Auto)
     {
         if (mode == ConnectMode::Legacy)
@@ -969,7 +967,6 @@ class Client
     /// handshake-era connection. A `listen()` stream evicts what its events
     /// make stale; each cacheable method takes a per-call CacheMode.
     /// @throws ValidationError on an invalid configuration.
-    // PYTHON REFERENCE: fastmcp/client/client.py:529-548, 620-665 (cache=)
     void enable_response_cache(CacheConfig config = {})
     {
         response_cache_ = std::make_shared<ClientResponseCache>(std::move(config));
@@ -998,8 +995,6 @@ class Client
     /// @throws fastmcpp::RpcError when the server refuses the request.
     /// @throws SubscriptionLost when the stream ends before it is acknowledged.
     /// @throws fastmcpp::TransportError when the ack does not arrive in time.
-    // PYTHON REFERENCE: mcp/client/subscriptions.py:199-283 (listen)
-    //                   fastmcp/client/client.py:1528-1568 (Client.listen)
     std::unique_ptr<Subscription> listen(const ListenOptions& options)
     {
         auto* streaming = dynamic_cast<IStreamingTransport*>(transport_.get());
@@ -1191,7 +1186,6 @@ class Client
     {
         // The sessionless era cancels by abandoning the request; a posted
         // notifications/cancelled naming a client-chosen id is not honoured there.
-        // PYTHON REFERENCE: mcp/client/session.py:171-178
         if (modern_)
             return;
         fastmcpp::Json payload = {{"requestId", request_id}};
@@ -1292,13 +1286,13 @@ class Client
         return Client(transport_, callbacks_, true);
     }
 
-    /// Python-friendly alias for cloning
+    /// Alias for new_client()
     Client new_() const
     {
         return new_client();
     }
 
-    /// Register roots/sampling/elicitation callbacks (placeholders for parity)
+    /// Register roots/sampling/elicitation callbacks
     void set_roots_callback(const std::function<fastmcpp::Json()>& cb)
     {
         set_roots_callback_impl(cb);
@@ -1381,7 +1375,6 @@ class Client
     /// Serve a cacheable request through the response cache. Cursor pages skip
     /// it (an expired-cursor -32602 evicts the listing); interim and error
     /// replies are never stored.
-    // PYTHON REFERENCE: fastmcp/client/client.py:1342-1392 (_cached_request)
     fastmcpp::Json cacheable_call(const std::string& method, const fastmcpp::Json& payload,
                                   const std::string& params_key, CacheMode mode)
     {
@@ -1438,7 +1431,6 @@ class Client
     }
 
     /// On the modern era every request carries its own envelope in _meta.
-    // PYTHON REFERENCE: mcp/client/session.py:153-191 (_make_modern_stamp)
     fastmcpp::Json stamp_envelope(const fastmcpp::Json& payload) const
     {
         if (!modern_)
@@ -1456,7 +1448,6 @@ class Client
             {"name", "fastmcpp"}, {"version", fastmcpp::VERSION_STRING}};
         fastmcpp::Json caps = client_capabilities();
         // Extensions are negotiated per request, on this era only.
-        // PYTHON REFERENCE: mcp/client/session.py:614-649 (_build_capabilities)
         if (!extensions_.empty())
         {
             caps["extensions"] = fastmcpp::Json::object();
@@ -1561,7 +1552,6 @@ class Client
         return r;
     }
 
-    // PYTHON REFERENCE: fastmcp_tasks/client.py:60-90 (_send_get)
     fastmcpp::Json get_task_raw(const std::string& task_id)
     {
         // Not unwrap_rpc_result(): a task's body has its own `result` (completed)
@@ -1580,7 +1570,6 @@ class Client
 
     /// Answer a parked task's input requests through the elicitation callback
     /// and deliver the answers with `tasks/update`.
-    // PYTHON REFERENCE: fastmcp_tasks/client.py:180-246 (_answer_input_requests)
     void answer_task_input(const std::string& task_id, const fastmcpp::Json& input_requests)
     {
         auto cb = get_elicitation_callback();
@@ -1612,7 +1601,6 @@ class Client
     /// along the way. Polling backs off from 20ms, doubling up to the server's
     /// `pollIntervalMs`, so a quick task resolves quickly and a slow one
     /// settles at the server's cadence.
-    // PYTHON REFERENCE: fastmcp_tasks/client.py:253-310 (_drive_to_terminal)
     fastmcpp::Json
     drive_task_to_terminal(const std::string& task_id,
                            std::optional<std::chrono::steady_clock::time_point> deadline)
@@ -1636,7 +1624,6 @@ class Client
                 backoff = floor;
                 continue;
             }
-            // PYTHON REFERENCE: fastmcp_tasks/client.py:136-170 (_poll_ceiling, _next_poll_delay)
             milliseconds ceiling{500};
             if (current.contains("pollIntervalMs") && current["pollIntervalMs"].is_number() &&
                 current["pollIntervalMs"].get<double>() > 0)
@@ -1654,7 +1641,6 @@ class Client
     }
 
     /// A terminal task as the `CallToolResult` the foreground call would return.
-    // PYTHON REFERENCE: fastmcp_tasks/client.py:313-377 (_resolve_task)
     static fastmcpp::Json task_outcome(const fastmcpp::Json& final_task)
     {
         const std::string status = final_task.value("status", std::string());
@@ -1698,8 +1684,6 @@ class Client
     }
 
     /// Fulfil one embedded input request through the registered callbacks.
-    // PYTHON REFERENCE: mcp/client/session.py:1371-1390 (dispatch_input_request),
-    //                   mcp/client/session.py:249-275 (default callbacks refuse)
     fastmcpp::Json dispatch_input_request(const fastmcpp::Json& request) const
     {
         const std::string method =
@@ -1739,7 +1723,6 @@ class Client
     /// Drive a multi-round-trip (SEP-2322) call to its terminal result: fulfil
     /// each round's input requests and retry with the answers and the echoed
     /// state. A result that is not `input_required` passes straight through.
-    // PYTHON REFERENCE: mcp/client/_input_required.py:52-95 (run_input_required_driver)
     template <typename Retry>
     fastmcpp::Json resolve_input_required(fastmcpp::Json response, Retry&& retry,
                                           const fastmcpp::Json& original_payload)
@@ -2039,8 +2022,7 @@ class Client
         CallToolResult result;
         result.isError = body.value("isError", false);
 
-        // Python fastmcp commit 556fd8fa (#3778): harden client-side parsing of malformed
-        // tools/call results.
+        // Harden client-side parsing of malformed tools/call results.
         // - Missing "content" with isError=true is permitted (server may have raised before
         //   producing content); raise_on_error is handled at a higher layer using result.text().
         // - Missing "content" with isError=false is treated as an empty result rather than a
@@ -2054,7 +2036,7 @@ class Client
         if (body.contains("structuredContent"))
         {
             result.structuredContent = body["structuredContent"];
-            // Try to provide a convenient data view similar to Python
+            // Provide a convenient typed data view
             auto structured = *result.structuredContent;
             auto it = tool_output_schemas_.find(tool_name);
             bool wrap_result = false;
@@ -2106,7 +2088,7 @@ class Client
 
             if (has_schema && result.data)
             {
-                // As upstream (fastmcp client/mixins/tools.py): a value that does not convert
+                // A value that does not convert
                 // (schema mismatch, or past the nesting/work limits) leaves typedData empty and
                 // keeps the raw data; it does not fail the call.
                 try
@@ -2244,7 +2226,7 @@ class Client
                     }
                     else if (m["content"].is_object())
                     {
-                        // Handle single content object (Python fastmcp format)
+                        // Handle single content object
                         msg.content.push_back(parse_content_block(m["content"]));
                     }
                 }
@@ -2331,7 +2313,6 @@ class Client
 /// requests through the client's elicitation callback -- and cancel() sends
 /// `tasks/cancel`. On the handshake era (SEP-1686) it polls `tasks/get` and
 /// reads `tasks/result`, and also wraps a call the server ran synchronously.
-// PYTHON REFERENCE: fastmcp_tasks/client.py:392-522 (ToolTask)
 class ToolTask
 {
   public:
@@ -2407,7 +2388,6 @@ class ToolTask
         auto start = std::chrono::steady_clock::now();
         // The modern era has no status notifications, so back off from a quick
         // first poll up to the server's interval.
-        // PYTHON REFERENCE: fastmcp_tasks/client.py:438-479 (ToolTask.wait)
         auto backoff = std::chrono::milliseconds(20);
 
         while (true)
@@ -2518,7 +2498,6 @@ inline std::shared_ptr<ToolTask> Client::call_tool_task(const std::string& name,
 {
     if (modern_)
     {
-        // PYTHON REFERENCE: fastmcp_tasks/client.py:525-583 (call_tool_task)
         fastmcpp::Json payload = {{"name", name}, {"arguments", arguments}};
         fastmcpp::Json response = call("tools/call", payload);
         const fastmcpp::Json& body = rpc_body(response);
@@ -2537,7 +2516,7 @@ inline std::shared_ptr<ToolTask> Client::call_tool_task(const std::string& name,
     opts.timeout = std::chrono::milliseconds{0};
     opts.progress_handler = nullptr;
 
-    // Attach task metadata in _meta (mirrors Python fastmcp)
+    // Attach task metadata in _meta
     fastmcpp::Json task_meta = {{"ttl", ttl_ms}};
     opts.meta = fastmcpp::Json{{"modelcontextprotocol.io/task", std::move(task_meta)}};
 

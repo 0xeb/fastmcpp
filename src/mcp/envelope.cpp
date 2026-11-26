@@ -81,7 +81,6 @@ bool header_safe(const std::string& v)
 
 const char* name_key_for(const std::string& method)
 {
-    // PYTHON REFERENCE: mcp/shared/inbound.py:71-77 (NAME_BEARING_METHODS)
     if (method == "tools/call" || method == "prompts/get")
         return "name";
     if (method == "resources/read")
@@ -99,7 +98,6 @@ const std::string* find_header(const HeaderMap& headers, const char* name)
 
 bool has_modern_envelope(const Json& params)
 {
-    // PYTHON REFERENCE: mcp/server/runner.py:505-517 (_has_modern_envelope)
     return params.is_object() && params.contains("_meta") && params["_meta"].is_object() &&
            params["_meta"].contains(kProtocolVersionMetaKey);
 }
@@ -212,7 +210,7 @@ std::optional<std::string> decode_header_value(const std::string& value)
         return std::nullopt;
     const std::string decoded = util::pagination::base64_decode(payload);
     // Canonical round trip rejects bad characters, bad padding and non-zero
-    // trailing bits, which is what Python's validate=True + re-encode checks.
+    // trailing bits.
     if (util::pagination::base64_encode(decoded) != payload)
         return std::nullopt;
     if (!is_valid_utf8(decoded))

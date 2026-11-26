@@ -24,13 +24,11 @@
 namespace fastmcpp::skills
 {
 
-// PYTHON REFERENCE: fastmcp/skills/_constants.py
 inline constexpr const char* kSkillsExtensionId = "io.modelcontextprotocol/skills";
 inline constexpr std::size_t kMaxSkillFiles = 512;
 inline constexpr std::uint64_t kMaxSkillBytes = 16ULL * 1024 * 1024;
 
 /// One file of a skill, described by its digest and size instead of its bytes.
-// PYTHON REFERENCE: fastmcp/skills/skill.py:82-88 (SkillFile)
 struct SkillFile
 {
     std::string digest; ///< `sha256:<64 lowercase hex>`
@@ -47,7 +45,6 @@ struct SkillFile
 };
 
 /// One file in a static skill manifest, as carried on the wire.
-// PYTHON REFERENCE: fastmcp/skills/models.py:125-142 (SkillResource)
 struct SkillResource
 {
     std::string uri;
@@ -56,7 +53,6 @@ struct SkillResource
 };
 
 /// A complete SEP-2640 skill entry (`MCPSkill`).
-// PYTHON REFERENCE: fastmcp/skills/models.py:145-189 (MCPSkill)
 struct MCPSkill
 {
     std::string uri;
@@ -91,7 +87,6 @@ struct GetSkillResult
 
 /// A skill's frontmatter and files, without the files' contents. A provider can
 /// advertise a skill from its manifest and read a file only when a client reads it.
-// PYTHON REFERENCE: fastmcp/skills/skill.py:91-128 (SkillManifest)
 class SkillManifest
 {
   public:
@@ -121,7 +116,6 @@ class SkillManifest
 
 /// An agent skill: a `SKILL.md` plus supporting files, held as exact bytes.
 /// Copies are cheap and share the immutable contents.
-// PYTHON REFERENCE: fastmcp/skills/skill.py:146-344 (Skill)
 class Skill
 {
   public:
@@ -174,17 +168,14 @@ class Skill
 // ---------------------------------------------------------------------------
 
 /// Agent Skills frontmatter rules. @throws ValidationError.
-// PYTHON REFERENCE: fastmcp/skills/models.py:41-88 (SkillFrontmatter)
 void validate_frontmatter(const Json& frontmatter);
 
 /// Parse and validate the YAML frontmatter at the top of a `SKILL.md`.
 /// Supports the YAML subset skill files use (block and flow collections,
 /// plain, quoted and block scalars); anything else is rejected.
-// PYTHON REFERENCE: fastmcp/skills/_snapshot.py:67-93 (parse_frontmatter)
 Json parse_frontmatter(std::string_view content);
 
 /// Render `SKILL.md` from frontmatter and instructions.
-// PYTHON REFERENCE: fastmcp/skills/skill.py:131-135 (_render_skill_md)
 std::string render_skill_md(const Json& frontmatter, const std::string& instructions);
 
 /// @throws ValidationError unless @p path is a relative POSIX path.
@@ -201,7 +192,6 @@ std::string percent_decode(std::string_view text);
 
 /// (scheme, authority, decoded path segments) of a resource URI.
 /// @throws ValidationError on a missing scheme or a `.`/`..` segment.
-// PYTHON REFERENCE: fastmcp/skills/models.py:25-38 (_parse_resource_uri)
 std::tuple<std::string, std::string, std::vector<std::string>>
 parse_resource_uri(const std::string& uri);
 

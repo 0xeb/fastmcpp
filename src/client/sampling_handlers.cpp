@@ -212,7 +212,7 @@ static fastmcpp::Json convert_mcp_tool_choice_to_openai(const fastmcpp::Json& to
     return fastmcpp::Json();
 }
 
-// F16 (fastmcp #3550 / commit 734b93b9): multimodal content in the sampling request body.
+// Multimodal content in the sampling request body.
 // Map an MCP image/audio content block to an OpenAI chat content part.
 static std::string openai_audio_format(const std::string& mime)
 {
@@ -318,10 +318,9 @@ static fastmcpp::Json build_openai_messages(const fastmcpp::Json& params)
                 fastmcpp::Json{{"role", "tool"}, {"tool_call_id", tool_use_id}, {"content", text}});
         }
 
-        // Python fastmcp commit d6b55c0b (#3857): raise on unhandled content types instead of
-        // silently dropping. The OpenAI compatible handler supports text + tool_use + tool_result
-        // and (F16 / commit 734b93b9) image/audio request-body conversion. Any other type is a
-        // hard error so callers don't get silent data loss.
+        // Raise on unhandled content types instead of silently dropping. The OpenAI compatible
+        // handler supports text + tool_use + tool_result and image/audio request-body
+        // conversion. Any other type is a hard error so callers don't get silent data loss.
         for (const auto& block : normalize_content_to_array(content))
         {
             if (!block.is_object())
@@ -333,7 +332,7 @@ static fastmcpp::Json build_openai_messages(const fastmcpp::Json& params)
             throw std::runtime_error("OpenAI sampling handler: unhandled content type '" + t + "'");
         }
 
-        // F16: a user message carrying image/audio is emitted as a multimodal `content` parts
+        // A user message carrying image/audio is emitted as a multimodal `content` parts
         // array (data-URL image_url + input_audio). OpenAI only accepts media in user messages.
         if (content_has_media(content))
         {
@@ -492,8 +491,7 @@ static fastmcpp::Json build_anthropic_messages(const fastmcpp::Json& params)
                 blocks.push_back(std::move(out));
                 continue;
             }
-            // Python fastmcp commit d6b55c0b (#3857): raise on unhandled content types.
-            // F16 (commit 734b93b9): image request-body conversion to Anthropic's base64 source
+            // Raise on unhandled content types. Images convert to Anthropic's base64 source
             // block. Anthropic accepts images only in user messages, and does not accept audio at
             // all (the Messages API has no audio input).
             if (type == "image")

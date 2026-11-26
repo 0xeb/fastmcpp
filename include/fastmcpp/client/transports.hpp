@@ -48,7 +48,7 @@ class HttpTransport : public ITransport
     }
     fastmcpp::Json request(const std::string& route, const fastmcpp::Json& payload);
 
-    // Stream response to POST requests (optional parity via libcurl if available)
+    // Stream response to POST requests (optional, via libcurl if available)
     void request_stream_post(const std::string& route, const fastmcpp::Json& payload,
                              const std::function<void(const fastmcpp::Json&)>& on_event);
 
@@ -69,8 +69,8 @@ class HttpTransport : public ITransport
 };
 
 // Launches an MCP stdio server as a subprocess and performs JSON-RPC requests
-// over its stdin/stdout. By default, the subprocess is kept alive between calls
-// to better match Python fastmcp behavior; pass keep_alive=false to spawn per call.
+// over its stdin/stdout. By default, the subprocess is kept alive between calls;
+// pass keep_alive=false to spawn per call.
 class StdioTransport : public ITransport
 {
   public:
@@ -130,7 +130,7 @@ class StdioTransport : public ITransport
 };
 
 /// SSE client transport for connecting to MCP servers using Server-Sent Events protocol.
-/// This transport is compatible with Python fastmcp servers and other SSE-based MCP servers.
+/// This transport works with SSE-based MCP servers.
 ///
 /// The SSE protocol works as follows:
 /// 1. Client connects to /sse endpoint (GET) to establish event stream

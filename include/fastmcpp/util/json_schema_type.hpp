@@ -42,8 +42,7 @@ struct SchemaValue
 };
 
 /// Convert a JSON instance to a typed value using the provided JSON Schema.
-/// This mirrors Python's json_schema_to_type behavior at runtime: validates
-/// enums/const/defaults, unions (type arrays/anyOf/oneOf), arrays/objects,
+/// Validates enums/const/defaults, unions (type arrays/anyOf/oneOf), arrays/objects,
 /// and basic formats (json).
 SchemaValue json_schema_to_value(const fastmcpp::Json& schema, const fastmcpp::Json& instance);
 

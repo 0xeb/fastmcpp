@@ -15,15 +15,12 @@ namespace fastmcpp::providers::transforms::search
 ///
 /// Tools are matched against their name, description, and parameter information with a
 /// case-insensitive, linear-time regex engine using Rust `regex` syntax
-/// (fastmcpp::util::LinearRegex), as upstream does with Pydantic's Rust engine. Lookarounds,
-/// backreferences and `\Z` are rejected; `\z` means end of text.
+/// (fastmcpp::util::LinearRegex). Lookarounds, backreferences and `\Z` are rejected; `\z`
+/// means end of text.
 ///
 /// Matching never backtracks, so every pattern costs time linear in the tool text. A search
 /// stops after kSearchTimeBudget, including inside one tool's match, and returns the matches
 /// found so far. Patterns over kMaxPatternLength characters return nothing.
-///
-/// Parity with Python fastmcp RegexSearchTransform (commits c96c0400, eddc7800).
-/// PYTHON REFERENCE: fastmcp_slim/fastmcp/server/transforms/search/regex.py:57 (_search)
 class RegexSearchTransform : public BaseSearchTransform
 {
   public:
@@ -46,7 +43,7 @@ class RegexSearchTransform : public BaseSearchTransform
         }
         catch (const util::LinearRegex::Error&)
         {
-            return {}; // invalid or unsupported syntax, like upstream's SchemaError
+            return {}; // invalid or unsupported syntax
         }
 
         std::vector<tools::Tool> matches;

@@ -104,8 +104,7 @@ using ElicitationCallback =
 
 /// Thin helper: build an ElicitationCallback that forwards requests
 /// over a ServerSession using the MCP \"elicitation/request\" method.
-/// Mirrors the Python Context.elicit -> session.elicit flow, but leaves
-/// type adaptation to the caller.
+/// Type adaptation is left to the caller.
 inline ElicitationCallback
 make_elicitation_callback(std::shared_ptr<ServerSession> session,
                           std::optional<std::string> related_request_id = std::nullopt,
@@ -474,7 +473,6 @@ class Context
     ElicitationResult elicit(const std::string& message,
                              const fastmcpp::Json& base_schema = fastmcpp::Json::object()) const
     {
-        // PYTHON REFERENCE: fastmcp/server/context.py:69-72
         if (is_modern_protocol())
             throw std::runtime_error("elicitation via server-initiated requests is unavailable on "
                                      "2026-07-28 connections.");
@@ -507,7 +505,6 @@ class Context
     /// The client's answers to what this tool asked for on the previous round
     /// (keyed as asked); nullopt on the first round. Ask by returning
     /// mcp::input_required(...).
-    // PYTHON REFERENCE: fastmcp/server/context.py:390-409 (input_responses)
     std::optional<fastmcpp::Json> input_responses() const
     {
         if (request_meta_ && request_meta_->is_object())
@@ -521,7 +518,6 @@ class Context
 
     /// The `requestState` this tool returned on the previous round, as
     /// plaintext (the server seals it on the wire); nullopt on the first round.
-    // PYTHON REFERENCE: fastmcp/server/context.py:411-428 (request_state)
     std::optional<std::string> request_state() const
     {
         if (request_meta_ && request_meta_->is_object())
@@ -536,7 +532,6 @@ class Context
   private:
     /// Server-initiated requests need a back-channel the sessionless era does
     /// not have; fail before sending rather than hang waiting for a reply.
-    // PYTHON REFERENCE: mcp/shared/exceptions.py:55-68 (NoBackChannelError)
     void require_back_channel(const std::string& method) const
     {
         if (is_modern_protocol())

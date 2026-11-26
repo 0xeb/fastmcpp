@@ -1,5 +1,4 @@
 // Host/Origin request guard — DNS-rebinding protection.
-// PYTHON REFERENCE: fastmcp_slim/fastmcp/server/http.py:114-338 (v3.4.4, #4405/#4439/#4472)
 
 #include "fastmcpp/server/host_origin_guard.hpp"
 
@@ -254,7 +253,7 @@ ParsedOrigin parse_origin(const std::string& origin)
     if (path_pos != std::string::npos)
         p.has_extra = true;
 
-    // Strip userinfo (origins never carry it, but mirror urlsplit's tolerance).
+    // Strip userinfo (origins never carry it, but tolerate it).
     size_t at = authority.find_last_of('@');
     if (at != std::string::npos)
         authority = authority.substr(at + 1);
@@ -302,7 +301,7 @@ ParsedOrigin parse_origin(const std::string& origin)
         {
             if (c < '0' || c > '9')
             {
-                p.bad_port = true; // mirrors Python's ValueError on parsed.port
+                p.bad_port = true;
                 return p;
             }
             value = value * 10 + (c - '0');
@@ -329,7 +328,6 @@ int default_port(const std::string& scheme)
     return -1;
 }
 
-/// PYTHON REFERENCE: http.py::_format_origin_host — bracket bare IPv6.
 std::string format_origin_host(const std::string& host)
 {
     if (host.find(':') != std::string::npos && !host.empty() && host[0] != '[')
@@ -478,11 +476,8 @@ bool origin_matches(const std::string& raw, const std::vector<std::string>& allo
 
 } // namespace host_origin
 
-// ---- guard decision logic (PYTHON REFERENCE: HostOriginGuardMiddleware) ----
-
 namespace
 {
-/// PYTHON REFERENCE: http.py DEFAULT_HOSTS
 const std::vector<std::string> kDefaultHosts{"127.0.0.1", "localhost", "::1"};
 } // namespace
 
@@ -490,7 +485,6 @@ HostOriginGuard::HostOriginGuard(HostOriginGuardOptions options) : options_(std:
 
 bool HostOriginGuard::should_validate_host(const std::string& bound_host) const
 {
-    // PYTHON REFERENCE: _should_validate_host
     if (options_.mode == HostOriginProtectionMode::Strict || options_.allowed_hosts.has_value())
         return true;
     return !bound_host.empty() && host_origin::is_loopback_host(bound_host);
@@ -499,7 +493,6 @@ bool HostOriginGuard::should_validate_host(const std::string& bound_host) const
 bool HostOriginGuard::should_validate_origin(const std::string& host_header,
                                              const std::string& bound_host) const
 {
-    // PYTHON REFERENCE: _should_validate_origin
     if (options_.mode == HostOriginProtectionMode::Strict || options_.allowed_hosts.has_value() ||
         options_.allowed_origins.has_value() || host_origin::is_loopback_host(host_header))
         return true;
@@ -509,7 +502,6 @@ bool HostOriginGuard::should_validate_origin(const std::string& host_header,
 bool HostOriginGuard::allow_same_origin_fallback(const std::string& host_header,
                                                  const std::string& bound_host) const
 {
-    // PYTHON REFERENCE: _allow_same_origin_fallback
     if (!options_.allowed_origins.has_value())
         return true;
     if (options_.mode == HostOriginProtectionMode::Strict || options_.allowed_hosts.has_value())
@@ -520,7 +512,6 @@ bool HostOriginGuard::allow_same_origin_fallback(const std::string& host_header,
 
 std::vector<std::string> HostOriginGuard::allowed_hosts_for(const std::string& bound_host) const
 {
-    // PYTHON REFERENCE: _allowed_hosts_for_scope
     std::vector<std::string> hosts = kDefaultHosts;
     if (options_.allowed_hosts.has_value())
         hosts.insert(hosts.end(), options_.allowed_hosts->begin(), options_.allowed_hosts->end());
@@ -533,7 +524,6 @@ bool HostOriginGuard::origin_allowed(const std::string& origin, const std::strin
                                      const std::string& host_header,
                                      bool same_origin_fallback) const
 {
-    // PYTHON REFERENCE: _origin_allowed
     if (options_.allowed_origins.has_value() &&
         host_origin::origin_matches(origin, *options_.allowed_origins))
         return true;
@@ -550,7 +540,6 @@ HostOriginVerdict HostOriginGuard::check(const std::string& host_header,
                                          const std::string& scheme,
                                          const std::string& bound_host) const
 {
-    // PYTHON REFERENCE: HostOriginGuardMiddleware.__call__
     if (options_.mode == HostOriginProtectionMode::Off)
         return HostOriginVerdict::Allow;
 

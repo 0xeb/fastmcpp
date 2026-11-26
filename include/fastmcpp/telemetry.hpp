@@ -155,7 +155,6 @@ SpanScope delegate_span(const std::string& name, const std::string& provider_typ
 /// The transport serving requests on this thread, for the `network.*` attributes
 /// on server spans: HTTP reports `tcp` + `http` + the HTTP version, stdio `pipe`,
 /// in-process calls nothing.
-// PYTHON REFERENCE: fastmcp/server/telemetry.py:112-131 (get_network_span_attributes, #6751)
 struct NetworkTransport
 {
     std::string transport;        // "tcp" | "pipe"

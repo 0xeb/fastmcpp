@@ -11,8 +11,7 @@
 ///          `tasks/update`; the tool then runs again with the answers, the same
 ///          multi-round-trip pattern as a foreground call.
 ///
-///          Tasks live in this process (the reference implementation uses a
-///          Docket/Redis backend; a durable backend is out of scope here).
+///          Tasks live in this process (a durable backend is out of scope here).
 ///          The handshake era keeps the SEP-1686 task path.
 
 #include "fastmcpp/server/extension.hpp"
@@ -29,13 +28,10 @@ inline constexpr const char* kTasksExtensionId = "io.modelcontextprotocol/tasks"
 struct TasksExtensionOptions
 {
     /// How long a task and its result are kept (advertised as `ttlMs`).
-    // PYTHON REFERENCE: fastmcp_tasks/settings.py:128-140 (execution_ttl)
     std::chrono::milliseconds execution_ttl{std::chrono::minutes(15)};
     /// Suggested client polling cadence (advertised as `pollIntervalMs`).
-    // PYTHON REFERENCE: fastmcp/utilities/tasks.py:23 (DEFAULT_POLL_INTERVAL)
     std::chrono::milliseconds poll_interval{std::chrono::seconds(5)};
     /// Worker threads running task legs.
-    // PYTHON REFERENCE: fastmcp_tasks/settings.py:77-86 (concurrency)
     int concurrency{10};
 };
 

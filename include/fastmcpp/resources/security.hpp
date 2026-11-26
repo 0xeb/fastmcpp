@@ -22,16 +22,13 @@ namespace fastmcpp::resources
 
 /// True if @p value, as a relative path, would escape its starting point via
 /// `..` segments (`/` and `\` both separate). `1.0..2.0` and `a/../b` pass.
-// PYTHON REFERENCE: mcp/shared/path_security.py:24-71 (contains_path_traversal)
 bool contains_path_traversal(const std::string& value);
 
 /// True if @p value is absolute on any common platform: `/x`, `\x`,
 /// `\\server\share`, `C:\x`, or drive-relative `C:x`.
-// PYTHON REFERENCE: mcp/shared/path_security.py:74-118 (is_absolute_path)
 bool is_absolute_path(const std::string& value);
 
 /// Policy applied to extracted template parameter values.
-// PYTHON REFERENCE: fastmcp/resources/security.py:73-160 (ResourceSecurity)
 struct ResourceSecurity
 {
     bool reject_path_traversal{true};
@@ -48,7 +45,6 @@ struct ResourceSecurity
 
 /// A template's own policy: inherit the server default (monostate), screening
 /// disabled (std::nullopt_t), or an explicit policy.
-// PYTHON REFERENCE: fastmcp/resources/template.py:449-471 (security, resolve_security)
 using TemplateSecurity = std::variant<std::monostate, std::nullopt_t, ResourceSecurity>;
 
 /// Disable screening for one template.
@@ -60,8 +56,8 @@ resolve_security(const TemplateSecurity& own,
                  const std::optional<ResourceSecurity>& server_default);
 
 /// While alive, a mounting parent's default also screens templated reads
-/// delegated to its children on this thread (Python's mount wrapper resolves
-/// the child template against the parent default before delegating).
+/// delegated to its children on this thread (the child template is resolved
+/// against the parent default before delegating).
 class ResourceSecurityScope
 {
   public:
@@ -75,7 +71,6 @@ class ResourceSecurityScope
 /// `Unknown resource: '<uri>'` if the template's policy under any enclosing
 /// ResourceSecurityScope (outermost first, reporting that level's URI) or
 /// under this server's default rejects a value.
-// PYTHON REFERENCE: fastmcp/server/server.py:1915-1931 (read_resource screening)
 void enforce_resource_security(const TemplateSecurity& own,
                                const std::unordered_map<std::string, std::string>& params,
                                const std::string& uri,

@@ -144,8 +144,8 @@ Step sample_step(std::shared_ptr<ServerSession> session, const std::vector<Messa
     if (options.tool_choice && !options.tool_choice->empty())
         params["toolChoice"] = fastmcpp::Json{{"mode", *options.tool_choice}};
 
-    // PYTHON REFERENCE: fastmcp #4059 (2d61d8a4) — trace the sampling step (the
-    // server->client LLM round-trip) with OTEL semantic-convention attributes.
+    // Trace the sampling step (the server->client LLM round-trip) with OTEL
+    // semantic-convention attributes.
     auto span = telemetry::client_span("sampling.createMessage", "sampling/createMessage",
                                        "sampling", std::nullopt);
     fastmcpp::Json response;
@@ -260,7 +260,7 @@ Result sample(std::shared_ptr<ServerSession> session, const std::vector<Message>
 
         current_messages = std::move(step.history);
 
-        // After first iteration, reset tool choice to default ("auto") per Python behavior.
+        // After first iteration, reset tool choice to default ("auto").
         initial_tool_choice.reset();
     }
 

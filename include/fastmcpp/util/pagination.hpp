@@ -103,7 +103,6 @@ inline CursorState decode_cursor(const std::string& cursor)
 /// Strict decode: the offset of a server-produced cursor, or nullopt when the
 /// cursor is not one (bad base64/JSON, or an offset that is not a whole
 /// non-negative integer). A cursor is opaque, so anything else was tampered with.
-// PYTHON REFERENCE: fastmcp/utilities/pagination.py:31-58 (CursorState.decode)
 inline std::optional<int> parse_cursor(const std::string& cursor)
 {
     try

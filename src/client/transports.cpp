@@ -228,8 +228,8 @@ fastmcpp::Json StdioTransport::send_message(const std::string& route, const fast
 
     if (keep_alive_)
     {
-        // Python fastmcp commit f5804f47 (#3630): if the subprocess died between calls,
-        // reset state and respawn on the next request rather than failing forever.
+        // If the subprocess died between calls, reset state and respawn on the next request
+        // rather than failing forever.
         if (state_)
         {
             auto exit_code = state_->process.try_wait();

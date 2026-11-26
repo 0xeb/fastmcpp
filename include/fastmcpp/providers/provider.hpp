@@ -34,7 +34,6 @@ class Provider
 
     /// Extensions this provider needs; `FastMCP::add_provider` registers each one
     /// whose identifier is not registered yet.
-    // PYTHON REFERENCE: fastmcp/server/providers/base.py (Provider.required_extensions)
     virtual std::vector<std::shared_ptr<server::ServerExtension>> required_extensions() const
     {
         return {};
@@ -90,7 +89,6 @@ class Provider
         auto tool = chain(name);
         // Lookup honours enabled state like listing does: a tool hidden by a transform
         // (ToolTransformConfig{enabled=false}) is not callable by name either.
-        // PYTHON REFERENCE: fastmcp_slim/fastmcp/server/server.py:777 (get_tool, is_enabled)
         if (tool && tool->is_hidden())
             return std::nullopt;
         return tool;
@@ -123,7 +121,6 @@ class Provider
     /// Whether a concrete resource exists at `uri` once every transform except visibility is
     /// applied. Together with get_resource_transformed() this tells a hidden resource apart from
     /// a missing one, so a hidden resource is not served by a template matching the same URI.
-    /// PYTHON REFERENCE: fastmcp_slim/fastmcp/server/server.py:958 (_lookup_resource)
     bool has_resource_ignoring_visibility(const std::string& uri) const
     {
         transforms::GetResourceNext chain = [this](const std::string& res_uri)

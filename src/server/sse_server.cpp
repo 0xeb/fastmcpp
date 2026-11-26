@@ -1,6 +1,7 @@
 #include "fastmcpp/server/sse_server.hpp"
 
 #include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/mcp/dual_era.hpp"
 #include "fastmcpp/telemetry.hpp"
 #include "fastmcpp/util/json.hpp"
 
@@ -492,6 +493,12 @@ bool SseServerWrapper::start()
 
                 // Parse JSON-RPC message
                 auto message = fastmcpp::util::json::parse(req.body);
+                if (auto invalid = mcp::invalid_request_response(message))
+                {
+                    res.set_content(invalid->dump(), "application/json");
+                    res.status = 400;
+                    return;
+                }
 
                 // Inject session_id into request meta for handler access
                 if (!message.contains("params"))

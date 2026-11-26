@@ -45,12 +45,11 @@ class HttpServerWrapper
 
     /// Register a custom HTTP route (e.g. `/health`) handled before the
     /// catch-all JSON-RPC POST. Must be called before start(); routes
-    /// registered after start() take effect on the next start() call. Parity
-    /// hook for Python `FastMCP.custom_route()` aggregation (commit 68e76fea).
+    /// registered after start() take effect on the next start() call.
     void set_custom_routes(std::vector<fastmcpp::CustomRoute> routes);
 
     /// Enable the Host/Origin request guard (DNS-rebinding protection).
-    /// Call before start(). Default Off. PYTHON REFERENCE: host_origin_protection.
+    /// Call before start(). Default Off.
     void set_host_origin_guard(HostOriginGuardOptions options)
     {
         host_origin_guard_options_ = std::move(options);
