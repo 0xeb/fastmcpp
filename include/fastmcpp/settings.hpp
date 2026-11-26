@@ -29,6 +29,12 @@ struct Settings
     std::optional<std::vector<std::string>> http_allowed_hosts;
     std::optional<std::vector<std::string>> http_allowed_origins;
 
+    /// Serve `subscriptions/listen` on the 2026-07-28 era, the only channel
+    /// change notifications reach those clients on. Read when a FastMCP is
+    /// constructed. Env: FASTMCPP_ENABLE_SUBSCRIPTIONS_LISTEN.
+    // PYTHON REFERENCE: fastmcp/settings.py (enable_subscriptions_listen)
+    bool enable_subscriptions_listen{true};
+
     static Settings from_env();
     static Settings from_json(const Json& j);
 };

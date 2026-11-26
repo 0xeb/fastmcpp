@@ -6,6 +6,7 @@
 #include "http_detail.hpp"
 
 #include <curl/curl.h>
+#include <exception>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -125,6 +126,70 @@ size_t write_header(char* data, size_t size, size_t nmemb, void* user)
     return total;
 }
 
+/// Streaming state shared with the libcurl callbacks.
+struct StreamState
+{
+    const HttpRpcTransport::StreamSink* sink = nullptr;
+    StreamCancel* cancel = nullptr;
+    CURL* curl = nullptr;
+    std::multimap<std::string, std::string> headers;
+    bool head_sent = false;
+    bool stopped = false;
+    std::exception_ptr error;
+
+    /// Report the head once, before the first body byte.
+    bool send_head()
+    {
+        if (head_sent)
+            return !stopped;
+        head_sent = true;
+        long status = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+        if (sink->on_head && !sink->on_head(static_cast<int>(status), headers))
+            stopped = true;
+        return !stopped;
+    }
+};
+
+size_t stream_body(char* data, size_t size, size_t nmemb, void* user)
+{
+    auto* state = static_cast<StreamState*>(user);
+    const size_t total = size * nmemb;
+    // No exception may unwind through libcurl's C frames.
+    try
+    {
+        if (!state->send_head() || state->cancel->cancelled())
+            return 0; // A short count aborts the transfer.
+        if (state->sink->on_body && !state->sink->on_body(data, total))
+        {
+            state->stopped = true;
+            return 0;
+        }
+    }
+    catch (...)
+    {
+        state->error = std::current_exception();
+        state->stopped = true;
+        return 0;
+    }
+    return total;
+}
+
+size_t stream_header(char* data, size_t size, size_t nmemb, void* user)
+{
+    auto* state = static_cast<StreamState*>(user);
+    // A new status line (after a 1xx) starts a fresh header block.
+    if (size * nmemb >= 5 && std::string(data, 5) == "HTTP/")
+        state->headers.clear();
+    return write_header(data, size, nmemb, &state->headers);
+}
+
+int stream_progress(void* user, curl_off_t, curl_off_t, curl_off_t, curl_off_t)
+{
+    // Polled about once a second even while idle: lets cancel() take effect.
+    return static_cast<StreamState*>(user)->cancel->cancelled() ? 1 : 0;
+}
+
 /// Split "https://host/mcp" into the origin and path the base class wants.
 std::pair<std::string, std::string> split_endpoint(const std::string& url)
 {
@@ -178,6 +243,59 @@ HttpResponse CurlTransport::post(const std::string& url, const std::string& path
                                  const std::string& body)
 {
     return send("POST", url, path, headers, body);
+}
+
+void CurlTransport::post_stream(const std::string& url, const std::string& path,
+                                const std::unordered_map<std::string, std::string>& headers,
+                                const std::string& body, const StreamSink& sink,
+                                StreamCancel& cancel)
+{
+    EasyHandle easy;
+    CURL* curl = easy.get();
+
+    HeaderList header_list;
+    for (const auto& [key, value] : headers)
+        header_list.append(key + ": " + value);
+    const std::string target = url + path;
+
+    StreamState state;
+    state.sink = &sink;
+    state.cancel = &cancel;
+    state.curl = curl;
+
+    curl_easy_setopt(curl, CURLOPT_URL, target.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header_list.get());
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, stream_body);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &state);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, stream_header);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &state);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, stream_progress);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &state);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, impl_->connect_timeout_s);
+    // A stream has no total deadline; a silent peer is caught by the low-speed
+    // check (the server pings every 15 s).
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, impl_->total_timeout_s);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "fastmcpp");
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, verify_ssl() ? 1L : 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, verify_ssl() ? 2L : 0L);
+
+    const CURLcode code = curl_easy_perform(curl);
+    if (state.error)
+        std::rethrow_exception(state.error);
+    if (state.stopped || cancel.cancelled())
+        return;
+    if (code != CURLE_OK)
+        throw fastmcpp::TransportError(std::string("CurlTransport: stream failed: ") +
+                                       curl_easy_strerror(code));
+    // A response with no body still has a head to report.
+    state.send_head();
 }
 
 HttpResponse CurlTransport::send(const std::string& method, const std::string& url,

@@ -16,26 +16,124 @@ namespace fastmcpp::providers::transforms::search
 namespace detail
 {
 
-/// Tokenize text: lowercase, split on non-alphanumeric, filter short tokens.
+/// Decode one UTF-8 code point at @p i (advancing it); invalid bytes read as U+FFFD.
+inline char32_t next_code_point(const std::string& s, size_t& i)
+{
+    const auto b0 = static_cast<unsigned char>(s[i++]);
+    if (b0 < 0x80)
+        return b0;
+    int extra = b0 >= 0xF0 ? 3 : b0 >= 0xE0 ? 2 : b0 >= 0xC0 ? 1 : -1;
+    if (extra < 0)
+        return 0xFFFD;
+    char32_t cp = b0 & (0x3F >> extra);
+    for (int k = 0; k < extra; ++k)
+    {
+        if (i >= s.size() || (static_cast<unsigned char>(s[i]) & 0xC0) != 0x80)
+            return 0xFFFD;
+        cp = (cp << 6) | (static_cast<unsigned char>(s[i++]) & 0x3F);
+    }
+    return cp;
+}
+
+inline void append_utf8(std::string& out, char32_t cp)
+{
+    if (cp < 0x80)
+        out.push_back(static_cast<char>(cp));
+    else if (cp < 0x800)
+    {
+        out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    }
+    else if (cp < 0x10000)
+    {
+        out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    }
+    else
+    {
+        out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    }
+}
+
+/// Word characters: ASCII letters/digits, and every non-ASCII code point
+/// except Latin-1 punctuation/symbols, general punctuation, spaces and
+/// CJK/full-width punctuation (an approximation of Python's `[^\W_]`).
+inline bool is_word_code_point(char32_t cp)
+{
+    if (cp < 0x80)
+        return std::isalnum(static_cast<unsigned char>(cp)) != 0;
+    if (cp <= 0xBF)
+        return cp == 0xAA || cp == 0xB2 || cp == 0xB3 || cp == 0xB5 || cp == 0xB9 || cp == 0xBA;
+    if (cp == 0xD7 || cp == 0xF7 || cp == 0xFFFD)
+        return false;
+    if ((cp >= 0x2000 && cp <= 0x2BFF) || (cp >= 0x3000 && cp <= 0x303F) ||
+        (cp >= 0xFE30 && cp <= 0xFE4F) || (cp >= 0xFF00 && cp <= 0xFF0F) ||
+        (cp >= 0xFF1A && cp <= 0xFF20) || (cp >= 0xFF3B && cp <= 0xFF40) ||
+        (cp >= 0xFF5B && cp <= 0xFF65))
+        return false;
+    return true;
+}
+
+/// Lowercase ASCII, Latin-1, Latin Extended-A, Greek and Cyrillic; full-width
+/// ASCII letters/digits fold to ASCII (the common NFKC cases).
+inline char32_t fold_code_point(char32_t cp)
+{
+    if (cp >= 0xFF10 && cp <= 0xFF5A) // full-width digits and letters
+        cp -= 0xFEE0;
+    if (cp < 0x80)
+        return static_cast<char32_t>(std::tolower(static_cast<int>(cp)));
+    if ((cp >= 0xC0 && cp <= 0xDE && cp != 0xD7))
+        return cp + 0x20;
+    if (cp >= 0x100 && cp <= 0x17F && cp != 0x130 && cp != 0x131 && cp != 0x138 && cp != 0x149 &&
+        cp != 0x17F)
+    {
+        const bool odd_pairs = (cp >= 0x139 && cp <= 0x148) || (cp >= 0x179 && cp <= 0x17E);
+        if (odd_pairs ? (cp % 2 == 1) : (cp % 2 == 0))
+            return cp + 1;
+        return cp;
+    }
+    if (cp >= 0x391 && cp <= 0x3AB && cp != 0x3A2)
+        return cp + 0x20;
+    if (cp >= 0x410 && cp <= 0x42F)
+        return cp + 0x20;
+    if (cp >= 0x400 && cp <= 0x40F)
+        return cp + 0x50;
+    return cp;
+}
+
+/// Tokenize text into case-folded Unicode word tokens of two or more code points.
+// PYTHON REFERENCE: fastmcp/server/transforms/search/bm25.py (_tokenize: NFKC + casefold,
+// `[^\W_]{2,}`). Normalization is approximated: no decomposition tables here.
 inline std::vector<std::string> tokenize(const std::string& text)
 {
     std::vector<std::string> tokens;
     std::string current;
-    for (char c : text)
+    size_t length = 0;
+    auto flush = [&]
     {
-        if (std::isalnum(static_cast<unsigned char>(c)))
+        if (length > 1)
+            tokens.push_back(std::move(current));
+        current.clear();
+        length = 0;
+    };
+    for (size_t i = 0; i < text.size();)
+    {
+        const char32_t cp = fold_code_point(next_code_point(text, i));
+        if (is_word_code_point(cp))
         {
-            current.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+            append_utf8(current, cp);
+            ++length;
         }
         else
         {
-            if (current.size() > 1)
-                tokens.push_back(std::move(current));
-            current.clear();
+            flush();
         }
     }
-    if (current.size() > 1)
-        tokens.push_back(std::move(current));
+    flush();
     return tokens;
 }
 
@@ -159,15 +257,24 @@ class BM25SearchTransform : public BaseSearchTransform
                 documents.push_back(extract_searchable_text(t));
             index_ = detail::BM25Index(index_.k1(), index_.b());
             index_.build(documents);
-            indexed_tools_ = tools;
+            indexed_names_.clear();
+            for (const auto& t : tools)
+                indexed_names_.push_back(t.name());
             last_hash_ = std::move(hash);
         }
 
+        // Results come from the current catalog, so a schema change that leaves the
+        // searchable text alone is still served fresh.
+        // PYTHON REFERENCE: fastmcp commit 32f981cac
+        std::unordered_map<std::string, const tools::Tool*> by_name;
+        for (const auto& t : tools)
+            by_name.emplace(t.name(), &t);
         auto indices = index_.query(query, max_results());
         std::vector<tools::Tool> result;
         result.reserve(indices.size());
         for (int i : indices)
-            result.push_back(indexed_tools_[i]);
+            if (auto it = by_name.find(indexed_names_[i]); it != by_name.end())
+                result.push_back(*it->second);
         return result;
     }
 
@@ -201,12 +308,8 @@ class BM25SearchTransform : public BaseSearchTransform
         for (const auto& t : tools)
             texts.push_back(extract_searchable_text(t));
         std::sort(texts.begin(), texts.end());
-        std::string combined;
-        for (const auto& t : texts)
-        {
-            combined += t;
-            combined += '|';
-        }
+        // JSON-encoded so ["a|b","c"] and ["a","b|c"] differ.
+        const std::string combined = Json(texts).dump();
         // Simple hash — FNV-1a
         uint64_t hash = 14695981039346656037ULL;
         for (char c : combined)
@@ -218,7 +321,7 @@ class BM25SearchTransform : public BaseSearchTransform
     }
 
     mutable detail::BM25Index index_;
-    mutable std::vector<tools::Tool> indexed_tools_;
+    mutable std::vector<std::string> indexed_names_;
     mutable std::string last_hash_;
 };
 

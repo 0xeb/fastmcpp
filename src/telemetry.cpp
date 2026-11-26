@@ -300,6 +300,35 @@ SpanScope client_span(const std::string& name, const std::string& method,
     return span;
 }
 
+namespace
+{
+thread_local std::optional<NetworkTransport> t_network_transport;
+}
+
+NetworkTransportScope::NetworkTransportScope(NetworkTransport transport)
+    : previous_(t_network_transport)
+{
+    t_network_transport = std::move(transport);
+}
+
+NetworkTransportScope::~NetworkTransportScope()
+{
+    t_network_transport = previous_;
+}
+
+NetworkTransport http_transport(const std::string& http_version)
+{
+    std::string version = http_version;
+    if (version.rfind("HTTP/", 0) == 0)
+        version.erase(0, 5);
+    return NetworkTransport{"tcp", "http", version};
+}
+
+std::optional<NetworkTransport> current_network_transport()
+{
+    return t_network_transport;
+}
+
 SpanScope server_span(const std::string& name, const std::string& method,
                       const std::string& server_name, const std::string& component_type,
                       const std::string& component_key,
@@ -326,6 +355,15 @@ SpanScope server_span(const std::string& name, const std::string& method,
         span.span().set_attribute("gen_ai.tool.name", component_key);
     if (session_id && !session_id->empty())
         span.span().set_attribute("fastmcp.session.id", *session_id);
+    if (t_network_transport)
+    {
+        span.span().set_attribute("network.transport", t_network_transport->transport);
+        if (!t_network_transport->protocol_name.empty())
+            span.span().set_attribute("network.protocol.name", t_network_transport->protocol_name);
+        if (!t_network_transport->protocol_version.empty())
+            span.span().set_attribute("network.protocol.version",
+                                      t_network_transport->protocol_version);
+    }
     return span;
 }
 

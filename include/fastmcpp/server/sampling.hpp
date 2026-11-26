@@ -20,7 +20,8 @@ struct Tool
 {
     std::string name;
     std::optional<std::string> description;
-    fastmcpp::Json input_schema{fastmcpp::Json::object()};
+    // `= ` not `{}`: brace-init makes a one-element array under GCC.
+    fastmcpp::Json input_schema = fastmcpp::Json::object();
     std::function<fastmcpp::Json(const fastmcpp::Json&)> fn;
 };
 

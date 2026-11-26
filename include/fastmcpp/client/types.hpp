@@ -293,6 +293,8 @@ struct ServerCapabilities
     std::optional<fastmcpp::Json> tasks;
     std::optional<fastmcpp::Json> tools;
     std::optional<fastmcpp::Json> extensions;
+    /// Present when the server answers `completion/complete`.
+    std::optional<fastmcpp::Json> completions;
 };
 
 /// Server information
@@ -315,6 +317,32 @@ struct InitializeResult
 // ============================================================================
 // JSON Serialization Helpers
 // ============================================================================
+
+namespace detail
+{
+/// Component version from a list entry: `_meta.fastmcp.version` (fastmcp, and
+/// fastmcpp >= 4), else a top-level `version` (fastmcpp < 4). Integers are
+/// accepted because historic servers sent them.
+// PYTHON REFERENCE: fastmcp/utilities/components.py:190-215 (get_meta)
+inline std::optional<std::string> component_version(const fastmcpp::Json& j)
+{
+    auto as_string = [](const fastmcpp::Json& v) -> std::optional<std::string>
+    {
+        if (v.is_string())
+            return v.get<std::string>();
+        if (v.is_number_integer())
+            return std::to_string(v.get<long long>());
+        return std::nullopt;
+    };
+    if (j.contains("_meta") && j["_meta"].is_object() && j["_meta"].contains("fastmcp") &&
+        j["_meta"]["fastmcp"].is_object() && j["_meta"]["fastmcp"].contains("version"))
+        if (auto v = as_string(j["_meta"]["fastmcp"]["version"]))
+            return v;
+    if (j.contains("version"))
+        return as_string(j["version"]);
+    return std::nullopt;
+}
+} // namespace detail
 
 inline void to_json(fastmcpp::Json& j, const TextContent& c)
 {
@@ -374,14 +402,7 @@ inline void to_json(fastmcpp::Json& j, const ToolInfo& t)
 inline void from_json(const fastmcpp::Json& j, ToolInfo& t)
 {
     t.name = j.at("name").get<std::string>();
-    if (j.contains("version"))
-    {
-        // Python fastmcp encodes Tool.version as a string, but historic clients may send an int.
-        if (j["version"].is_string())
-            t.version = j["version"].get<std::string>();
-        else if (j["version"].is_number_integer())
-            t.version = std::to_string(j["version"].get<long long>());
-    }
+    t.version = detail::component_version(j);
     if (j.contains("title"))
         t.title = j["title"].get<std::string>();
     if (j.contains("description"))
@@ -398,26 +419,12 @@ inline void from_json(const fastmcpp::Json& j, ToolInfo& t)
         t._meta = j["_meta"];
         if (j["_meta"].is_object() && j["_meta"].contains("ui") && j["_meta"]["ui"].is_object())
             t.app = j["_meta"]["ui"].get<fastmcpp::AppConfig>();
-        // Python fastmcp >= 2.x exposes per-tool version via _meta.fastmcp.version (see
-        // fastmcp_slim/fastmcp/utilities/components.py:get_meta). Surface it as ToolInfo.version
-        // if no top-level "version" was provided so the proxy passthrough preserves the field.
-        if (!t.version && j["_meta"].is_object() && j["_meta"].contains("fastmcp") &&
-            j["_meta"]["fastmcp"].is_object() && j["_meta"]["fastmcp"].contains("version"))
-        {
-            const auto& v = j["_meta"]["fastmcp"]["version"];
-            if (v.is_string())
-                t.version = v.get<std::string>();
-            else if (v.is_number_integer())
-                t.version = std::to_string(v.get<long long>());
-        }
     }
 }
 
 inline void to_json(fastmcpp::Json& j, const ResourceInfo& r)
 {
     j = fastmcpp::Json{{"uri", r.uri}, {"name", r.name}};
-    if (r.version)
-        j["version"] = *r.version;
     if (r.title)
         j["title"] = *r.title;
     if (r.description)
@@ -431,6 +438,12 @@ inline void to_json(fastmcpp::Json& j, const ResourceInfo& r)
     fastmcpp::Json meta = r._meta && r._meta->is_object() ? *r._meta : fastmcpp::Json::object();
     if (r.app)
         meta["ui"] = *r.app;
+    if (r.version)
+    {
+        if (!meta.contains("fastmcp") || !meta["fastmcp"].is_object())
+            meta["fastmcp"] = fastmcpp::Json::object();
+        meta["fastmcp"]["version"] = *r.version;
+    }
     if (!meta.empty())
         j["_meta"] = std::move(meta);
 }
@@ -439,8 +452,7 @@ inline void from_json(const fastmcpp::Json& j, ResourceInfo& r)
 {
     r.uri = j.at("uri").get<std::string>();
     r.name = j.at("name").get<std::string>();
-    if (j.contains("version"))
-        r.version = j["version"].get<std::string>();
+    r.version = detail::component_version(j);
     if (j.contains("title"))
         r.title = j["title"].get<std::string>();
     if (j.contains("description"))
@@ -532,8 +544,7 @@ inline void to_json(fastmcpp::Json& j, const PromptInfo& p)
 inline void from_json(const fastmcpp::Json& j, PromptInfo& p)
 {
     p.name = j.at("name").get<std::string>();
-    if (j.contains("version"))
-        p.version = j["version"].get<std::string>();
+    p.version = detail::component_version(j);
     if (j.contains("title"))
         p.title = j["title"].get<std::string>();
     if (j.contains("description"))
@@ -643,11 +654,15 @@ inline void from_json(const fastmcpp::Json& j, TaskStatus& s)
         s.createdAt = j["createdAt"].get<std::string>();
     if (j.contains("lastUpdatedAt"))
         s.lastUpdatedAt = j["lastUpdatedAt"].get<std::string>();
-    if (j.contains("ttl"))
+    if (j.contains("ttl") && j["ttl"].is_number_integer())
         s.ttl = j["ttl"].get<int>();
-    if (j.contains("pollInterval"))
+    else if (j.contains("ttlMs") && j["ttlMs"].is_number_integer())
+        s.ttl = j["ttlMs"].get<int>();
+    if (j.contains("pollInterval") && j["pollInterval"].is_number_integer())
         s.pollInterval = j["pollInterval"].get<int>();
-    if (j.contains("statusMessage"))
+    else if (j.contains("pollIntervalMs") && j["pollIntervalMs"].is_number_integer())
+        s.pollInterval = j["pollIntervalMs"].get<int>();
+    if (j.contains("statusMessage") && j["statusMessage"].is_string())
         s.statusMessage = j["statusMessage"].get<std::string>();
 }
 

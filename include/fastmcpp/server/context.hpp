@@ -435,6 +435,7 @@ class Context
     SamplingResult sample(const std::vector<SamplingMessage>& messages,
                           const SamplingParams& params = SamplingParams{}) const
     {
+        require_back_channel("sampling/createMessage");
         if (!sampling_callback_)
             throw std::runtime_error("Sampling not available: no sampling callback set");
         return sampling_callback_(messages, params);
@@ -473,6 +474,10 @@ class Context
     ElicitationResult elicit(const std::string& message,
                              const fastmcpp::Json& base_schema = fastmcpp::Json::object()) const
     {
+        // PYTHON REFERENCE: fastmcp/server/context.py:69-72
+        if (is_modern_protocol())
+            throw std::runtime_error("elicitation via server-initiated requests is unavailable on "
+                                     "2026-07-28 connections.");
         if (!elicitation_callback_)
             throw std::runtime_error("Elicitation not available: no elicitation callback set");
 
@@ -480,6 +485,67 @@ class Context
         return elicitation_callback_(message, schema);
     }
 
+    /// Protocol revision the current request arrived on (from the request
+    /// envelope on the sessionless era); nullopt on the handshake era.
+    std::optional<std::string> protocol_version() const
+    {
+        if (request_meta_ && request_meta_->is_object() &&
+            request_meta_->contains("io.modelcontextprotocol/protocolVersion") &&
+            (*request_meta_)["io.modelcontextprotocol/protocolVersion"].is_string())
+            return (*request_meta_)["io.modelcontextprotocol/protocolVersion"].get<std::string>();
+        return std::nullopt;
+    }
+
+    /// True when the current request is on the sessionless 2026-07-28 era, which
+    /// has no channel for server-initiated requests.
+    bool is_modern_protocol() const
+    {
+        return request_meta_ && request_meta_->is_object() &&
+               request_meta_->value("fastmcpp/protocolEra", std::string()) == "modern";
+    }
+
+    /// The client's answers to what this tool asked for on the previous round
+    /// (keyed as asked); nullopt on the first round. Ask by returning
+    /// mcp::input_required(...).
+    // PYTHON REFERENCE: fastmcp/server/context.py:390-409 (input_responses)
+    std::optional<fastmcpp::Json> input_responses() const
+    {
+        if (request_meta_ && request_meta_->is_object())
+        {
+            auto it = request_meta_->find("fastmcpp/inputResponses");
+            if (it != request_meta_->end() && !it->is_null())
+                return *it;
+        }
+        return std::nullopt;
+    }
+
+    /// The `requestState` this tool returned on the previous round, as
+    /// plaintext (the server seals it on the wire); nullopt on the first round.
+    // PYTHON REFERENCE: fastmcp/server/context.py:411-428 (request_state)
+    std::optional<std::string> request_state() const
+    {
+        if (request_meta_ && request_meta_->is_object())
+        {
+            auto it = request_meta_->find("fastmcpp/requestState");
+            if (it != request_meta_->end() && it->is_string())
+                return it->get<std::string>();
+        }
+        return std::nullopt;
+    }
+
+  private:
+    /// Server-initiated requests need a back-channel the sessionless era does
+    /// not have; fail before sending rather than hang waiting for a reply.
+    // PYTHON REFERENCE: mcp/shared/exceptions.py:55-68 (NoBackChannelError)
+    void require_back_channel(const std::string& method) const
+    {
+        if (is_modern_protocol())
+            throw std::runtime_error("Cannot send '" + method +
+                                     "': this transport context has no back-channel for "
+                                     "server-initiated requests.");
+    }
+
+  public:
   private:
     void send_notification(const std::string& method, const Json& params) const
     {

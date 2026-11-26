@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
+#include <regex>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 
@@ -68,7 +70,7 @@ Json coerce_param_value(const std::string& value, ParamKind kind, const std::str
             size_t consumed = 0;
             long long v = std::stoll(value, &consumed);
             if (consumed != value.size())
-                throw fastmcpp::ValidationError("Invalid integer value for " + param_name + ": '" +
+                throw fastmcpp::ValidationError("Invalid int value for " + param_name + ": '" +
                                                 value + "'");
             return Json(v);
         }
@@ -78,8 +80,8 @@ Json coerce_param_value(const std::string& value, ParamKind kind, const std::str
         }
         catch (const std::exception&)
         {
-            throw fastmcpp::ValidationError("Invalid integer value for " + param_name + ": '" +
-                                            value + "'");
+            throw fastmcpp::ValidationError("Invalid int value for " + param_name + ": '" + value +
+                                            "'");
         }
     }
     case ParamKind::Number:
@@ -89,7 +91,7 @@ Json coerce_param_value(const std::string& value, ParamKind kind, const std::str
             size_t consumed = 0;
             double v = std::stod(value, &consumed);
             if (consumed != value.size())
-                throw fastmcpp::ValidationError("Invalid number value for " + param_name + ": '" +
+                throw fastmcpp::ValidationError("Invalid float value for " + param_name + ": '" +
                                                 value + "'");
             return Json(v);
         }
@@ -99,7 +101,7 @@ Json coerce_param_value(const std::string& value, ParamKind kind, const std::str
         }
         catch (const std::exception&)
         {
-            throw fastmcpp::ValidationError("Invalid number value for " + param_name + ": '" +
+            throw fastmcpp::ValidationError("Invalid float value for " + param_name + ": '" +
                                             value + "'");
         }
     }
@@ -167,29 +169,23 @@ std::string url_encode(const std::string& decoded)
 std::vector<std::string> extract_path_params(const std::string& uri_template)
 {
     std::vector<std::string> params;
-    std::regex path_param_regex(R"(\{([^?}*]+)\*?\})");
+    // {?...} and {&...} are query blocks, not path parameters.
+    std::regex path_param_regex(R"(\{([^?&}*][^}*]*)\*?\})");
 
     auto begin = std::sregex_iterator(uri_template.begin(), uri_template.end(), path_param_regex);
     auto end = std::sregex_iterator();
 
     for (auto it = begin; it != end; ++it)
-    {
-        std::smatch match = *it;
-        std::string full_match = match[0].str();
-
-        // Skip query parameters {?...}
-        if (full_match.find("{?") == std::string::npos)
-            params.push_back(match[1].str());
-    }
+        params.push_back((*it)[1].str());
 
     return params;
 }
 
-// Extract query parameters from URI template: {?a,b,c}
+// Extract query parameters from URI template: {?a,b,c} and {&d}, any number of blocks
 std::vector<std::string> extract_query_params(const std::string& uri_template)
 {
     std::vector<std::string> params;
-    std::regex query_param_regex(R"(\{\?([^}]+)\})");
+    std::regex query_param_regex(R"(\{[?&]([^}]+)\})");
 
     auto begin = std::sregex_iterator(uri_template.begin(), uri_template.end(), query_param_regex);
     auto end = std::sregex_iterator();
@@ -222,6 +218,107 @@ static std::string escape_regex(const std::string& str)
     return std::regex_replace(str, special_chars, R"(\$&)");
 }
 
+namespace
+{
+bool is_hex(char c)
+{
+    return std::isxdigit(static_cast<unsigned char>(c)) != 0;
+}
+
+// RFC 3986 unreserved + reserved characters stay as written in a literal.
+bool literal_safe(unsigned char c)
+{
+    static const std::string reserved = ":/?#[]@!$&'()*+,;=";
+    return std::isalnum(c) || c == '-' || c == '.' || c == '_' || c == '~' ||
+           reserved.find(static_cast<char>(c)) != std::string::npos;
+}
+
+std::string hex_class(char c)
+{
+    const char up = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    const char lo = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (up == lo)
+        return std::string(1, c);
+    return std::string("[") + up + lo + "]";
+}
+
+// A literal run matches as written or percent-encoded (RFC 6570 section 3.1),
+// with hex digits in either case; an existing %XX triplet matches case-insensitively.
+// PYTHON REFERENCE: fastmcp/resources/template.py:140-170 (_literal_pattern)
+std::string literal_pattern(const std::string& text)
+{
+    static const char* digits = "0123456789ABCDEF";
+    std::string out;
+    for (size_t i = 0; i < text.size();)
+    {
+        if (text[i] == '%' && i + 2 < text.size() && is_hex(text[i + 1]) && is_hex(text[i + 2]))
+        {
+            out += "%" + hex_class(text[i + 1]) + hex_class(text[i + 2]);
+            i += 3;
+            continue;
+        }
+        // One UTF-8 character (all its bytes) as written or encoded.
+        size_t len = 1;
+        const auto lead = static_cast<unsigned char>(text[i]);
+        if (lead >= 0xF0)
+            len = 4;
+        else if (lead >= 0xE0)
+            len = 3;
+        else if (lead >= 0xC0)
+            len = 2;
+        len = std::min(len, text.size() - i);
+        const std::string ch = text.substr(i, len);
+        if (len == 1 && literal_safe(lead))
+        {
+            out += escape_regex(ch);
+        }
+        else
+        {
+            std::string encoded;
+            for (unsigned char b : ch)
+                encoded +=
+                    std::string("%") + hex_class(digits[b >> 4]) + hex_class(digits[b & 0xF]);
+            out += "(?:" + escape_regex(ch) + "|" + encoded + ")";
+        }
+        i += len;
+    }
+    return out;
+}
+} // namespace
+
+void validate_uri_template(const std::string& uri_template)
+{
+    // PYTHON REFERENCE: fastmcp/resources/template.py:766-788
+    static const std::regex level3(R"(\{([+#./;]))");
+    std::set<std::string> ops;
+    for (auto it = std::sregex_iterator(uri_template.begin(), uri_template.end(), level3);
+         it != std::sregex_iterator(); ++it)
+        ops.insert((*it)[1].str());
+    if (!ops.empty())
+    {
+        std::string joined;
+        for (const auto& op : ops)
+            joined += (joined.empty() ? "" : ", ") + op;
+        throw fastmcpp::ValidationError("RFC 6570 level-3 operators {" + joined +
+                                        "...} are not supported. Use {?param} or {&param} for "
+                                        "query parameters or {param} for path parameters.");
+    }
+    static const std::regex set_expansion(R"(\{([a-zA-Z_][\w-]*,[^}]+)\})");
+    std::vector<std::string> sets;
+    for (auto it = std::sregex_iterator(uri_template.begin(), uri_template.end(), set_expansion);
+         it != std::sregex_iterator() && sets.size() < 2; ++it)
+        sets.push_back("{" + (*it)[1].str() + "}");
+    if (!sets.empty())
+    {
+        std::string examples = sets[0];
+        if (sets.size() > 1)
+            examples += ", " + sets[1];
+        throw fastmcpp::ValidationError("Set expansion syntax like " + examples +
+                                        " is not supported. Use {{?param1,param2}} for multiple "
+                                        "query parameters.");
+    }
+}
+
 // Build regex pattern from URI template
 std::string build_regex_pattern(const std::string& uri_template)
 {
@@ -232,6 +329,7 @@ std::string build_regex_pattern(const std::string& uri_template)
 
     std::string result;
     size_t pos = 0;
+    bool saw_query_block = false;
 
     while (pos < pattern.size())
     {
@@ -241,13 +339,13 @@ std::string build_regex_pattern(const std::string& uri_template)
         if (placeholder_start == std::string::npos)
         {
             // No more placeholders, escape the rest
-            result += escape_regex(pattern.substr(pos));
+            result += literal_pattern(pattern.substr(pos));
             break;
         }
 
         // Escape literal text before placeholder
         if (placeholder_start > pos)
-            result += escape_regex(pattern.substr(pos, placeholder_start - pos));
+            result += literal_pattern(pattern.substr(pos, placeholder_start - pos));
 
         // Find end of placeholder
         size_t placeholder_end = pattern.find('}', placeholder_start);
@@ -262,11 +360,13 @@ std::string build_regex_pattern(const std::string& uri_template)
             pattern.substr(placeholder_start, placeholder_end - placeholder_start + 1);
 
         // Check what kind of placeholder
-        if (placeholder.find("{?") == 0)
+        if (placeholder.rfind("{?", 0) == 0 || placeholder.rfind("{&", 0) == 0)
         {
-            // Query parameter placeholder - match optional query string
-            // This matches ?key=value&key2=value2 etc.
-            result += R"((?:\?([^#]*))?)";
+            // Query block(s): one optional query string for all of them, so
+            // `{?a}{&b}` (or two `{?}` blocks) still matches `?a=1&b=2`.
+            if (!saw_query_block)
+                result += R"((?:\?([^#]*))?)";
+            saw_query_block = true;
         }
         else if (placeholder.back() == '*' || placeholder.find('*') != std::string::npos)
         {
@@ -289,6 +389,7 @@ std::string build_regex_pattern(const std::string& uri_template)
 
 void ResourceTemplate::parse()
 {
+    validate_uri_template(uri_template);
     parsed_params.clear();
 
     // Extract path parameters
@@ -386,8 +487,13 @@ Json ResourceTemplate::build_typed_params(
 }
 
 std::optional<std::unordered_map<std::string, std::string>>
-ResourceTemplate::match(const std::string& uri) const
+ResourceTemplate::match(const std::string& uri_in) const
 {
+    // A fragment is not part of the resource identity, unless the template
+    // spells out a literal '#'.
+    // PYTHON REFERENCE: fastmcp/resources/template.py:256-260 (match_uri_template)
+    const std::string uri =
+        uri_template.find('#') == std::string::npos ? uri_in.substr(0, uri_in.find('#')) : uri_in;
     std::smatch match;
 
     if (!std::regex_match(uri, match, uri_regex))

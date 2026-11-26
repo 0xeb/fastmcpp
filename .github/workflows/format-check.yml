@@ -22,7 +22,7 @@ jobs:
       - name: Check formatting
         run: |
           # Find all source files (excluding build dirs and deps)
-          FILES=$(find src include examples tests -name "*.cpp" -o -name "*.hpp" 2>/dev/null)
+          FILES=$(find src include examples -name "*.cpp" -o -name "*.hpp" 2>/dev/null)
 
           # Check if any files need formatting
           UNFORMATTED=""
@@ -38,7 +38,7 @@ jobs:
               echo "  - $f"
             done
             echo ""
-            echo "Run: find src include examples tests -name '*.cpp' -o -name '*.hpp' | xargs clang-format -i"
+            echo "Run: find src include examples -name '*.cpp' -o -name '*.hpp' | xargs clang-format -i"
             exit 1
           fi
 

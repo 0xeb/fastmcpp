@@ -5,6 +5,8 @@
 #include "fastmcpp/exceptions.hpp"
 #include "http_detail.hpp"
 
+#include <atomic>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -90,6 +92,13 @@ class Handle
     explicit operator bool() const noexcept
     {
         return handle_ != nullptr;
+    }
+
+    HINTERNET release() noexcept
+    {
+        HINTERNET h = handle_;
+        handle_ = nullptr;
+        return h;
     }
 
   private:
@@ -198,6 +207,103 @@ HttpResponse WinHttpTransport::post(const std::string& url, const std::string& p
                                     const std::string& body)
 {
     return send("POST", url, path, headers, body);
+}
+
+void WinHttpTransport::post_stream(const std::string& url, const std::string& path,
+                                   const std::unordered_map<std::string, std::string>& headers,
+                                   const std::string& body, const StreamSink& sink,
+                                   StreamCancel& cancel)
+{
+    const auto target = detail::parse_url(url);
+    const auto host = widen(target.host);
+    const auto wide_path = widen(path.empty() ? "/" : path);
+
+    Handle connection(
+        ::WinHttpConnect(impl_->session, host.c_str(), static_cast<INTERNET_PORT>(target.port), 0));
+    if (!connection)
+        throw fastmcpp::TransportError("WinHttpTransport: WinHttpConnect failed, error " +
+                                       std::to_string(::GetLastError()));
+
+    const DWORD flags = target.is_https ? WINHTTP_FLAG_SECURE : 0u;
+    Handle request(::WinHttpOpenRequest(connection, L"POST", wide_path.c_str(), nullptr,
+                                        WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags));
+    if (!request)
+        throw fastmcpp::TransportError("WinHttpTransport: WinHttpOpenRequest failed, error " +
+                                       std::to_string(::GetLastError()));
+
+    DWORD disable = WINHTTP_DISABLE_REDIRECTS;
+    ::WinHttpSetOption(request, WINHTTP_OPTION_DISABLE_FEATURE, &disable, sizeof(disable));
+    if (target.is_https && !verify_ssl())
+    {
+        DWORD ignore = SECURITY_FLAG_IGNORE_UNKNOWN_CA | SECURITY_FLAG_IGNORE_CERT_CN_INVALID |
+                       SECURITY_FLAG_IGNORE_CERT_DATE_INVALID |
+                       SECURITY_FLAG_IGNORE_CERT_WRONG_USAGE;
+        ::WinHttpSetOption(request, WINHTTP_OPTION_SECURITY_FLAGS, &ignore, sizeof(ignore));
+    }
+
+    std::wstring header_block;
+    for (const auto& [key, value] : headers)
+        header_block += widen(key) + L": " + widen(value) + L"\r\n";
+    if (!header_block.empty() &&
+        !::WinHttpAddRequestHeaders(request, header_block.c_str(),
+                                    static_cast<DWORD>(header_block.size()),
+                                    WINHTTP_ADDREQ_FLAG_ADD))
+        throw fastmcpp::TransportError("WinHttpTransport: WinHttpAddRequestHeaders failed");
+
+    // Closing the request handle is how another thread aborts a blocked read.
+    // The guard then disowns it so it is not closed twice.
+    auto closed = std::make_shared<std::atomic<bool>>(false);
+    HINTERNET raw_request = request;
+    cancel.set_hook(
+        [raw_request, closed]
+        {
+            if (!closed->exchange(true))
+                ::WinHttpCloseHandle(raw_request);
+        });
+    struct HookGuard
+    {
+        StreamCancel& cancel;
+        Handle& request;
+        std::shared_ptr<std::atomic<bool>> closed;
+        ~HookGuard()
+        {
+            cancel.set_hook(nullptr);
+            if (*closed)
+                (void)request.release();
+        }
+    } guard{cancel, request, closed};
+
+    if (!::WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                              const_cast<char*>(body.data()), static_cast<DWORD>(body.size()),
+                              static_cast<DWORD>(body.size()), 0) ||
+        !::WinHttpReceiveResponse(request, nullptr))
+    {
+        if (cancel.cancelled())
+            return;
+        throw fastmcpp::TransportError("WinHttpTransport: stream request failed, error " +
+                                       std::to_string(::GetLastError()));
+    }
+
+    DWORD status = 0;
+    DWORD status_size = sizeof(status);
+    ::WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                          WINHTTP_HEADER_NAME_BY_INDEX, &status, &status_size,
+                          WINHTTP_NO_HEADER_INDEX);
+    bool keep_going =
+        !sink.on_head || sink.on_head(static_cast<int>(status), query_all_headers(request));
+
+    while (keep_going && !cancel.cancelled())
+    {
+        DWORD available = 0;
+        if (!::WinHttpQueryDataAvailable(request, &available) || available == 0)
+            break;
+        std::string chunk(available, '\0');
+        DWORD read = 0;
+        if (!::WinHttpReadData(request, chunk.data(), available, &read) || read == 0)
+            break;
+        if (sink.on_body)
+            keep_going = sink.on_body(chunk.data(), read);
+    }
 }
 
 HttpResponse WinHttpTransport::send(const std::string& method, const std::string& url,

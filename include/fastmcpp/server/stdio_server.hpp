@@ -3,10 +3,17 @@
 
 #include <atomic>
 #include <functional>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
 #include <thread>
+#include <vector>
 
 namespace fastmcpp::server
 {
+
+class ListenStream;
 
 /**
  * STDIO-based MCP server wrapper for line-delimited JSON-RPC communication.
@@ -79,11 +86,37 @@ class StdioServerWrapper
 
   private:
     void run_loop();
+    /// Route one request to its era: the first request locks the connection.
+    fastmcpp::Json dispatch(const fastmcpp::Json& request);
+    /// Write one JSON-RPC line; listen streams write from their own threads.
+    void write_line(const std::string& line);
+    void serve_listen_stream(std::shared_ptr<ListenStream> stream);
+    /// Close open listen streams gracefully and join their writers.
+    void finish_listen_streams();
+    /// Join writers whose stream has ended.
+    void reap_listen_writers();
+    /// Abort the listen stream a `notifications/cancelled` names; true if it did.
+    bool cancel_listen_stream(const fastmcpp::Json& notification);
+
+    struct ListenWriter
+    {
+        std::shared_ptr<ListenStream> stream;
+        std::thread thread;
+        std::atomic<bool> done{false};
+    };
 
     McpHandler handler_;
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_requested_{false};
     std::thread thread_;
+    /// 0 = undecided, 1 = handshake, 2 = modern (2026-07-28).
+    int era_{0};
+    /// The version `initialize` settled on (handshake era).
+    std::optional<std::string> negotiated_;
+
+    std::mutex write_mutex_;
+    std::mutex listen_mutex_;
+    std::vector<std::shared_ptr<ListenWriter>> listen_writers_;
 };
 
 } // namespace fastmcpp::server

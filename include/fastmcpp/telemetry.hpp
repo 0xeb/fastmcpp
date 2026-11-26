@@ -152,4 +152,31 @@ SpanScope server_span(const std::string& name, const std::string& method,
 SpanScope delegate_span(const std::string& name, const std::string& provider_type,
                         const std::string& component_key);
 
+/// The transport serving requests on this thread, for the `network.*` attributes
+/// on server spans: HTTP reports `tcp` + `http` + the HTTP version, stdio `pipe`,
+/// in-process calls nothing.
+// PYTHON REFERENCE: fastmcp/server/telemetry.py:112-131 (get_network_span_attributes, #6751)
+struct NetworkTransport
+{
+    std::string transport;        // "tcp" | "pipe"
+    std::string protocol_name;    // "http" or empty
+    std::string protocol_version; // e.g. "1.1"
+};
+
+class NetworkTransportScope
+{
+  public:
+    explicit NetworkTransportScope(NetworkTransport transport);
+    ~NetworkTransportScope();
+    NetworkTransportScope(const NetworkTransportScope&) = delete;
+    NetworkTransportScope& operator=(const NetworkTransportScope&) = delete;
+
+  private:
+    std::optional<NetworkTransport> previous_;
+};
+
+/// HTTP transport from an httplib-style version string ("HTTP/1.1" -> "1.1").
+NetworkTransport http_transport(const std::string& http_version);
+std::optional<NetworkTransport> current_network_transport();
+
 } // namespace fastmcpp::telemetry

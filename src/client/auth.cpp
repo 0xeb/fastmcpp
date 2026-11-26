@@ -602,6 +602,36 @@ bool check_resource_allowed(const std::string& requested, const std::string& con
     return rp.rfind(cp, 0) == 0;
 }
 
+std::optional<std::string> union_scopes(const std::optional<std::string>& previous,
+                                        const std::optional<std::string>& added)
+{
+    // PYTHON REFERENCE: mcp/client/auth/utils.py (union_scopes)
+    if (!previous || previous->empty())
+        return added;
+    if (!added || added->empty())
+        return previous;
+    std::vector<std::string> merged;
+    auto split = [](const std::string& s)
+    {
+        std::vector<std::string> out;
+        std::istringstream in(s);
+        std::string w;
+        while (in >> w)
+            out.push_back(w);
+        return out;
+    };
+    for (auto& w : split(*previous))
+        if (std::find(merged.begin(), merged.end(), w) == merged.end())
+            merged.push_back(w);
+    for (auto& w : split(*added))
+        if (std::find(merged.begin(), merged.end(), w) == merged.end())
+            merged.push_back(w);
+    std::string out;
+    for (const auto& w : merged)
+        out += (out.empty() ? "" : " ") + w;
+    return out;
+}
+
 bool issuers_match(const std::string& a, const std::string& b)
 {
     if (a == b)
@@ -902,18 +932,28 @@ struct OAuth::State
     std::optional<OAuthToken> tokens;
     std::optional<double> token_expiry;
 
+    // client_credentials (machine-to-machine) mode
+    bool m2m = false;
+    std::optional<std::string> m2m_issuer;
+    std::optional<std::string> m2m_scopes;
+    std::string cache_namespace;
+
     // ---- storage (fastmcp TokenStorageAdapter) ----
+    std::string key_prefix() const
+    {
+        return cache_namespace.empty() ? server_url : server_url + "/" + cache_namespace;
+    }
     std::string tokens_key() const
     {
-        return server_url + "/tokens";
+        return key_prefix() + "/tokens";
     }
     std::string client_info_key() const
     {
-        return server_url + "/client_info";
+        return key_prefix() + "/client_info";
     }
     std::string expiry_key() const
     {
-        return server_url + "/token_expiry";
+        return key_prefix() + "/token_expiry";
     }
 
     void store_tokens(const OAuthToken& t)
@@ -965,6 +1005,10 @@ struct OAuth::State
             client_info = static_client_info;
             store_client_info(*static_client_info);
         }
+        // M2M re-exchanges instead of refreshing: a reloaded refresh token would be
+        // sent before discovery. PYTHON REFERENCE: client_credentials.py:106-133
+        if (m2m && tokens)
+            tokens->refresh_token.reset();
         if (tokens && tokens->expires_in)
         {
             auto stored = store->get("mcp-oauth-token-expiry", expiry_key());
@@ -1044,6 +1088,10 @@ struct OAuth::State
         }
         else if (method == "client_secret_post" && secret)
         {
+            // RFC 6749 section 2.3.1: both credentials in the body.
+            if (id && std::none_of(data.begin(), data.end(),
+                                   [](const auto& kv) { return kv.first == "client_id"; }))
+                data.emplace_back("client_id", *id);
             data.emplace_back("client_secret", *secret);
         }
     }
@@ -1159,7 +1207,16 @@ struct OAuth::State
                     throw OAuthFlowError("Protected resource " + resource +
                                          " does not match expected " + default_resource);
                 protected_resource_metadata = prm;
+                // The advertised server matching a configured issuer, else the first.
                 auth_server_url = (*prm)["authorization_servers"][0].get<std::string>();
+                if (m2m_issuer)
+                    for (const auto& as : (*prm)["authorization_servers"])
+                        if (as.is_string() &&
+                            detail::issuers_match(as.get<std::string>(), *m2m_issuer))
+                        {
+                            auth_server_url = as.get<std::string>();
+                            break;
+                        }
                 found = true;
                 break;
             }
@@ -1218,6 +1275,12 @@ struct OAuth::State
         const std::string www =
             ch.headers ? fastmcpp::client::detail::find_header(*ch.headers, "WWW-Authenticate")
                        : std::string();
+        const bool step_up =
+            ch.status == 403 &&
+            detail::www_authenticate_field(www, "error").value_or("") == "insufficient_scope";
+        // Read before discovery, which may clear the tokens: after a restart the stored
+        // token's scope is the only record of what was granted.
+        const std::optional<std::string> granted = tokens ? tokens->scope : std::nullopt;
         if (ch.status == 401 || !oauth_metadata)
             discover(ch);
 
@@ -1229,10 +1292,29 @@ struct OAuth::State
         if (!scope && oauth_metadata)
             if (auto s = str_list_field(*oauth_metadata, "scopes_supported"))
                 scope = join(*s, " ");
+        if (step_up)
+        {
+            // SEP-2350: keep earlier grants when escalating one operation.
+            // PYTHON REFERENCE: mcp/client/auth/oauth2.py:727-734
+            const std::optional<std::string> prior =
+                detail::union_scopes(str_field(client_metadata, "scope"), granted);
+            scope = detail::union_scopes(prior, scope);
+        }
+        else if (m2m && m2m_scopes)
+        {
+            // The caller's explicit scopes win over the server-advertised ones.
+            scope = m2m_scopes;
+        }
         if (scope)
             client_metadata["scope"] = *scope;
         else
             client_metadata.erase("scope");
+
+        if (m2m)
+        {
+            exchange_client_credentials();
+            return;
+        }
 
         // Step 4: CIMD or dynamic client registration
         if (!client_info)
@@ -1350,10 +1432,93 @@ struct OAuth::State
         {
             throw OAuthTokenError(std::string("Invalid token response: ") + e.what());
         }
+        accept_tokens(std::move(t));
+    }
+
+    /// RFC 6749 section 5.1: an omitted scope is the requested scope. Recorded so the
+    /// stored token is self-describing for a later step-up union.
+    void accept_tokens(OAuthToken t)
+    {
+        if (!t.scope)
+            t.scope = str_field(client_metadata, "scope");
         tokens = t;
         token_expiry =
             t.expires_in ? std::optional<double>(now_seconds() + *t.expires_in) : std::nullopt;
         store_tokens(t);
+    }
+
+    // ---- client_credentials grant ----
+    // PYTHON REFERENCE: mcp/client/auth/extensions/client_credentials.py:52-160
+    void exchange_client_credentials()
+    {
+        if (m2m_issuer)
+        {
+            const std::optional<Json> held = oauth_metadata;
+            if (!held ||
+                !detail::issuers_match(str_field(*held, "issuer").value_or(""), *m2m_issuer))
+            {
+                oauth_metadata.reset();
+                clear_tokens();
+                if (!held)
+                    throw OAuthFlowError(
+                        "No authorization server metadata discovered for configured issuer " +
+                        *m2m_issuer);
+                throw OAuthFlowError("Authorization server metadata issuer mismatch: " +
+                                     str_field(*held, "issuer").value_or("") +
+                                     " != " + *m2m_issuer);
+            }
+        }
+        std::vector<std::pair<std::string, std::string>> data = {
+            {"grant_type", "client_credentials"}};
+        std::unordered_map<std::string, std::string> headers = {
+            {"Content-Type", "application/x-www-form-urlencoded"}};
+        prepare_token_auth(data, headers);
+        if (include_resource_param())
+            data.emplace_back("resource", resource_url());
+        if (auto s = str_field(client_metadata, "scope"); s && !s->empty())
+            data.emplace_back("scope", *s);
+        const HttpResponse r =
+            send(HttpRequest{"POST", token_endpoint(), headers, form_body(data)});
+        if (r.status != 200)
+            throw OAuthTokenError("Token exchange failed (" + std::to_string(r.status) +
+                                  "): " + r.body);
+        OAuthToken t;
+        try
+        {
+            t = OAuthToken::from_json(Json::parse(r.body));
+        }
+        catch (const OAuthTokenError&)
+        {
+            throw;
+        }
+        catch (const std::exception& e)
+        {
+            throw OAuthTokenError(std::string("Invalid token response: ") + e.what());
+        }
+        t.refresh_token.reset();
+        accept_tokens(std::move(t));
+    }
+
+    // ---- ClientAuth entry points (shared by OAuth and ClientCredentialsOAuth) ----
+    std::unordered_map<std::string, std::string> auth_headers(const char* provider)
+    {
+        if (!bound)
+            throw OAuthError(std::string(provider) +
+                             " has no server URL. Either set the options' mcp_url or attach it "
+                             "with HttpRpcTransport::set_auth(), which provides the URL.");
+        if (!initialized)
+            initialize();
+        if (!token_valid() && can_refresh())
+        {
+            if (!oauth_metadata)
+                discover({0, nullptr, protocol_version});
+            // Discovery can discard credentials bound to a different issuer.
+            if (can_refresh() && !refresh())
+                initialized = false; // full re-authentication on the next challenge
+        }
+        if (token_valid())
+            return {{"Authorization", "Bearer " + tokens->access_token}};
+        return {};
     }
 
     // ---- default browser handlers (fastmcp OAuth.redirect_handler / callback_handler) ----
@@ -1513,23 +1678,7 @@ void OAuth::bind(const std::string& mcp_url_in)
 std::unordered_map<std::string, std::string> OAuth::headers(const HeaderRequest&)
 {
     std::lock_guard<std::mutex> lock(state_->mu);
-    State& s = *state_;
-    if (!s.bound)
-        throw OAuthError("OAuth provider has no server URL. Either set OAuthOptions::mcp_url or "
-                         "attach it with HttpRpcTransport::set_auth(), which provides the URL.");
-    if (!s.initialized)
-        s.initialize();
-    if (!s.token_valid() && s.can_refresh())
-    {
-        if (!s.oauth_metadata)
-            s.discover({0, nullptr, s.protocol_version});
-        // Discovery can discard credentials bound to a different issuer.
-        if (s.can_refresh() && !s.refresh())
-            s.initialized = false; // full re-authentication on the next challenge
-    }
-    if (s.token_valid())
-        return {{"Authorization", "Bearer " + s.tokens->access_token}};
-    return {};
+    return state_->auth_headers("OAuth provider");
 }
 
 bool OAuth::handle_challenge(const AuthChallenge& challenge)
@@ -1581,6 +1730,90 @@ std::optional<OAuthToken> OAuth::current_token() const
 {
     std::lock_guard<std::mutex> lock(state_->mu);
     return state_->tokens;
+}
+
+// ============================================================ ClientCredentialsOAuth
+
+ClientCredentialsOAuth::ClientCredentialsOAuth(ClientCredentialsOptions options)
+{
+    if (options.client_id.empty() || options.client_secret.empty())
+        throw std::invalid_argument("client_credentials requires a client_id and client_secret");
+    if (options.token_endpoint_auth_method != "client_secret_basic" &&
+        options.token_endpoint_auth_method != "client_secret_post")
+        throw std::invalid_argument("token_endpoint_auth_method must be client_secret_basic or "
+                                    "client_secret_post, got " +
+                                    options.token_endpoint_auth_method);
+    if (options.issuer)
+    {
+        const Url u = parse(*options.issuer);
+        if (u.scheme != "http" && u.scheme != "https")
+            throw std::invalid_argument(
+                "issuer must be the authorization server's http(s) issuer URL, got '" +
+                *options.issuer + "'");
+    }
+
+    OAuthOptions o;
+    o.scopes = options.scopes;
+    o.token_storage = options.token_storage;
+    o.http = options.http;
+    o.client_id = options.client_id;
+    o.client_secret = options.client_secret;
+    o.additional_client_metadata = {
+        {"grant_types", Json::array({"client_credentials"})},
+        {"token_endpoint_auth_method", options.token_endpoint_auth_method}};
+    // Never used: the grant has no redirect, so no callback server either.
+    o.callback_port = 0;
+    o.redirect_handler = [](const std::string&)
+    { throw OAuthFlowError("client_credentials has no authorization redirect"); };
+    o.callback_handler = []() -> std::pair<std::string, std::optional<std::string>>
+    { throw OAuthFlowError("client_credentials has no authorization callback"); };
+    impl_ = std::make_unique<OAuth>(std::move(o));
+
+    OAuth::State& s = *impl_->state_;
+    s.m2m = true;
+    s.m2m_issuer = options.issuer;
+    const std::string joined = join(options.scopes, " ");
+    if (!joined.empty())
+        s.m2m_scopes = joined;
+    // PYTHON REFERENCE: fastmcp/client/auth/client_credentials.py:64-70 (_cache_namespace)
+    Json identity = Json::array({options.client_id, s.m2m_scopes ? Json(*s.m2m_scopes) : Json()});
+    if (options.issuer)
+        identity.push_back(*options.issuer);
+    s.cache_namespace = detail::sha256_hex(identity.dump());
+    if (!options.mcp_url.empty())
+        bind(options.mcp_url);
+}
+
+ClientCredentialsOAuth::~ClientCredentialsOAuth() = default;
+
+void ClientCredentialsOAuth::bind(const std::string& mcp_url)
+{
+    impl_->bind(mcp_url);
+    std::lock_guard<std::mutex> lock(impl_->state_->mu);
+    OAuth::State& s = *impl_->state_;
+    s.client_metadata.erase("redirect_uris");
+    s.client_metadata.erase("response_types");
+    if (s.static_client_info)
+    {
+        s.static_client_info->erase("redirect_uris");
+        s.static_client_info->erase("response_types");
+    }
+}
+
+std::unordered_map<std::string, std::string> ClientCredentialsOAuth::headers(const HeaderRequest&)
+{
+    std::lock_guard<std::mutex> lock(impl_->state_->mu);
+    return impl_->state_->auth_headers("ClientCredentialsOAuth");
+}
+
+bool ClientCredentialsOAuth::handle_challenge(const AuthChallenge& challenge)
+{
+    return impl_->handle_challenge(challenge);
+}
+
+std::optional<OAuthToken> ClientCredentialsOAuth::current_token() const
+{
+    return impl_->current_token();
 }
 
 bool check_if_auth_required(const std::string& mcp_url, const HttpFunction& http_in)

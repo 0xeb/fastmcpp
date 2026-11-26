@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cctype>
 #include <map>
+#include <nlohmann/json.hpp>
 #include <stdexcept>
 #include <string>
 
@@ -51,6 +52,15 @@ struct NotFoundError : public Error
     using Error::Error;
 };
 
+/// A templated resource read whose extracted parameters failed path-security
+/// screening. Surfaces as an unknown resource and ends the lookup: no other
+/// source is consulted for the URI.
+// PYTHON REFERENCE: fastmcp/exceptions.py:78 (ResourceSecurityError)
+struct ResourceSecurityError : public NotFoundError
+{
+    using NotFoundError::NotFoundError;
+};
+
 struct ValidationError : public Error
 {
     using Error::Error;
@@ -64,6 +74,31 @@ struct ToolTimeoutError : public Error
 struct TransportError : public Error
 {
     using Error::Error;
+};
+
+/// A protocol-level failure a server handler raises to answer with a specific
+/// JSON-RPC error (code, message, optional data) rather than a tool error.
+// PYTHON REFERENCE: mcp/shared/exceptions.py (MCPError)
+struct McpError : public Error
+{
+    McpError(int code, const std::string& msg, nlohmann::json data = nullptr)
+        : Error(msg), code_(code), data_(std::move(data))
+    {
+    }
+
+    int code() const noexcept
+    {
+        return code_;
+    }
+
+    const nlohmann::json& data() const noexcept
+    {
+        return data_;
+    }
+
+  private:
+    int code_{0};
+    nlohmann::json data_;
 };
 
 /// A transport failure that carries the HTTP response that caused it.
@@ -124,6 +159,34 @@ struct TransportHttpError : public TransportError
     int status_{0};
     std::multimap<std::string, std::string> headers_;
     std::string body_;
+};
+
+/// The server answered, with a JSON-RPC error object.
+///
+/// Distinguishes "the server said no" from "the server could not be reached",
+/// which a client negotiating the protocol era needs: the first means fall back
+/// to the handshake, the second must propagate. Derives from `TransportError` so
+/// existing handlers keep catching it.
+struct RpcError : public TransportError
+{
+    RpcError(const std::string& msg, int code, nlohmann::json data = nullptr)
+        : TransportError(msg), code_(code), data_(std::move(data))
+    {
+    }
+
+    int code() const noexcept
+    {
+        return code_;
+    }
+
+    const nlohmann::json& data() const noexcept
+    {
+        return data_;
+    }
+
+  private:
+    int code_{0};
+    nlohmann::json data_;
 };
 
 } // namespace fastmcpp

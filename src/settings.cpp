@@ -63,6 +63,13 @@ Settings Settings::from_env()
     auto origins = getenv_str("FASTMCPP_HTTP_ALLOWED_ORIGINS", "");
     if (!origins.empty())
         s.http_allowed_origins = split_csv(origins);
+
+    auto listen = getenv_str("FASTMCPP_ENABLE_SUBSCRIPTIONS_LISTEN", "");
+    std::transform(listen.begin(), listen.end(), listen.begin(), ::tolower);
+    if (listen == "0" || listen == "false" || listen == "off" || listen == "no")
+        s.enable_subscriptions_listen = false;
+    else if (listen == "1" || listen == "true" || listen == "on" || listen == "yes")
+        s.enable_subscriptions_listen = true;
     return s;
 }
 
@@ -89,6 +96,8 @@ Settings Settings::from_json(const Json& j)
         s.http_allowed_hosts = j.at("http_allowed_hosts").get<std::vector<std::string>>();
     if (j.contains("http_allowed_origins"))
         s.http_allowed_origins = j.at("http_allowed_origins").get<std::vector<std::string>>();
+    if (j.contains("enable_subscriptions_listen"))
+        s.enable_subscriptions_listen = j.at("enable_subscriptions_listen").get<bool>();
     return s;
 }
 

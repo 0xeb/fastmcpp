@@ -247,9 +247,11 @@ static const Json& resolve_local_ref(const Json& root, const std::string& ref, i
     const std::string fragment = ref.substr(1);
     if (!fragment.empty())
     {
-        const size_t first = fragment.find_first_not_of('/');
-        const std::string decoded =
-            percent_decode(first == std::string::npos ? std::string() : fragment.substr(first));
+        // Decode first: `#%2F$defs/X` names the same pointer as `#/$defs/X`.
+        // PYTHON REFERENCE: fastmcp commit 5f1d1529c (decode before stripping '/')
+        const std::string full = percent_decode(fragment);
+        const size_t first = full.find_first_not_of('/');
+        const std::string decoded = first == std::string::npos ? std::string() : full.substr(first);
         size_t start = 0;
         while (true)
         {
@@ -652,8 +654,11 @@ Json dereference_refs(const Json& schema)
     {
         std::vector<std::string> stack;
         Json dereferenced = inline_refs(sanitized, sanitized, stack, 0, true);
-        if (dereferenced.is_object())
-            dereferenced.erase("$defs");
+        // A root `$ref` to a boolean schema leaves no object to serve.
+        // PYTHON REFERENCE: fastmcp commit 6c6b34e40
+        if (!dereferenced.is_object())
+            return fallback();
+        dereferenced.erase("$defs");
 
         if (!within_inline_limits(dereferenced, false))
             return fallback();

@@ -1,6 +1,7 @@
 #include "fastmcpp/server/sse_server.hpp"
 
 #include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/telemetry.hpp"
 #include "fastmcpp/util/json.hpp"
 
 #include <algorithm>
@@ -528,6 +529,8 @@ bool SseServerWrapper::start()
                     return;
                 }
 
+                telemetry::NetworkTransportScope network_scope(
+                    telemetry::http_transport(req.version));
                 // JSON-RPC notifications (missing/null id) must not receive responses.
                 const bool is_notification = !message.contains("id") || message["id"].is_null();
                 if (is_notification)

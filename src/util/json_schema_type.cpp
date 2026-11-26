@@ -310,25 +310,40 @@ SchemaValue handle_number(const fastmcpp::Json& schema, const fastmcpp::Json& in
 
     enforce_enum_const(schema, instance, path);
 
-    if (schema.contains("minimum"))
+    // Draft 4 spells exclusivity as a boolean that tightens its sibling bound;
+    // later drafts as a number of its own.
+    // PYTHON REFERENCE: fastmcp commit 18aa08613
+    const bool draft4_min_exclusive = schema.contains("exclusiveMinimum") &&
+                                      schema["exclusiveMinimum"].is_boolean() &&
+                                      schema["exclusiveMinimum"].get<bool>();
+    const bool draft4_max_exclusive = schema.contains("exclusiveMaximum") &&
+                                      schema["exclusiveMaximum"].is_boolean() &&
+                                      schema["exclusiveMaximum"].get<bool>();
+    if (schema.contains("minimum") && schema["minimum"].is_number())
     {
         double minv = schema["minimum"].get<double>();
-        if (num < minv)
-            throw fastmcpp::ValidationError("Value below minimum at " + path);
+        if (draft4_min_exclusive ? !(num > minv) : num < minv)
+            throw fastmcpp::ValidationError(
+                std::string(draft4_min_exclusive ? "Value not greater than exclusiveMinimum at "
+                                                 : "Value below minimum at ") +
+                path);
     }
-    if (schema.contains("maximum"))
+    if (schema.contains("maximum") && schema["maximum"].is_number())
     {
         double maxv = schema["maximum"].get<double>();
-        if (num > maxv)
-            throw fastmcpp::ValidationError("Value above maximum at " + path);
+        if (draft4_max_exclusive ? !(num < maxv) : num > maxv)
+            throw fastmcpp::ValidationError(
+                std::string(draft4_max_exclusive ? "Value not less than exclusiveMaximum at "
+                                                 : "Value above maximum at ") +
+                path);
     }
-    if (schema.contains("exclusiveMinimum"))
+    if (schema.contains("exclusiveMinimum") && schema["exclusiveMinimum"].is_number())
     {
         double minv = schema["exclusiveMinimum"].get<double>();
         if (!(num > minv))
             throw fastmcpp::ValidationError("Value not greater than exclusiveMinimum at " + path);
     }
-    if (schema.contains("exclusiveMaximum"))
+    if (schema.contains("exclusiveMaximum") && schema["exclusiveMaximum"].is_number())
     {
         double maxv = schema["exclusiveMaximum"].get<double>();
         if (!(num < maxv))
@@ -433,7 +448,16 @@ SchemaValue handle_object(const fastmcpp::Json& schema, const fastmcpp::Json& in
             }
             else if (subschema.contains("default"))
             {
-                out[key] = convert(subschema, subschema["default"], sub_path);
+                // A declared default that does not validate is kept as declared.
+                // PYTHON REFERENCE: fastmcp commit af562ae48
+                try
+                {
+                    out[key] = convert(subschema, subschema["default"], sub_path);
+                }
+                catch (const fastmcpp::ValidationError&)
+                {
+                    out[key] = subschema["default"];
+                }
             }
             else if (std::find(required.begin(), required.end(), key) != required.end())
             {

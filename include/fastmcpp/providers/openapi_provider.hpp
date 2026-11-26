@@ -49,6 +49,13 @@ class OpenAPIProvider : public Provider
         std::vector<std::string> path_params;
         std::vector<std::string> query_params;
         std::map<std::string, ParameterMeta> query_param_meta; // query name -> style/explode
+        std::map<std::string, bool> path_param_explode;        // path name -> explode
+        std::map<std::string, std::string> path_param_style;   // path name -> label|matrix
+        // "location:name" -> tool argument name, for parameters renamed to
+        // `name__location` because they collide with the body or each other.
+        std::map<std::string, std::string> param_arg_names;
+        // multipart/form-data per-property `encoding` objects
+        Json multipart_encoding{Json::object()};
         bool has_json_body{false};
         bool has_multipart_body{false};
         std::string request_content_type{"application/json"};

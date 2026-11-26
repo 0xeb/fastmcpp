@@ -15,7 +15,7 @@ fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp
 
 **Status:** Beta – core MCP features track the Python `fastmcp` reference.
 
-**Current version:** 3.4.11.2
+**Current version:** 4.2.6
 
 ## Features
 
@@ -36,6 +36,10 @@ fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp
 - MCP protocol version `2025-11-25` by default, with negotiation: a server echoes
   back the revision a client asked for when it recognises it, so an older client
   keeps working. Override per client with `Client::set_protocol_version()`.
+- Sessionless MCP `2026-07-28` alongside the handshake revisions: one server
+  answers both, chosen per request on Streamable HTTP and per connection on
+  STDIO. `Client::connect()` negotiates it and falls back to `initialize()`
+  against older servers. See [Sessionless MCP (fastmcp 4)](#sessionless-mcp-fastmcp-4).
 - JSON Schema validation.
 - FastMCP high-level application class.
 - ProxyApp for backend server proxying.
@@ -119,7 +123,6 @@ Key options:
 | Option                           | Default | Description                                      |
 |----------------------------------|---------|--------------------------------------------------|
 | `CMAKE_BUILD_TYPE`              | Debug   | Build configuration (Debug/Release/RelWithDebInfo) |
-| `FASTMCPP_BUILD_TESTS`          | ON      | Build the test suite                             |
 | `FASTMCPP_BUILD_EXAMPLES`       | ON      | Build the example programs                       |
 | `FASTMCPP_BUILD_CLI`            | ON      | Build the `fastmcpp` command-line executable     |
 | `FASTMCPP_ENABLE_POST_STREAMING` | OFF     | Enable HTTP POST streaming (requires libcurl)   |
@@ -128,7 +131,6 @@ Key options:
 | `FASTMCPP_ENABLE_WINHTTP`       | ON (Windows) | Build the WinHTTP client transport          |
 | `FASTMCPP_ENABLE_CURL_TRANSPORT` | OFF    | Build the libcurl client transport (all platforms) |
 | `FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS` | OFF | Built-in OpenAI/Anthropic sampling handlers |
-| `FASTMCPP_ENABLE_STREAMING_TESTS` | OFF   | Enable SSE streaming tests                      |
 
 ### Platform notes
 
@@ -144,22 +146,6 @@ cmake --build build --config Release
 ```bash
 cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
-```
-
-## Testing
-
-```bash
-# Run all tests
-ctest --test-dir build -C Release --output-on-failure
-
-# Parallel
-ctest --test-dir build -C Release -j4 --output-on-failure
-
-# Run a specific test
-ctest --test-dir build -C Release -R fastmcp_smoke --output-on-failure
-
-# List tests
-ctest --test-dir build -C Release -N
 ```
 
 ## Basic Usage
@@ -314,9 +300,11 @@ int main() {
         )
     );
 
-    // Initialize MCP session (session ID managed automatically)
-    auto init = client.initialize();
-    std::cout << "Server: " << init.serverInfo.name << std::endl;
+    // Connect: tries the sessionless 2026-07-28 protocol, falls back to the
+    // initialize handshake (with an Mcp-Session-Id) against older servers.
+    auto init = client.connect();
+    std::cout << "Server: " << init.serverInfo.name
+              << " (" << init.protocolVersion << ")" << std::endl;
 
     // Use the same clean API as other transports
     auto tools = client.list_tools();
@@ -427,6 +415,136 @@ Annotations help clients:
 - **priority**: Relative importance (0.0–1.0) for display ordering
 - **icons**: Visual indicators for UI rendering
 
+## Sessionless MCP (fastmcp 4)
+
+Upstream fastmcp 4 adds the sessionless MCP `2026-07-28` protocol. Servers
+serve it next to the handshake revisions without any code change; most
+programs need nothing. What changes:
+
+- **Two protocol eras from one server.** On Streamable HTTP a request whose
+  `MCP-Protocol-Version` header is not a handshake revision is served
+  sessionlessly: no `Mcp-Session-Id`, POST only, the protocol envelope in each
+  request's `params._meta`, JSON-RPC errors mapped to HTTP 400/404. On STDIO
+  the client's first request decides the connection's era. The SSE transport is
+  handshake-only.
+- **`Client::connect()`** (new) negotiates the era: it probes with
+  `server/discover` and falls back to `initialize()` against an older server.
+  `initialize()` itself is unchanged, so existing clients keep the handshake.
+- **No server-initiated requests on the sessionless era.** `Context::elicit()`
+  and `Context::sample()` throw on a sessionless request rather than wait for a
+  reply that cannot arrive; they work as before on handshake connections. Ask
+  for input by returning an `InputRequiredResult` instead; see below.
+- **Component version in `_meta.fastmcp`.** List entries carry
+  `_meta.fastmcp = {"tags": [...], "version": "..."}` as fastmcp emits it; the
+  top-level `version` and top-level `fastmcp` keys are gone. The client reads
+  both forms.
+- **Resource not found is `-32602`** (was `-32002`), with the message
+  `Resource not found: '<uri>'` and `data.uri`, on every handler.
+- **`RpcError`.** The HTTP client transports raise `fastmcpp::RpcError` (a
+  `TransportError` carrying `code()` and `data()`) for JSON-RPC errors.
+- **fastmcp 4 servers list static resources with a trailing slash**
+  (`file://readme.txt/`) and resolve only that form; read resources by the URI
+  the server lists.
+
+### Asking the client for input across rounds
+
+On `2026-07-28` a tool, prompt or resource that needs input *returns* a
+description of what it needs. The client fulfils it with its elicitation,
+sampling or roots callback and calls again with the answers; the handler runs
+again from the top, reads them, and either asks for more or finishes. Nothing
+stays alive on the server between rounds.
+
+```cpp
+#include "fastmcpp/mcp/input_required.hpp"
+
+app.tool("book_flight", schema, [](const Json& args) -> Json {
+    auto answers = mcp::input_responses_of(args);   // nullopt on the first round
+    if (!answers)
+        return mcp::input_required(
+            {{"dest", mcp::elicit_input("Where to?", dest_schema)}});
+    if (answers->contains("dest"))
+    {
+        auto dest = (*answers)["dest"]["content"]["dest"].get<std::string>();
+        return mcp::input_required({{"date", mcp::elicit_input("When?", date_schema)}},
+                                   "dest=" + dest);   // carried to the next round
+    }
+    auto state = mcp::request_state_of(args);        // "dest=..."
+    return "Booked " + state->substr(5) + " on " +
+           (*answers)["date"]["content"]["date"].get<std::string>();
+});
+```
+
+- Tools may return `mcp::input_required(...)` or throw
+  `mcp::InputRequired(...)`; prompts and resources throw it. Tools can also
+  read `Context::input_responses()` and `Context::request_state()`.
+- The state is sealed on the wire with AES-256-GCM, bound to the method, the
+  tool/prompt name or resource URI, the arguments and the server name, and
+  expires after 10 minutes. The format is the MCP Python SDK's, so C++ and
+  Python replicas that share a key accept each other's tokens. By default each
+  process generates its own key; when several replicas serve one endpoint, give
+  them a shared one with
+  `StreamableHttpServerWrapper::set_request_state_security(mcp::RequestStateSecurity::from_keys({secret}))`
+  (or the `DualEraHandler` constructor).
+- On a handshake connection a handler that asks this way gets a `-32602` error
+  naming the negotiated version; use `Context::elicit()` there.
+- `Client::call_tool()`, `get_prompt()` and `read_resource()` drive the rounds
+  automatically, up to `set_input_required_max_rounds()` (default 10). Without
+  a matching callback the client refuses the request, as fastmcp does.
+
+### Extensions
+
+A `server::ServerExtension` contributes a capability advertised under
+`capabilities.extensions[identifier]` on `2026-07-28`, new request methods
+(`MethodBinding`, optionally limited to protocol versions), and a
+`tools/call` interceptor. Register it with `FastMCP::add_extension()`. The
+client opts extensions in per request with `Client::set_extension(id)`.
+
+### Background tasks
+
+`server::TasksExtension` (`io.modelcontextprotocol/tasks`) runs tools whose
+`ToolOptions::task_support` is `Optional` or `Required` in the background when
+the client opts in, and serves `tasks/get`, `tasks/update` and `tasks/cancel`.
+A task tool may ask for input across legs as above.
+
+```cpp
+#include "fastmcpp/server/tasks_extension.hpp"
+
+FastMCP::ToolOptions opts;
+opts.task_support = TaskSupport::Optional;
+app.tool("render", schema, render_fn, opts);
+app.add_extension(std::make_shared<server::TasksExtension>());
+```
+
+The client declares the extension by default: `call_tool()` follows a task to
+its result transparently, and `call_tool_task()` returns a handle
+(`status()`, `wait()`, `result()`, `cancel()`). Tasks live in process memory;
+there is no Redis/Docket backend.
+
+### Skills
+
+`skills::Skill` is an agent skill (a `SKILL.md` plus supporting files). Serve
+skills with `skills::SkillCatalogProvider` or `skills::SkillsDirectoryProvider`;
+adding either registers `skills::SkillsExtension`
+(`io.modelcontextprotocol/skills`, `skills/list` and `skills/get`) and serves
+every file as a `skill://` resource next to a `_manifest` listing.
+
+```cpp
+#include "fastmcpp/skills/provider.hpp"
+
+app.add_provider(std::make_shared<skills::SkillCatalogProvider>(std::vector<skills::Skill>{
+    skills::Skill("code-review", "Review a pull request.", "# Code review\n..."),
+    skills::Skill::from_directory("./skills/deploy"),
+}));
+```
+
+On the client, `client::skills::list_skills()`, `get_skill()` and
+`read_skill()` (in `fastmcpp/client/skills.hpp`) need
+`set_extension(skills::kSkillsExtensionId)`. `read_skill()` verifies every
+file's size and SHA-256 digest; without the extension it reads the
+`_manifest` resource instead. The resource-only
+`providers::SkillProvider`/`providers::SkillsDirectoryProvider` remain for
+compatibility; upstream deprecates them in favour of these.
+
 ## Examples
 
 See the `examples/` directory for complete programs, including:
@@ -443,7 +561,6 @@ See the `examples/` directory for complete programs, including:
 fastmcpp/
   include/fastmcpp/   # Public headers (client, server, tools, etc.)
   src/                # Implementation
-  tests/              # Test suite (standalone executables, no framework)
   examples/           # Example programs
   CMakeLists.txt      # Build configuration
   LICENSE             # Apache 2.0 license

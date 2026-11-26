@@ -1,6 +1,7 @@
 #pragma once
 #include "fastmcpp/types.hpp"
 
+#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -96,6 +97,32 @@ inline CursorState decode_cursor(const std::string& cursor)
     catch (...)
     {
         return {0};
+    }
+}
+
+/// Strict decode: the offset of a server-produced cursor, or nullopt when the
+/// cursor is not one (bad base64/JSON, or an offset that is not a whole
+/// non-negative integer). A cursor is opaque, so anything else was tampered with.
+// PYTHON REFERENCE: fastmcp/utilities/pagination.py:31-58 (CursorState.decode)
+inline std::optional<int> parse_cursor(const std::string& cursor)
+{
+    try
+    {
+        const std::string decoded = base64_decode(cursor);
+        if (decoded.empty())
+            return std::nullopt;
+        const auto j = Json::parse(decoded);
+        if (!j.is_object() || !j.contains("o"))
+            return std::nullopt;
+        const auto& o = j["o"];
+        if (!o.is_number_integer() || o.get<long long>() < 0 ||
+            o.get<long long>() > std::numeric_limits<int>::max())
+            return std::nullopt;
+        return o.get<int>();
+    }
+    catch (...)
+    {
+        return std::nullopt;
     }
 }
 

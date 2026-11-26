@@ -1,17 +1,23 @@
 #include "fastmcpp/mcp/handler.hpp"
 
 #include "fastmcpp/app.hpp"
+#include "fastmcpp/mcp/dual_era.hpp"
+#include "fastmcpp/mcp/input_required.hpp"
+#include "fastmcpp/mcp/subscriptions.hpp"
 #include "fastmcpp/mcp/tasks.hpp"
 #include "fastmcpp/protocol.hpp"
 #include "fastmcpp/proxy.hpp"
+#include "fastmcpp/server/extension.hpp"
 #include "fastmcpp/server/middleware_pipeline.hpp"
 #include "fastmcpp/server/sse_server.hpp"
+#include "fastmcpp/server/tasks_extension.hpp"
 #include "fastmcpp/telemetry.hpp"
 #include "fastmcpp/util/pagination.hpp"
 #include "fastmcpp/version.hpp"
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <ctime>
 #include <deque>
@@ -34,18 +40,12 @@ namespace fastmcpp::mcp
 static constexpr int kJsonRpcMethodNotFound = -32601;
 static constexpr int kJsonRpcInvalidParams = -32602;
 static constexpr int kJsonRpcInternalError = -32603;
-static constexpr int kMcpMethodNotFound = -32001;   // MCP "Method not found"
-static constexpr int kMcpResourceNotFound = -32002; // MCP "Resource not found"
+static constexpr int kMcpMethodNotFound = -32001; // MCP "Method not found"
+// Resource not found is INVALID_PARAMS on every era (SEP-2164); -32002 is retired.
+// PYTHON REFERENCE: fastmcp/server/mixins/mcp_operations.py:403-411
+static constexpr int kMcpResourceNotFound = -32602;
 static constexpr int kMcpToolTimeout = -32000;
 static constexpr const char* kUiExtensionId = "io.modelcontextprotocol/ui";
-
-// Helper: create fastmcp metadata namespace (parity with Python fastmcp 53e220a9)
-static fastmcpp::Json make_fastmcp_meta()
-{
-    return fastmcpp::Json{{"version", std::to_string(fastmcpp::VERSION_MAJOR) + "." +
-                                          std::to_string(fastmcpp::VERSION_MINOR) + "." +
-                                          std::to_string(fastmcpp::VERSION_PATCH)}};
-}
 
 static fastmcpp::Json merge_meta_with_ui(const std::optional<fastmcpp::Json>& meta,
                                          const std::optional<fastmcpp::AppConfig>& app)
@@ -62,6 +62,31 @@ static void attach_meta_ui(fastmcpp::Json& entry, const std::optional<fastmcpp::
     fastmcpp::Json merged = merge_meta_with_ui(meta, app);
     if (!merged.empty())
         entry["_meta"] = std::move(merged);
+}
+
+// Component `_meta.fastmcp`: always present, carrying the sorted tags and the
+// component's version when it has one. A user-supplied `_meta.fastmcp` is kept
+// (minus `_`-prefixed internal keys), with tags/version taking precedence.
+// The port has no tag concept yet, so tags is always empty.
+// PYTHON REFERENCE: fastmcp/utilities/components.py:190-215 (get_meta)
+static void attach_fastmcp_meta(fastmcpp::Json& entry, const std::optional<std::string>& version)
+{
+    fastmcpp::Json fastmcp_meta = fastmcpp::Json::object();
+    if (entry.contains("_meta") && entry["_meta"].is_object() &&
+        entry["_meta"].contains("fastmcp") && entry["_meta"]["fastmcp"].is_object())
+    {
+        for (const auto& [key, value] : entry["_meta"]["fastmcp"].items())
+            if (key.empty() || key.front() != '_')
+                fastmcp_meta[key] = value;
+    }
+    fastmcp_meta["tags"] = fastmcpp::Json::array();
+    if (version)
+        fastmcp_meta["version"] = *version;
+    else
+        fastmcp_meta.erase("version");
+    if (!entry.contains("_meta") || !entry["_meta"].is_object())
+        entry["_meta"] = fastmcpp::Json::object();
+    entry["_meta"]["fastmcp"] = std::move(fastmcp_meta);
 }
 
 // Inject FastMCP::experimental_capabilities() into the `capabilities` block on `initialize`.
@@ -135,6 +160,394 @@ static void inject_client_extensions_meta(fastmcpp::Json& args,
     args["_meta"]["client_extensions"] = caps["extensions"];
 }
 
+// PYTHON REFERENCE: fastmcp/server/low_level.py:569-618 (get_capabilities)
+// Registered extensions are advertised on the sessionless era only: the
+// handshake-era capability schema has no `extensions` field and the SDK strips
+// it there, so a handshake client cannot negotiate one.
+static fastmcpp::Json jsonrpc_error(const fastmcpp::Json& id, int code, const std::string& message);
+
+static void advertise_extensions(fastmcpp::Json& capabilities, const FastMCP& app,
+                                 const fastmcpp::Json& params)
+{
+    if (app.extensions().empty() || era_of_request(params) != protocol::Era::Modern)
+        return;
+    if (!capabilities.contains("extensions") || !capabilities["extensions"].is_object())
+        capabilities["extensions"] = fastmcpp::Json::object();
+    for (const auto& extension : app.extensions())
+        capabilities["extensions"][extension->identifier()] = extension->settings();
+}
+
+static fastmcpp::Json mcp_error_response(const fastmcpp::Json& id, const fastmcpp::McpError& e)
+{
+    fastmcpp::Json error = {{"code", e.code()}, {"message", e.what()}};
+    if (!e.data().is_null())
+        error["data"] = e.data();
+    return fastmcpp::Json{
+        {"jsonrpc", "2.0"}, {"id", id.is_null() ? fastmcpp::Json() : id}, {"error", error}};
+}
+
+static fastmcpp::Json server_info_json(const FastMCP& app)
+{
+    fastmcpp::Json info = {{"name", app.name()}, {"version", app.version()}};
+    if (app.website_url())
+        info["websiteUrl"] = *app.website_url();
+    if (app.icons())
+    {
+        fastmcpp::Json icons_array = fastmcpp::Json::array();
+        for (const auto& icon : *app.icons())
+        {
+            fastmcpp::Json icon_json;
+            to_json(icon_json, icon);
+            icons_array.push_back(icon_json);
+        }
+        info["icons"] = icons_array;
+    }
+    return info;
+}
+
+// On the sessionless era change notifications ride subscriptions/listen only,
+// so listChanged/subscribe say whether it is served (DualEraHandler keeps them).
+// PYTHON REFERENCE: mcp/server/lowlevel/server.py:596-618
+static void advertise_listen(fastmcpp::Json& capabilities, const FastMCP& app,
+                             const fastmcpp::Json& params)
+{
+    if (!app.listen_handler() || era_of_request(params) != protocol::Era::Modern)
+        return;
+    for (const char* key : {"tools", "prompts", "resources"})
+        if (capabilities.contains(key) && capabilities[key].is_object())
+            capabilities[key]["listChanged"] = true;
+    if (capabilities.contains("resources") && capabilities["resources"].is_object())
+        capabilities["resources"]["subscribe"] = true;
+}
+
+// PYTHON REFERENCE: mcp/server/lowlevel/server.py (completions capability iff handler)
+static void advertise_completions(fastmcpp::Json& capabilities, const FastMCP& app)
+{
+    if (app.completion_handler())
+        capabilities["completions"] = fastmcpp::Json::object();
+}
+
+/// The template a completion reference names: the template itself first (its
+/// identifier is not always a URI it matches), then one a concrete URI matches.
+// PYTHON REFERENCE: fastmcp/server/mixins/mcp_operations.py:556-576 (_completion_target)
+static bool completion_target_exists(const FastMCP& app, const server::CompletionReference& ref)
+{
+    if (ref.kind == server::CompletionReference::Kind::Prompt)
+    {
+        for (const auto& [name, prompt] : app.list_all_prompts())
+            if (name == ref.name)
+                return true;
+        return false;
+    }
+    const auto templates = app.list_all_templates();
+    for (const auto& templ : templates)
+        if (templ.uri_template == ref.uri)
+            return true;
+    for (const auto& templ : templates)
+        if (templ.match(ref.uri))
+            return true;
+    return false;
+}
+
+/// Serve `completion/complete`.
+// PYTHON REFERENCE: fastmcp/server/mixins/mcp_operations.py:511-554 (_on_complete)
+static fastmcpp::Json serve_completion(const FastMCP& app, const fastmcpp::Json& id,
+                                       const fastmcpp::Json& params)
+{
+    const auto& handler = app.completion_handler();
+    if (!handler)
+        return make_error_response(id, kJsonRpcMethodNotFound, "Method not found",
+                                   "completion/complete");
+
+    // PYTHON REFERENCE: mcp_types/_types.py (CompleteRequestParams)
+    auto invalid = [&]
+    { return make_error_response(id, kJsonRpcInvalidParams, "Invalid request parameters", ""); };
+    auto str_field = [](const fastmcpp::Json& obj, const char* key) -> const fastmcpp::Json*
+    {
+        if (!obj.is_object() || !obj.contains(key) || !obj[key].is_string())
+            return nullptr;
+        return &obj[key];
+    };
+    const fastmcpp::Json ref_json = params.value("ref", fastmcpp::Json());
+    const fastmcpp::Json arg_json = params.value("argument", fastmcpp::Json());
+    const auto* type = str_field(ref_json, "type");
+    const auto* arg_name = str_field(arg_json, "name");
+    const auto* arg_value = str_field(arg_json, "value");
+    if (!type || !arg_name || !arg_value)
+        return invalid();
+
+    server::CompletionReference ref;
+    if (*type == "ref/prompt")
+    {
+        const auto* name = str_field(ref_json, "name");
+        if (!name)
+            return invalid();
+        ref.kind = server::CompletionReference::Kind::Prompt;
+        ref.name = name->get<std::string>();
+    }
+    else if (*type == "ref/resource")
+    {
+        const auto* uri = str_field(ref_json, "uri");
+        if (!uri)
+            return invalid();
+        ref.kind = server::CompletionReference::Kind::ResourceTemplate;
+        ref.uri = uri->get<std::string>();
+    }
+    else
+    {
+        return invalid();
+    }
+
+    std::optional<fastmcpp::Json> context;
+    if (params.contains("context") && !params["context"].is_null())
+    {
+        const auto& ctx = params["context"];
+        if (!ctx.is_object())
+            return invalid();
+        if (ctx.contains("arguments") && !ctx["arguments"].is_null())
+        {
+            if (!ctx["arguments"].is_object())
+                return invalid();
+            for (const auto& [k, v] : ctx["arguments"].items())
+                if (!v.is_string())
+                    return invalid();
+            context = ctx["arguments"];
+        }
+    }
+
+    fastmcpp::Json completion = {{"values", fastmcpp::Json::array()}};
+    // A reference the client could not list gets an empty completion, so
+    // completion never discloses what listing hides.
+    if (completion_target_exists(app, ref))
+    {
+        try
+        {
+            completion = server::completion_to_json(handler(
+                ref, {arg_name->get<std::string>(), arg_value->get<std::string>()}, context));
+        }
+        catch (const fastmcpp::McpError& e)
+        {
+            return mcp_error_response(id, e);
+        }
+        catch (const std::exception&)
+        {
+            return make_error_response(id, kJsonRpcInternalError, "Internal server error");
+        }
+    }
+    return fastmcpp::Json{
+        {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json{{"completion", completion}}}};
+}
+
+/// Serve `subscriptions/listen`: open a stream and hand it to the transport.
+// PYTHON REFERENCE: mcp/server/subscriptions.py:180-243 (ListenHandler.__call__)
+static fastmcpp::Json serve_listen(const FastMCP& app, const fastmcpp::Json& id,
+                                   const fastmcpp::Json& params)
+{
+    auto handler = app.listen_handler();
+    const bool modern = era_of_request(params) == protocol::Era::Modern;
+    if (!handler || !modern || !server::listen_streams_available())
+        return make_error_response(id, kJsonRpcMethodNotFound, "Method not found",
+                                   "subscriptions/listen");
+    if (id.is_null())
+        return make_error_response(id, kInvalidRequest,
+                                   "subscriptions/listen requires a request id");
+    auto requested = validate_subscription_filter(params.value("notifications", fastmcpp::Json()));
+    if (!requested)
+        return make_error_response(id, kJsonRpcInvalidParams, "Invalid request parameters", "");
+    server::expire_unclaimed_listen_streams();
+    try
+    {
+        return server::park_listen_stream(id, handler->open(id, *requested, server_info_json(app)));
+    }
+    catch (const fastmcpp::McpError& e)
+    {
+        return mcp_error_response(id, e);
+    }
+}
+
+/// Serve @p method if a registered extension binds it. Returns nullopt when no
+/// extension serves it (or, on the handshake era, when the binding is for other
+/// versions and a built-in handler may still answer it).
+// PYTHON REFERENCE: fastmcp/server/extensions.py:320-346 (build_method_handler)
+static std::optional<fastmcpp::Json> dispatch_extension_method(const FastMCP& app,
+                                                               const fastmcpp::Json& id,
+                                                               const std::string& method,
+                                                               const fastmcpp::Json& params)
+{
+    const server::MethodBinding* binding = app.extension_method(method);
+    if (binding == nullptr)
+        return std::nullopt;
+
+    server::ExtensionRequest request;
+    request.method = method;
+    request.params = params;
+    request.modern = era_of_request(params) == protocol::Era::Modern;
+    request.protocol_version = wire_version_of_request(params);
+    if (!binding->admits(request.protocol_version))
+    {
+        // The handshake era keeps its built-in SEP-1686 task handlers.
+        if (!request.modern && (method == "tasks/get" || method == "tasks/cancel" ||
+                                method == "tasks/result" || method == "tasks/list"))
+            return std::nullopt;
+        const std::string version =
+            request.protocol_version.empty() ? "None" : "'" + request.protocol_version + "'";
+        return jsonrpc_error(id, kJsonRpcMethodNotFound,
+                             "Method '" + method + "' is not available at protocol version " +
+                                 version + ".");
+    }
+
+    if (params.contains("_meta") && params["_meta"].is_object() &&
+        params["_meta"].contains(kNameHeaderMetaKey) &&
+        params["_meta"][kNameHeaderMetaKey].is_string())
+    {
+        request.has_mcp_name_header = true;
+        request.mcp_name_header =
+            decode_header_value(params["_meta"][kNameHeaderMetaKey].get<std::string>());
+    }
+    // Server-private routing facts are not part of what the client sent.
+    if (request.params.contains("_meta") && request.params["_meta"].is_object())
+    {
+        auto& meta = request.params["_meta"];
+        meta.erase(kEraMetaKey);
+        meta.erase(kNameHeaderMetaKey);
+        meta.erase(kNegotiatedVersionMetaKey);
+    }
+
+    try
+    {
+        fastmcpp::Json result = binding->handler(request);
+        if (result.is_null())
+            result = fastmcpp::Json::object();
+        return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", std::move(result)}};
+    }
+    catch (const fastmcpp::McpError& e)
+    {
+        return mcp_error_response(id, e);
+    }
+    catch (const std::exception& e)
+    {
+        return jsonrpc_error(id, kJsonRpcInternalError, e.what());
+    }
+}
+
+/// Run a `tools/call` through the registered extensions' interceptors (first
+/// registered outermost) and then the tool body.
+// PYTHON REFERENCE: fastmcp/server/mixins/extensions.py:226-245
+//                   (_compose_tool_call_interceptors)
+/// A failure raised by a tool body as the CallToolResult a client sees: an
+/// isError text result, as fastmcp does on every era. fastmcpp::Error carries
+/// its message (fastmcp's ToolError / FastMCPError); a timeout, a lookup
+/// failure, a protocol error or any other exception is prefixed with the
+/// tool name. An unknown tool reads "Unknown tool: '<name>'".
+// PYTHON REFERENCE: fastmcp/server/server.py (call_tool error handling)
+static fastmcpp::Json tool_error_result(const std::string& name, std::exception_ptr error)
+{
+    std::string text;
+    try
+    {
+        std::rethrow_exception(error);
+    }
+    catch (const fastmcpp::NotFoundError& e)
+    {
+        const std::string what = e.what();
+        text = what == "tool not found: " + name ? "Unknown tool: '" + name + "'"
+                                                 : "Error calling tool '" + name + "': " + what;
+    }
+    catch (const fastmcpp::ValidationError& e)
+    {
+        text = e.what();
+    }
+    catch (const fastmcpp::ToolTimeoutError& e)
+    {
+        text = "Error calling tool '" + name + "': " + e.what();
+    }
+    catch (const fastmcpp::McpError& e)
+    {
+        text = "Error calling tool '" + name + "': " + e.what();
+    }
+    catch (const fastmcpp::Error& e)
+    {
+        text = e.what();
+    }
+    catch (const std::exception& e)
+    {
+        text = "Error calling tool '" + name + "': " + e.what();
+    }
+    catch (...)
+    {
+        text = "Error calling tool '" + name + "'";
+    }
+    return fastmcpp::Json{
+        {"content", fastmcpp::Json::array({fastmcpp::Json{{"type", "text"}, {"text", text}}})},
+        {"isError", true}};
+}
+
+static std::string tool_error_text(const fastmcpp::Json& result)
+{
+    if (result.contains("content") && result["content"].is_array() && !result["content"].empty())
+        return result["content"][0].value("text", std::string("tool error"));
+    return "tool error";
+}
+
+/// Run @p run_tool, rendering a failure of the tool itself as an isError
+/// result. A guard's InputRequired passes through.
+static fastmcpp::Json
+run_tool_reporting_errors(const std::string& name, const fastmcpp::Json& args,
+                          const std::function<fastmcpp::Json(const fastmcpp::Json&)>& run_tool)
+{
+    try
+    {
+        return run_tool(args);
+    }
+    catch (const InputRequired&)
+    {
+        throw;
+    }
+    catch (...)
+    {
+        return tool_error_result(name, std::current_exception());
+    }
+}
+
+/// Run a tool call through the registered extensions. With @p report_errors
+/// the tool body's failures become isError results; the extensions still see
+/// (and may raise) protocol errors, and receive the raw `run_tool` for work
+/// they defer (background tasks keep their own error mapping).
+static fastmcpp::Json
+invoke_tool_intercepted(const FastMCP& app, const std::string& name, const fastmcpp::Json& args,
+                        const fastmcpp::Json& params,
+                        std::function<fastmcpp::Json(const fastmcpp::Json&)> run_tool,
+                        bool report_errors = false)
+{
+    const auto& extensions = app.extensions();
+    if (extensions.empty())
+        return report_errors ? run_tool_reporting_errors(name, args, run_tool) : run_tool(args);
+
+    server::ToolCallRequest request;
+    request.name = name;
+    request.arguments = args;
+    request.meta = params.contains("_meta") && params["_meta"].is_object()
+                       ? params["_meta"]
+                       : fastmcpp::Json::object();
+    request.modern = era_of_request(params) == protocol::Era::Modern;
+    request.protocol_version = wire_version_of_request(params);
+    request.run_tool = run_tool;
+
+    server::ToolCallContinuation chain = [&request, run_tool, report_errors, &name]()
+    {
+        return report_errors ? run_tool_reporting_errors(name, request.arguments, run_tool)
+                             : run_tool(request.arguments);
+    };
+    for (auto it = extensions.rbegin(); it != extensions.rend(); ++it)
+    {
+        server::ServerExtension* extension = it->get();
+        server::ToolCallContinuation outer = [extension, &request, next = std::move(chain)]()
+        { return extension->intercept_tool_call(request, next); };
+        chain = std::move(outer);
+    }
+    return chain();
+}
+
 static fastmcpp::Json jsonrpc_error(const fastmcpp::Json& id, int code, const std::string& message)
 {
     return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -142,8 +555,20 @@ static fastmcpp::Json jsonrpc_error(const fastmcpp::Json& id, int code, const st
                           {"error", fastmcpp::Json{{"code", code}, {"message", message}}}};
 }
 
+// PYTHON REFERENCE: fastmcp/server/mixins/mcp_operations.py:403-411
+static fastmcpp::Json resource_not_found(const fastmcpp::Json& id, const std::string& uri)
+{
+    return fastmcpp::Json{{"jsonrpc", "2.0"},
+                          {"id", id.is_null() ? fastmcpp::Json() : id},
+                          {"error", fastmcpp::Json{{"code", kMcpResourceNotFound},
+                                                   {"message", "Resource not found: '" + uri + "'"},
+                                                   {"data", fastmcpp::Json{{"uri", uri}}}}}};
+}
+
 static fastmcpp::Json jsonrpc_tool_error(const fastmcpp::Json& id, const std::exception& e)
 {
+    if (const auto* mcp_error = dynamic_cast<const fastmcpp::McpError*>(&e))
+        return mcp_error_response(id, *mcp_error);
     if (dynamic_cast<const fastmcpp::ToolTimeoutError*>(&e))
         return jsonrpc_error(id, kMcpToolTimeout, e.what());
     if (dynamic_cast<const fastmcpp::NotFoundError*>(&e))
@@ -155,11 +580,29 @@ static fastmcpp::Json jsonrpc_tool_error(const fastmcpp::Json& id, const std::ex
     return jsonrpc_error(id, kJsonRpcInternalError, e.what());
 }
 
+static void apply_read_cache_hint(fastmcpp::Json& result, const resources::ResourceContent& content)
+{
+    // A per-read hint wins over the server-wide one (DualEraHandler keeps
+    // fields a handler set).
+    // PYTHON REFERENCE: fastmcp/resources/base.py:221-228 (#5380)
+    if (content.ttl_ms)
+        result["ttlMs"] = *content.ttl_ms;
+    if (content.cache_scope)
+        result["cacheScope"] = *content.cache_scope;
+}
+
 /// Apply pagination to a JSON array, returning a result object with the key and optional nextCursor
 static fastmcpp::Json apply_pagination(const fastmcpp::Json& items, const std::string& key,
                                        const fastmcpp::Json& params, int page_size)
 {
     fastmcpp::Json result_obj = {{key, items}};
+    // A cursor is validated even when pagination is off.
+    // PYTHON REFERENCE: fastmcp/server/mixins/mcp_operations.py:56-73 (_apply_pagination)
+    if (params.contains("cursor") && params["cursor"].is_string() &&
+        !params["cursor"].get<std::string>().empty() &&
+        !util::pagination::parse_cursor(params["cursor"].get<std::string>()))
+        throw fastmcpp::McpError(kJsonRpcInvalidParams,
+                                 "Invalid cursor: " + params["cursor"].get<std::string>());
     if (page_size <= 0)
         return result_obj;
 
@@ -264,8 +707,6 @@ static fastmcpp::Json make_tool_entry(
         entry["title"] = *title;
     if (!description.empty())
         entry["description"] = description;
-    if (version)
-        entry["version"] = *version;
     // Schema may be empty
     if (!schema.is_null() && !schema.empty())
         entry["inputSchema"] = schema;
@@ -300,7 +741,7 @@ static fastmcpp::Json make_tool_entry(
     if (annotations && !annotations->is_null() && !annotations->empty())
         entry["annotations"] = *annotations;
     attach_meta_ui(entry, app, meta);
-    entry["fastmcp"] = make_fastmcp_meta();
+    attach_fastmcp_meta(entry, version);
     return entry;
 }
 
@@ -407,6 +848,12 @@ class TaskRegistry
 
     void enqueue_task(const std::string& task_id, std::function<fastmcpp::Json()> work)
     {
+        // The worker serves the task under the submitting request's principal.
+        work = [token = server::current_access_token_handle(), inner = std::move(work)]
+        {
+            server::AccessTokenScope scope(token);
+            return inner();
+        };
         {
             std::lock_guard<std::mutex> lock(mutex_);
             auto it = tasks_.find(task_id);
@@ -828,10 +1275,42 @@ class TaskRegistry
 // Helper: convert a tool invocation JSON result into an MCP CallToolResult payload.
 // For tools that declare an outputSchema, include structuredContent for parity with Python fastmcp.
 // When wrap_result is true, adds _meta: {"fastmcp": {"wrap_result": true}} (parity with 139d2d8f).
+/// JSON cannot carry NaN or Infinity (nlohmann would write `null`): a tool
+/// result holding one fails as a tool error naming where.
+// PYTHON REFERENCE: fastmcp/tools/base.py (_reject_nonfinite), commit 74e8220a9
+void reject_nonfinite(const fastmcpp::Json& value, const std::string& path = "$")
+{
+    if (value.is_number_float())
+    {
+        const double d = value.get<double>();
+        if (!std::isfinite(d))
+            throw fastmcpp::Error("Tool result contains a non-finite float (" +
+                                  std::string(std::isnan(d) ? "nan"
+                                              : d > 0       ? "inf"
+                                                            : "-inf") +
+                                  ") at " + path + "; JSON cannot represent NaN or Infinity");
+    }
+    else if (value.is_object())
+    {
+        for (const auto& [key, item] : value.items())
+            reject_nonfinite(item, path + "." + key);
+    }
+    else if (value.is_array())
+    {
+        for (size_t i = 0; i < value.size(); ++i)
+            reject_nonfinite(value[i], path + "[" + std::to_string(i) + "]");
+    }
+}
+
 fastmcpp::Json build_fastmcp_tool_result(const fastmcpp::Json& result,
                                          bool include_structured_content = false,
                                          bool wrap_result = false)
 {
+    // A guard tool asking for input (SEP-2322): the result is the ask, not tool output.
+    if (is_input_required(result))
+        return result;
+    reject_nonfinite(result);
+
     // If the tool already returned a CallToolResult-like object, preserve it (including isError,
     // structuredContent, and _meta).
     if (result.is_object() && result.contains("content"))
@@ -953,6 +1432,12 @@ inline std::optional<fastmcpp::TaskSupport> find_resource_task_support(const fas
     return std::nullopt;
 }
 } // namespace
+
+fastmcpp::Json tool_call_result(const fastmcpp::Json& tool_output, bool include_structured_content,
+                                bool wrap_result)
+{
+    return build_fastmcp_tool_result(tool_output, include_structured_content, wrap_result);
+}
 
 std::function<fastmcpp::Json(const fastmcpp::Json&)>
 make_mcp_handler(const std::string& server_name, const std::string& version,
@@ -1100,6 +1585,10 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 auto routed = tools.invoke(method, params);
                 return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", routed}};
             }
+            catch (const InputRequired&)
+            {
+                throw;
+            }
             catch (...)
             {
                 // fall through to not found
@@ -1107,6 +1596,10 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
 
             return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcMethodNotFound,
                                  std::string("Method '") + method + "' not found");
+        }
+        catch (const fastmcpp::McpError& e)
+        {
+            return mcp_error_response(message.value("id", fastmcpp::Json()), e);
         }
         catch (const std::exception& e)
         {
@@ -1252,6 +1745,10 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
                     auto routed = server.handle(method, params);
                     return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", routed}};
                 }
+                catch (const InputRequired&)
+                {
+                    throw;
+                }
                 catch (...)
                 {
                     if (span.active())
@@ -1289,6 +1786,10 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
                     auto routed = server.handle(method, params);
                     return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", routed}};
                 }
+                catch (const InputRequired&)
+                {
+                    throw;
+                }
                 catch (...)
                 {
                     if (span.active())
@@ -1313,6 +1814,10 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(
 
             return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcMethodNotFound,
                                  std::string("Method '") + method + "' not found");
+        }
+        catch (const fastmcpp::McpError& e)
+        {
+            return mcp_error_response(message.value("id", fastmcpp::Json()), e);
         }
         catch (const std::exception& e)
         {
@@ -1471,6 +1976,10 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     auto routed = server.handle(method, params);
                     return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", routed}};
                 }
+                catch (const InputRequired&)
+                {
+                    throw;
+                }
                 catch (...)
                 {
                     if (span.active())
@@ -1493,6 +2002,10 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 {
                     auto routed = server.handle(method, params);
                     return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", routed}};
+                }
+                catch (const InputRequired&)
+                {
+                    throw;
                 }
                 catch (...)
                 {
@@ -1528,6 +2041,10 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
 
             return jsonrpc_error(id, kJsonRpcMethodNotFound,
                                  std::string("Method '") + method + "' not found");
+        }
+        catch (const fastmcpp::McpError& e)
+        {
+            return mcp_error_response(message.value("id", fastmcpp::Json()), e);
         }
         catch (const std::exception& e)
         {
@@ -1647,8 +2164,6 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 for (const auto& res : resources.list())
                 {
                     fastmcpp::Json res_json = {{"uri", res.uri}, {"name", res.name}};
-                    if (res.version)
-                        res_json["version"] = *res.version;
                     if (res.description)
                         res_json["description"] = *res.description;
                     if (res.mime_type)
@@ -1672,7 +2187,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                         res_json["icons"] = icons_json;
                     }
                     attach_meta_ui(res_json, res.app);
-                    res_json["fastmcp"] = make_fastmcp_meta();
+                    attach_fastmcp_meta(res_json, res.version);
                     resources_array.push_back(res_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -1713,6 +2228,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                     attach_meta_ui(templ_json, templ.app);
                     templ_json["parameters"] =
                         templ.parameters.is_null() ? fastmcpp::Json::object() : templ.parameters;
+                    attach_fastmcp_meta(templ_json, templ.version);
                     templates_array.push_back(templ_json);
                 }
                 return fastmcpp::Json{
@@ -1769,13 +2285,14 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                         content_json["blob"] = b64;
                     }
 
-                    return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                          {"id", id},
-                                          {"result", fastmcpp::Json{{"contents", {content_json}}}}};
+                    fastmcpp::Json result_payload = {{"contents", {content_json}}};
+                    apply_read_cache_hint(result_payload, content);
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"}, {"id", id}, {"result", result_payload}};
                 }
-                catch (const NotFoundError& e)
+                catch (const NotFoundError&)
                 {
-                    return jsonrpc_error(id, kMcpResourceNotFound, e.what());
+                    return resource_not_found(id, uri);
                 }
                 catch (const std::exception& e)
                 {
@@ -1790,8 +2307,6 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                 for (const auto& prompt : prompts.list())
                 {
                     fastmcpp::Json prompt_json = {{"name", prompt.name}};
-                    if (prompt.version)
-                        prompt_json["version"] = *prompt.version;
                     if (prompt.description)
                         prompt_json["description"] = *prompt.description;
                     if (!prompt.arguments.empty())
@@ -1807,7 +2322,7 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
                         }
                         prompt_json["arguments"] = args_array;
                     }
-                    prompt_json["fastmcp"] = make_fastmcp_meta();
+                    attach_fastmcp_meta(prompt_json, prompt.version);
                     prompts_array.push_back(prompt_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -1857,6 +2372,10 @@ make_mcp_handler(const std::string& server_name, const std::string& version,
 
             return jsonrpc_error(id, kJsonRpcMethodNotFound,
                                  std::string("Method '") + method + "' not found");
+        }
+        catch (const fastmcpp::McpError& e)
+        {
+            return mcp_error_response(message.value("id", fastmcpp::Json()), e);
         }
         catch (const std::exception& e)
         {
@@ -1919,11 +2438,17 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 if (!app.list_all_prompts().empty())
                     capabilities["prompts"] = fastmcpp::Json::object();
                 advertise_ui_extension(capabilities);
+                advertise_extensions(capabilities, app, params);
                 advertise_experimental(capabilities, app);
+                advertise_listen(capabilities, app, params);
+                advertise_completions(capabilities, app);
 
                 fastmcpp::Json result_obj = {{"protocolVersion", negotiated_version(params)},
                                              {"capabilities", capabilities},
                                              {"serverInfo", serverInfo}};
+                if (app.cache_hints() && era_of_request(params) == protocol::Era::Modern)
+                    result_obj[kCacheHintKey] = {{"ttlMs", app.cache_hints()->first},
+                                                 {"cacheScope", app.cache_hints()->second}};
                 if (app.instructions().has_value())
                     result_obj["instructions"] = *app.instructions();
                 return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", result_obj}};
@@ -1935,6 +2460,12 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                     {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json::object()}};
             }
 
+            if (method == "subscriptions/listen")
+                return serve_listen(app, id, params);
+
+            if (method == "completion/complete")
+                return serve_completion(app, id, params);
+
             if (method == "tools/list")
             {
                 fastmcpp::Json tools_array = fastmcpp::Json::array();
@@ -1942,8 +2473,6 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 {
                     fastmcpp::Json tool_json = {{"name", tool_info.name},
                                                 {"inputSchema", tool_info.inputSchema}};
-                    if (tool_info.version)
-                        tool_json["version"] = *tool_info.version;
                     if (tool_info.title)
                         tool_json["title"] = *tool_info.title;
                     if (tool_info.description)
@@ -1968,6 +2497,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                         tool_json["icons"] = icons_json;
                     }
                     attach_meta_ui(tool_json, tool_info.app, tool_info._meta);
+                    attach_fastmcp_meta(tool_json, tool_info.version);
                     tools_array.push_back(tool_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -2014,10 +2544,12 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                         break;
                     }
 
-                    // Detect SEP-1686 task metadata via params._meta
+                    // SEP-1686 task metadata is the handshake era's task mechanism; the
+                    // sessionless era runs tasks through the tasks extension instead.
+                    const bool modern_era = era_of_request(params) == protocol::Era::Modern;
                     int ttl_ms = 60000;
                     bool has_task_meta = false;
-                    if (params.contains("_meta") && params["_meta"].is_object())
+                    if (!modern_era && params.contains("_meta") && params["_meta"].is_object())
                     {
                         const auto& meta = params["_meta"];
                         auto it = meta.find("modelcontextprotocol.io/task");
@@ -2031,7 +2563,9 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                     }
 
                     auto support = find_tool_task_support(app, name);
-                    if (support)
+                    const bool extension_runs_tasks =
+                        modern_era && app.has_extension(server::kTasksExtensionId);
+                    if (support && !extension_runs_tasks)
                     {
                         if (has_task_meta && *support == fastmcpp::TaskSupport::Forbidden)
                             return jsonrpc_error(id, kJsonRpcMethodNotFound,
@@ -2099,10 +2633,18 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                         };
                     }
 
-                    // Synchronous execution (no task metadata)
-                    auto invoke_result = app.invoke_tool(name, args);
+                    // Synchronous execution (no task metadata). Registered extensions
+                    // intercept here, after middleware and before the tool body.
+                    auto run_tool = [&app, name, has_output_schema,
+                                     wrap_result](const fastmcpp::Json& call_args) -> fastmcpp::Json
+                    {
+                        return build_fastmcp_tool_result(app.invoke_tool(name, call_args),
+                                                         has_output_schema, wrap_result);
+                    };
                     fastmcpp::Json result_payload =
-                        build_fastmcp_tool_result(invoke_result, has_output_schema, wrap_result);
+                        invoke_tool_intercepted(app, name, args, params, run_tool, true);
+                    if (span.active() && result_payload.value("isError", false))
+                        span.span().record_exception(tool_error_text(result_payload));
                     return fastmcpp::Json{
                         {"jsonrpc", "2.0"},
                         {"id", id},
@@ -2116,6 +2658,17 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                     return jsonrpc_tool_error(id, e);
                 }
             }
+
+            // Extension methods (SEP-2133) win over the built-in compat handlers
+            // below on the era they are bound to.
+            if (auto served = dispatch_extension_method(app, id, method, params))
+                return *served;
+
+            // The SEP-1686 task methods below belong to the handshake era; the
+            // sessionless era serves tasks only through the tasks extension.
+            // PYTHON REFERENCE: mcp/server/runner.py:206-208 (unhandled -> METHOD_NOT_FOUND)
+            if (method.rfind("tasks/", 0) == 0 && era_of_request(params) == protocol::Era::Modern)
+                return make_error_response(id, kJsonRpcMethodNotFound, "Method not found", method);
 
             // Tasks protocol (SEP-1686 subset)
             if (method == "tasks/get")
@@ -2236,8 +2789,6 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 for (const auto& res : app.list_all_resources())
                 {
                     fastmcpp::Json res_json = {{"uri", res.uri}, {"name", res.name}};
-                    if (res.version)
-                        res_json["version"] = *res.version;
                     if (res.description)
                         res_json["description"] = *res.description;
                     if (res.mime_type)
@@ -2261,7 +2812,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                         res_json["icons"] = icons_json;
                     }
                     attach_meta_ui(res_json, res.app);
-                    res_json["fastmcp"] = make_fastmcp_meta();
+                    attach_fastmcp_meta(res_json, res.version);
                     resources_array.push_back(res_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -2302,6 +2853,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                     attach_meta_ui(templ_json, templ.app);
                     templ_json["parameters"] =
                         templ.parameters.is_null() ? fastmcpp::Json::object() : templ.parameters;
+                    attach_fastmcp_meta(templ_json, templ.version);
                     templates_array.push_back(templ_json);
                 }
                 return fastmcpp::Json{
@@ -2449,6 +3001,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
 
                     fastmcpp::Json result_payload =
                         fastmcpp::Json{{"contents", fastmcpp::Json::array({content_json})}};
+                    apply_read_cache_hint(result_payload, content);
 
                     return fastmcpp::Json{
                         {"jsonrpc", "2.0"}, {"id", id}, {"result", result_payload}};
@@ -2457,7 +3010,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, kMcpResourceNotFound, e.what());
+                    return resource_not_found(id, uri);
                 }
                 catch (const std::exception& e)
                 {
@@ -2476,8 +3029,6 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                     fastmcpp::Json prompt_json = {{"name", name}};
                     if (prompt)
                     {
-                        if (prompt->version)
-                            prompt_json["version"] = *prompt->version;
                         if (prompt->description)
                             prompt_json["description"] = *prompt->description;
                         if (!prompt->arguments.empty())
@@ -2494,7 +3045,7 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                             prompt_json["arguments"] = args_array;
                         }
                     }
-                    prompt_json["fastmcp"] = make_fastmcp_meta();
+                    attach_fastmcp_meta(prompt_json, prompt ? prompt->version : std::nullopt);
                     prompts_array.push_back(prompt_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -2615,6 +3166,10 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
             return jsonrpc_error(id, kJsonRpcMethodNotFound,
                                  std::string("Method '") + method + "' not found");
         }
+        catch (const fastmcpp::McpError& e)
+        {
+            return mcp_error_response(message.value("id", fastmcpp::Json()), e);
+        }
         catch (const std::exception& e)
         {
             return jsonrpc_error(message.value("id", fastmcpp::Json()), kJsonRpcInternalError,
@@ -2722,8 +3277,6 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 {
                     fastmcpp::Json tool_json = {{"name", tool.name},
                                                 {"inputSchema", tool.inputSchema}};
-                    if (tool.version)
-                        tool_json["version"] = *tool.version;
                     if (tool.description)
                         tool_json["description"] = *tool.description;
                     if (tool.title)
@@ -2744,6 +3297,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         tool_json["icons"] = icons_array;
                     }
                     attach_meta_ui(tool_json, tool.app, tool._meta);
+                    attach_fastmcp_meta(tool_json, tool.version);
                     tools_array.push_back(tool_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -2821,8 +3375,6 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 for (const auto& res : app.list_all_resources())
                 {
                     fastmcpp::Json res_json = {{"uri", res.uri}, {"name", res.name}};
-                    if (res.version)
-                        res_json["version"] = *res.version;
                     if (res.description)
                         res_json["description"] = *res.description;
                     if (res.mimeType)
@@ -2846,7 +3398,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         res_json["icons"] = icons_json;
                     }
                     attach_meta_ui(res_json, res.app, res._meta);
-                    res_json["fastmcp"] = make_fastmcp_meta();
+                    attach_fastmcp_meta(res_json, res.version);
                     resources_array.push_back(res_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -2888,6 +3440,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         templ_json["parameters"] = *templ.parameters;
                     else
                         templ_json["parameters"] = fastmcpp::Json::object();
+                    // Proxied templates keep the backend's _meta.fastmcp as received.
                     templates_array.push_back(templ_json);
                 }
                 return fastmcpp::Json{
@@ -2943,7 +3496,15 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, kMcpResourceNotFound, e.what());
+                    return resource_not_found(id, uri);
+                }
+                catch (const fastmcpp::ValidationError& e)
+                {
+                    // An unconvertible argument is a client error.
+                    // PYTHON REFERENCE: fastmcp/resources/template.py:687 (#6193)
+                    if (span.active())
+                        span.span().record_exception(e.what());
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, e.what());
                 }
                 catch (const std::exception& e)
                 {
@@ -2960,8 +3521,6 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                 for (const auto& prompt : app.list_all_prompts())
                 {
                     fastmcpp::Json prompt_json = {{"name", prompt.name}};
-                    if (prompt.version)
-                        prompt_json["version"] = *prompt.version;
                     if (prompt.description)
                         prompt_json["description"] = *prompt.description;
                     if (prompt.arguments)
@@ -2977,7 +3536,7 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         }
                         prompt_json["arguments"] = args_array;
                     }
-                    prompt_json["fastmcp"] = make_fastmcp_meta();
+                    attach_fastmcp_meta(prompt_json, prompt.version);
                     prompts_array.push_back(prompt_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -3047,6 +3606,14 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
                         span.span().record_exception(e.what());
                     return jsonrpc_error(id, kMcpMethodNotFound, e.what());
                 }
+                catch (const fastmcpp::ValidationError& e)
+                {
+                    // An unconvertible argument is a client error.
+                    // PYTHON REFERENCE: fastmcp/resources/template.py:687 (#6193)
+                    if (span.active())
+                        span.span().record_exception(e.what());
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, e.what());
+                }
                 catch (const std::exception& e)
                 {
                     if (span.active())
@@ -3057,6 +3624,10 @@ std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const Prox
 
             return jsonrpc_error(id, kJsonRpcMethodNotFound,
                                  std::string("Method '") + method + "' not found");
+        }
+        catch (const fastmcpp::McpError& e)
+        {
+            return mcp_error_response(message.value("id", fastmcpp::Json()), e);
         }
         catch (const std::exception& e)
         {
@@ -3170,11 +3741,17 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 if (!app.list_all_prompts().empty())
                     capabilities["prompts"] = fastmcpp::Json::object();
                 advertise_ui_extension(capabilities);
+                advertise_extensions(capabilities, app, params);
                 advertise_experimental(capabilities, app);
+                advertise_listen(capabilities, app, params);
+                advertise_completions(capabilities, app);
 
                 fastmcpp::Json result_obj = {{"protocolVersion", negotiated_version(params)},
                                              {"capabilities", capabilities},
                                              {"serverInfo", serverInfo}};
+                if (app.cache_hints() && era_of_request(params) == protocol::Era::Modern)
+                    result_obj[kCacheHintKey] = {{"ttlMs", app.cache_hints()->first},
+                                                 {"cacheScope", app.cache_hints()->second}};
                 if (app.instructions().has_value())
                     result_obj["instructions"] = *app.instructions();
                 return fastmcpp::Json{{"jsonrpc", "2.0"}, {"id", id}, {"result", result_obj}};
@@ -3186,6 +3763,12 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                     {"jsonrpc", "2.0"}, {"id", id}, {"result", fastmcpp::Json::object()}};
             }
 
+            if (method == "subscriptions/listen")
+                return serve_listen(app, id, params);
+
+            if (method == "completion/complete")
+                return serve_completion(app, id, params);
+
             if (method == "tools/list")
             {
                 fastmcpp::Json tools_array = fastmcpp::Json::array();
@@ -3193,8 +3776,6 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 {
                     fastmcpp::Json tool_json = {{"name", tool_info.name},
                                                 {"inputSchema", tool_info.inputSchema}};
-                    if (tool_info.version)
-                        tool_json["version"] = *tool_info.version;
                     if (tool_info.title)
                         tool_json["title"] = *tool_info.title;
                     if (tool_info.description)
@@ -3219,6 +3800,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                         tool_json["icons"] = icons_json;
                     }
                     attach_meta_ui(tool_json, tool_info.app, tool_info._meta);
+                    attach_fastmcp_meta(tool_json, tool_info.version);
                     tools_array.push_back(tool_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -3272,11 +3854,23 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
 
                 try
                 {
-                    auto result = app.invoke_tool(name, args);
+                    auto run_tool = [&app, name, has_output_schema](const fastmcpp::Json& call_args)
+                    {
+                        return build_fastmcp_tool_result(app.invoke_tool(name, call_args),
+                                                         has_output_schema);
+                    };
                     fastmcpp::Json result_payload =
-                        build_fastmcp_tool_result(result, has_output_schema);
+                        invoke_tool_intercepted(app, name, args, params, run_tool, true);
+                    if (span.active() && result_payload.value("isError", false))
+                        span.span().record_exception(tool_error_text(result_payload));
                     return fastmcpp::Json{
                         {"jsonrpc", "2.0"}, {"id", id}, {"result", result_payload}};
+                }
+                catch (const fastmcpp::McpError& e)
+                {
+                    if (span.active())
+                        span.span().record_exception(e.what());
+                    return mcp_error_response(id, e);
                 }
                 catch (const std::exception& e)
                 {
@@ -3296,8 +3890,6 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 for (const auto& res : app.list_all_resources())
                 {
                     fastmcpp::Json res_json = {{"uri", res.uri}, {"name", res.name}};
-                    if (res.version)
-                        res_json["version"] = *res.version;
                     if (res.description)
                         res_json["description"] = *res.description;
                     if (res.mime_type)
@@ -3321,7 +3913,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                         res_json["icons"] = icons_json;
                     }
                     attach_meta_ui(res_json, res.app);
-                    res_json["fastmcp"] = make_fastmcp_meta();
+                    attach_fastmcp_meta(res_json, res.version);
                     resources_array.push_back(res_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -3362,6 +3954,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                     attach_meta_ui(templ_json, templ.app);
                     templ_json["parameters"] =
                         templ.parameters.is_null() ? fastmcpp::Json::object() : templ.parameters;
+                    attach_fastmcp_meta(templ_json, templ.version);
                     templates_array.push_back(templ_json);
                 }
                 return fastmcpp::Json{
@@ -3417,15 +4010,24 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                     }
                     attach_resource_content_meta_ui(content_json, app, uri);
 
-                    return fastmcpp::Json{{"jsonrpc", "2.0"},
-                                          {"id", id},
-                                          {"result", fastmcpp::Json{{"contents", {content_json}}}}};
+                    fastmcpp::Json result_payload = {{"contents", {content_json}}};
+                    apply_read_cache_hint(result_payload, content);
+                    return fastmcpp::Json{
+                        {"jsonrpc", "2.0"}, {"id", id}, {"result", result_payload}};
                 }
                 catch (const NotFoundError& e)
                 {
                     if (span.active())
                         span.span().record_exception(e.what());
-                    return jsonrpc_error(id, kMcpResourceNotFound, e.what());
+                    return resource_not_found(id, uri);
+                }
+                catch (const fastmcpp::ValidationError& e)
+                {
+                    // An unconvertible argument is a client error.
+                    // PYTHON REFERENCE: fastmcp/resources/template.py:687 (#6193)
+                    if (span.active())
+                        span.span().record_exception(e.what());
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, e.what());
                 }
                 catch (const std::exception& e)
                 {
@@ -3442,8 +4044,6 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 for (const auto& [name, prompt] : app.list_all_prompts())
                 {
                     fastmcpp::Json prompt_json = {{"name", name}};
-                    if (prompt->version)
-                        prompt_json["version"] = *prompt->version;
                     if (prompt->description)
                         prompt_json["description"] = *prompt->description;
                     if (!prompt->arguments.empty())
@@ -3459,7 +4059,7 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                         }
                         prompt_json["arguments"] = args_array;
                     }
-                    prompt_json["fastmcp"] = make_fastmcp_meta();
+                    attach_fastmcp_meta(prompt_json, prompt ? prompt->version : std::nullopt);
                     prompts_array.push_back(prompt_json);
                 }
                 return fastmcpp::Json{{"jsonrpc", "2.0"},
@@ -3509,6 +4109,14 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                         span.span().record_exception(e.what());
                     return jsonrpc_error(id, kMcpMethodNotFound, e.what());
                 }
+                catch (const fastmcpp::ValidationError& e)
+                {
+                    // An unconvertible argument is a client error.
+                    // PYTHON REFERENCE: fastmcp/resources/template.py:687 (#6193)
+                    if (span.active())
+                        span.span().record_exception(e.what());
+                    return jsonrpc_error(id, kJsonRpcInvalidParams, e.what());
+                }
                 catch (const std::exception& e)
                 {
                     if (span.active())
@@ -3517,8 +4125,15 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                 }
             }
 
+            if (auto served = dispatch_extension_method(app, id, method, params))
+                return *served;
+
             return jsonrpc_error(id, kJsonRpcMethodNotFound,
                                  std::string("Method '") + method + "' not found");
+        }
+        catch (const fastmcpp::McpError& e)
+        {
+            return mcp_error_response(message.value("id", fastmcpp::Json()), e);
         }
         catch (const std::exception& e)
         {

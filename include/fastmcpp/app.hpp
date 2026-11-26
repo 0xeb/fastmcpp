@@ -4,15 +4,20 @@
 #include "fastmcpp/prompts/manager.hpp"
 #include "fastmcpp/proxy.hpp"
 #include "fastmcpp/resources/manager.hpp"
+#include "fastmcpp/server/completions.hpp"
 #include "fastmcpp/server/server.hpp"
+#include "fastmcpp/server/subscriptions.hpp"
 #include "fastmcpp/tools/manager.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -29,6 +34,10 @@ namespace server
 {
 class Middleware;
 class MiddlewarePipeline;
+class ServerExtension;
+class Session;
+class SessionStateStore;
+struct MethodBinding;
 } // namespace server
 
 /// HTTP request snapshot passed to a custom-route handler.
@@ -112,7 +121,8 @@ class FastMCP
         std::optional<std::vector<Icon>> icons;
         std::vector<std::string> exclude_args;
         TaskSupport task_support{TaskSupport::Forbidden};
-        Json output_schema{Json::object()};
+        // `= ` not `{}`: brace-init makes a one-element array under GCC.
+        Json output_schema = Json::object();
         std::optional<std::chrono::milliseconds> timeout;
         bool sequential{false};
         std::optional<AppConfig> app;
@@ -149,6 +159,9 @@ class FastMCP
         std::optional<std::vector<Icon>> icons;
         TaskSupport task_support{TaskSupport::Forbidden};
         std::optional<AppConfig> app;
+        /// Path-safety policy: inherit the server default (default),
+        /// resources::kNoResourceSecurity, or an explicit ResourceSecurity.
+        resources::TemplateSecurity security;
     };
 
     /// Construct app with metadata
@@ -300,17 +313,21 @@ class FastMCP
     // App Mounting
     // =========================================================================
 
-    /// Mount another app with an optional prefix
+    /// Mount another app under an optional namespace (Python `mount(server, namespace=)`).
     ///
-    /// Tools are prefixed with underscore: "prefix_toolname"
-    /// Resources are prefixed in URI: "prefix+resource://..." or "resource://prefix/..."
-    /// Prompts are prefixed with underscore: "prefix_promptname"
+    /// A live composition: the child's components are looked up on every
+    /// request, and its middleware runs on the tool calls, resource reads and
+    /// prompts delegated to it. Under namespace "ns", tools and prompts are
+    /// exposed as "ns_<name>" and resources/templates as "scheme://ns/<path>".
     ///
     /// @param app The app to mount (must outlive this app in direct mode)
-    /// @param prefix Optional prefix (empty string = no prefix)
-    /// @param as_proxy If true, mount in proxy mode (uses MCP handler for communication)
-    /// @param tool_names Optional mapping of original tool names to custom names. Keys are the
-    ///                  original tool names from the mounted server (after any nested prefixing).
+    /// @param prefix The namespace (empty = the child's names as-is)
+    /// @param as_proxy Route the child through an in-process MCP client (an
+    ///                 execution boundary), like mounting `create_proxy(child)`.
+    /// @param tool_names Renames keyed by the child's own tool names, applied
+    ///                  before the namespace: {foo: bar} under "baz" is "baz_bar".
+    /// @throws ValidationError when mounting an app onto itself.
+    // PYTHON REFERENCE: fastmcp/server/server.py:2634-2700 (mount)
     void mount(FastMCP& app, const std::string& prefix = "", bool as_proxy = false);
 
     /// Mount another app with optional tool name overrides.
@@ -370,6 +387,158 @@ class FastMCP
     bool has_middleware() const;
 
     // =========================================================================
+    // Extensions (SEP-2133)
+    // =========================================================================
+
+    /// Register a server extension: its settings are advertised under
+    /// `capabilities.extensions[identifier]`, its methods are served, and its
+    /// `tools/call` interceptor runs after middleware, before the tool body.
+    /// Register before serving.
+    /// @throws std::invalid_argument for an invalid identifier, a second
+    ///         extension with the same identifier, or a method another extension
+    ///         already serves.
+    // PYTHON REFERENCE: fastmcp/server/mixins/extensions.py:53-154 (add_extension)
+    void add_extension(std::shared_ptr<server::ServerExtension> extension);
+
+    /// Registered extensions, in registration order.
+    const std::vector<std::shared_ptr<server::ServerExtension>>& extensions() const
+    {
+        return extensions_;
+    }
+
+    /// The binding serving extension request method @p method, or null.
+    const server::MethodBinding* extension_method(const std::string& method) const;
+
+    /// True when an extension with @p identifier is registered.
+    bool has_extension(const std::string& identifier) const;
+
+    // =========================================================================
+    // Cache hints (SEP-2549, 2026-07-28)
+    // =========================================================================
+
+    /// Opt every cacheable result (`tools/list`, `prompts/list`,
+    /// `resources/list`, `resources/templates/list`, `resources/read`,
+    /// `server/discover`) into client caching: `ttlMs` = @p ttl_seconds * 1000
+    /// and `cacheScope` = @p scope ("private" by default, or "public" to allow
+    /// sharing across authorization contexts). A field a handler set explicitly
+    /// is kept. Modern era only. Unset, the results carry `ttlMs: 0`.
+    /// @throws ValidationError for a non-positive TTL or an unknown scope.
+    // PYTHON REFERENCE: fastmcp/server/caching.py:31-58 (build_cache_hints)
+    void set_cache_hints(int ttl_seconds, const std::string& scope = "private");
+
+    /// The configured hint as (ttlMs, scope), or nullopt.
+    const std::optional<std::pair<std::int64_t, std::string>>& cache_hints() const
+    {
+        return cache_hints_;
+    }
+
+    // =========================================================================
+    // Session state (2026-07-28)
+    // =========================================================================
+
+    /// Back session state with @p store (default: a process-local
+    /// InMemorySessionStateStore, created on first use). Replicas behind one
+    /// endpoint need a shared store.
+    // PYTHON REFERENCE: fastmcp/server/server.py:517,713-726 (session_state_store)
+    void set_session_state_store(std::shared_ptr<server::SessionStateStore> store);
+    std::shared_ptr<server::SessionStateStore> session_state_store() const;
+
+    /// The per-user session of the request being served, keyed by its
+    /// authenticated principal. @throws server::SessionAuthError when the
+    /// request is unauthenticated.
+    // PYTHON REFERENCE: fastmcp/server/sessions.py:303-327 (UserSession)
+    server::Session user_session() const;
+
+    /// Resolve an id minted by `create_session` under the current principal.
+    /// @throws server::InvalidSession for an unknown or foreign id.
+    // PYTHON REFERENCE: fastmcp/server/dependencies.py (get_session)
+    server::Session get_session(const std::string& session_id) const;
+
+    /// Register a SessionProvider (`create_session` / `end_session`) bound to
+    /// this server's store.
+    void add_session_tools();
+
+    // =========================================================================
+    // Resource-template path security
+    // =========================================================================
+
+    /// Server default for screening values extracted from templated resource
+    /// URIs (after percent-decoding) before the handler runs. On by default:
+    /// `..` segments, absolute paths and NUL are rejected as an unknown
+    /// resource. nullopt disables it; a template's own `security` wins.
+    /// Mounted children are screened against this default and their own.
+    // PYTHON REFERENCE: fastmcp/server/server.py:512,572-577 (resource_security)
+    void set_resource_security(std::optional<resources::ResourceSecurity> security)
+    {
+        resources_.set_default_security(std::move(security));
+    }
+
+    const std::optional<resources::ResourceSecurity>& resource_security() const
+    {
+        return resources_.default_security();
+    }
+
+    // =========================================================================
+    // Argument completion
+    // =========================================================================
+
+    /// Register the server's completion handler, answering every
+    /// `completion/complete` for prompt arguments and resource-template
+    /// parameters (both eras). Registering it declares the `completions`
+    /// capability; a server with none does not advertise it and answers the
+    /// method with -32601. Calling again replaces the handler. The handler runs
+    /// only for a prompt or template a client could list; any other reference
+    /// gets an empty completion.
+    // PYTHON REFERENCE: fastmcp/server/server.py:2556-2627 (add_completion_handler, completion)
+    void add_completion_handler(server::CompletionHandler handler);
+
+    /// The registered completion handler, or null.
+    const server::CompletionHandler& completion_handler() const
+    {
+        return completion_handler_;
+    }
+
+    // =========================================================================
+    // Change notifications over subscriptions/listen (2026-07-28)
+    // =========================================================================
+
+    /// Tell listening clients this server's tool list changed. Publishes to
+    /// every open `subscriptions/listen` stream that asked for tool changes,
+    /// from any thread, with no request in flight; servers this one is mounted
+    /// on are notified too. Reaches 2026-07-28 clients only. Adding or removing
+    /// tools never calls this automatically. Does nothing when listen is off.
+    // PYTHON REFERENCE: fastmcp/server/server.py:2062-2075 (notify_tools_changed)
+    void notify_tools_changed();
+    /// See notify_tools_changed().
+    void notify_prompts_changed();
+    /// See notify_tools_changed().
+    void notify_resources_changed();
+    /// Tell clients listening to @p uri that the resource changed. Matched
+    /// exactly against each stream's subscribed URIs, so pass the URI as this
+    /// server's clients see it. Not propagated to parents (a mount prefix can
+    /// rewrite the URI).
+    // PYTHON REFERENCE: fastmcp/server/server.py:2091-2102 (notify_resource_updated)
+    void notify_resource_updated(const std::string& uri);
+
+    /// Serve `subscriptions/listen` (on by default; Settings
+    /// `enable_subscriptions_listen`, env FASTMCPP_ENABLE_SUBSCRIPTIONS_LISTEN).
+    /// Turning it off refuses the method, advertises no change notifications on
+    /// the sessionless era, and makes the notify_* methods no-ops here.
+    void set_subscriptions_listen_enabled(bool enabled);
+
+    /// The listen handler, or null when listen is off.
+    std::shared_ptr<server::ListenHandler> listen_handler() const;
+
+    /// The bus notify_* publishes to, or null when listen is off. Replace it
+    /// (e.g. with a cross-replica backend) via set_subscription_bus().
+    std::shared_ptr<server::SubscriptionBus> subscription_bus() const;
+    void set_subscription_bus(std::shared_ptr<server::SubscriptionBus> bus);
+
+    /// Gracefully end every open listen stream: each sends its closing result.
+    /// Serving transports call this on stop().
+    void close_listen_streams();
+
+    // =========================================================================
     // Aggregated Lists (includes mounted apps)
     // =========================================================================
 
@@ -422,6 +591,25 @@ class FastMCP
     int list_page_size_{0};
     bool dereference_schemas_{true};
     std::optional<Json> experimental_capabilities_;
+    std::vector<std::shared_ptr<server::ServerExtension>> extensions_;
+    std::map<std::string, std::shared_ptr<const server::MethodBinding>> extension_methods_;
+    std::map<std::string, std::string> extension_method_owner_;
+    std::set<std::string> auto_extensions_;
+    /// Shared so mount links survive moving this FastMCP.
+    std::shared_ptr<server::SubscriptionNode> subscription_node_;
+    std::shared_ptr<server::ListenHandler> listen_handler_;
+    server::CompletionHandler completion_handler_;
+    std::optional<std::pair<std::int64_t, std::string>> cache_hints_;
+    struct SessionStoreSlot
+    {
+        std::mutex mutex;
+        std::shared_ptr<server::SessionStateStore> store;
+    };
+    std::shared_ptr<SessionStoreSlot> session_store_ = std::make_shared<SessionStoreSlot>();
+
+    void install_extension(std::shared_ptr<server::ServerExtension> extension);
+    void register_bundled_extensions(
+        const std::vector<std::shared_ptr<server::ServerExtension>>& bundled);
 
     // Prefix utilities
     static std::string add_prefix(const std::string& name, const std::string& prefix);
@@ -429,6 +617,7 @@ class FastMCP
     static std::string add_resource_prefix(const std::string& uri, const std::string& prefix);
     static std::string strip_resource_prefix(const std::string& uri, const std::string& prefix);
     static bool has_resource_prefix(const std::string& uri, const std::string& prefix);
+    static void namespace_resource_links(Json& result, const std::string& prefix);
 };
 
 } // namespace fastmcpp

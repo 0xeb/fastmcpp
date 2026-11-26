@@ -15,6 +15,11 @@
 #include <string>
 #include <vector>
 
+namespace fastmcpp::server
+{
+class ServerExtension;
+}
+
 namespace fastmcpp::providers
 {
 
@@ -26,6 +31,14 @@ class Provider
     }
 
     virtual ~Provider() = default;
+
+    /// Extensions this provider needs; `FastMCP::add_provider` registers each one
+    /// whose identifier is not registered yet.
+    // PYTHON REFERENCE: fastmcp/server/providers/base.py (Provider.required_extensions)
+    virtual std::vector<std::shared_ptr<server::ServerExtension>> required_extensions() const
+    {
+        return {};
+    }
 
     void add_transform(std::shared_ptr<transforms::Transform> transform)
     {

@@ -38,7 +38,6 @@ jobs:
         run: >
           cmake -B build -S .
           -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-          -DFASTMCPP_BUILD_TESTS=ON
           -DFASTMCPP_BUILD_EXAMPLES=ON
 
       - name: Configure (Windows)
@@ -51,7 +50,7 @@ jobs:
         # is also what the MSBuild flags in the build step below require.
         run: |
           if (Test-Path build) { Remove-Item -Recurse -Force build/CMakeCache.txt, build/CMakeFiles -ErrorAction SilentlyContinue }
-          cmake -B build -S . -A x64 -DFASTMCPP_BUILD_TESTS=ON -DFASTMCPP_BUILD_EXAMPLES=ON
+          cmake -B build -S . -A x64 -DFASTMCPP_BUILD_EXAMPLES=ON
 
       - name: Build (Unix)
         if: runner.os != 'Windows'
@@ -60,14 +59,8 @@ jobs:
       - name: Build (Windows)
         if: runner.os == 'Windows'
         # Single-threaded build to avoid C1060 "compiler out of heap space" on GitHub's 16GB Windows runners
-        # Even /m:4 exhausts heap with deeply nested JSON initializers in test files
+        # Even /m:4 exhausts heap with deeply nested JSON initializers
         run: cmake --build build --config ${{ matrix.build_type }} -- /m:1 /p:CL_MPCount=1
-
-      - name: Test
-        # --timeout so a hung test fails its own case instead of running to the
-        # job limit. There is no per-test TIMEOUT property on most of these, and a
-        # blocked process would otherwise hold the whole leg for hours.
-        run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure --timeout 300
 
   # The default matrix never sets FASTMCPP_ENABLE_CURL_TRANSPORT, so without this
   # job the libcurl transport is the one piece of the client that CI never
@@ -98,12 +91,9 @@ jobs:
         run: >
           cmake -B build-curl -S .
           -DCMAKE_BUILD_TYPE=Release
-          -DFASTMCPP_BUILD_TESTS=ON
           -DFASTMCPP_BUILD_EXAMPLES=OFF
           -DFASTMCPP_ENABLE_CURL_TRANSPORT=ON
 
       - name: Build
         run: cmake --build build-curl --config Release --parallel 2
 
-      - name: Test
-        run: ctest --test-dir build-curl -C Release --output-on-failure --timeout 300

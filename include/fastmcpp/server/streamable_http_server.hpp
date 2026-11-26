@@ -1,9 +1,12 @@
 #pragma once
+#include "fastmcpp/mcp/request_state.hpp"
+#include "fastmcpp/server/auth_context.hpp"
 #include "fastmcpp/server/host_origin_guard.hpp"
 #include "fastmcpp/server/session.hpp"
 #include "fastmcpp/types.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -13,9 +16,12 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 namespace fastmcpp::server
 {
+
+class ListenStream;
 
 /**
  * Streamable HTTP MCP server wrapper.
@@ -77,6 +83,46 @@ class StreamableHttpServerWrapper
     {
         host_origin_guard_options_ = std::move(options);
     }
+
+    /// Protect multi-round-trip `requestState` with this policy instead of a
+    /// per-process key. Replicas behind one endpoint must share it, e.g.
+    /// `mcp::RequestStateSecurity::from_keys({secret})`. Call before start().
+    void set_request_state_security(std::shared_ptr<const mcp::RequestStateSecurity> security)
+    {
+        request_state_security_ = std::move(security);
+    }
+
+    /// Authenticate every request with a bearer token @p verifier accepts;
+    /// others get 401 `invalid_token` with a WWW-Authenticate challenge. The
+    /// accepted AccessToken is the request's principal (current_access_token,
+    /// session state). Combines with a static auth_token if both are set.
+    /// Call before start().
+    // PYTHON REFERENCE: mcp/server/auth/middleware/bearer_auth.py:114-160
+    void set_token_verifier(TokenVerifier verifier)
+    {
+        token_verifier_ = std::move(verifier);
+    }
+
+    /// HTTP worker threads (default 64). Every open `subscriptions/listen`
+    /// stream holds one for its lifetime; a quarter (at least 4) stay reserved
+    /// for other requests, and listens past the rest are refused with
+    /// INTERNAL_ERROR "Subscription limit reached". Call before start().
+    void set_worker_threads(size_t count)
+    {
+        worker_threads_ = count == 0 ? 1 : count;
+    }
+
+    /// Interval of the `: ping` keepalive comment on idle listen streams
+    /// (default 15 s, as upstream).
+    void set_listen_ping_interval(std::chrono::milliseconds interval)
+    {
+        listen_ping_interval_ = interval;
+    }
+
+    /// Gracefully end every open listen stream this server is serving (each
+    /// sends its closing result), waiting up to @p wait for them to finish.
+    /// stop() does this first.
+    void close_listen_streams(std::chrono::milliseconds wait = std::chrono::seconds(2));
 
     bool start();
 
@@ -152,11 +198,20 @@ class StreamableHttpServerWrapper
 
   private:
     void run_server();
+    /// Serve one POST on the sessionless 2026-07-28 era: no Mcp-Session-Id,
+    /// envelope ladder, table-mapped HTTP status.
+    void handle_modern_post(const httplib::Request& req, httplib::Response& res);
+    /// Answer a `subscriptions/listen` request with its SSE stream.
+    void serve_listen_stream(std::shared_ptr<ListenStream> stream, const httplib::Request& req,
+                             httplib::Response& res);
+    /// Listen streams this server serves at once before refusing more.
+    size_t max_listen_streams() const;
     std::string generate_session_id();
     bool check_auth(const std::string& auth_header) const;
     void apply_additional_response_headers(httplib::Response& res) const;
 
     McpHandler handler_;
+    std::shared_ptr<const mcp::RequestStateSecurity> request_state_security_;
     std::string host_;
     HostOriginGuardOptions host_origin_guard_options_{default_host_origin_guard_options()};
     /// Set by install_host_origin_guard(); rejects a guarded request once
@@ -167,6 +222,7 @@ class StreamableHttpServerWrapper
     std::atomic<int> bound_port_ = 0;
     std::string mcp_path_;
     std::string auth_token_; // Optional Bearer token for authentication
+    TokenVerifier token_verifier_;
     std::unordered_map<std::string, std::string> response_headers_;
 
     std::unique_ptr<httplib::Server> svr_;
@@ -179,6 +235,13 @@ class StreamableHttpServerWrapper
     // Active sessions mapped by session ID
     std::unordered_map<std::string, std::shared_ptr<ServerSession>> sessions_;
     mutable std::mutex sessions_mutex_;
+
+    size_t worker_threads_{64};
+    std::chrono::milliseconds listen_ping_interval_{15000};
+    std::mutex listen_mutex_;
+    std::condition_variable listen_cv_;
+    std::vector<std::weak_ptr<ListenStream>> listen_streams_;
+    size_t listen_active_{0};
 };
 
 } // namespace fastmcpp::server

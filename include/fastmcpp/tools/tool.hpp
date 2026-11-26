@@ -1,5 +1,6 @@
 #pragma once
 #include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/server/auth_context.hpp"
 #include "fastmcpp/types.hpp"
 #include "fastmcpp/util/json_schema.hpp"
 
@@ -101,8 +102,10 @@ class Tool
         auto timeout = *timeout_;
 
         std::thread worker(
-            [promise = std::move(promise), input, fn = fn_]() mutable
+            [promise = std::move(promise), input, fn = fn_,
+             token = server::current_access_token_handle()]() mutable
             {
+                server::AccessTokenScope scope(token);
                 try
                 {
                     promise.set_value(fn(input));

@@ -1,5 +1,6 @@
 #pragma once
 #include "fastmcpp/resources/resource.hpp"
+#include "fastmcpp/resources/security.hpp"
 #include "fastmcpp/types.hpp"
 
 #include <functional>
@@ -52,6 +53,8 @@ struct ResourceTemplate
     std::optional<fastmcpp::AppConfig> app;           // MCP Apps metadata (_meta.ui)
     Json parameters;                                  // JSON schema for parameters
     fastmcpp::TaskSupport task_support{fastmcpp::TaskSupport::Forbidden}; // SEP-1686 task mode
+    /// Path-safety policy for extracted params; inherits the server default.
+    TemplateSecurity security;
 
     // Provider function: takes extracted params, returns content
     std::function<ResourceContent(const Json& params)> provider;
@@ -86,6 +89,11 @@ std::vector<std::string> extract_query_params(const std::string& uri_template);
 
 /// Build regex pattern from URI template
 std::string build_regex_pattern(const std::string& uri_template);
+
+/// Reject RFC 6570 forms the matcher cannot read: level-3 operators other than
+/// the query forms ({+x}, {#x}, {.x}, {/x}, {;x}) and set expansion ({a,b}).
+/// @throws ValidationError
+void validate_uri_template(const std::string& uri_template);
 
 /// URL-decode a string
 std::string url_decode(const std::string& encoded);

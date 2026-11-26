@@ -962,4 +962,50 @@ StreamableHttpTransport::post(const std::string& url, const std::string& path,
     return HttpResponse{res->status, to_multimap(res->headers), res->body};
 }
 
+void StreamableHttpTransport::post_stream(
+    const std::string& url, const std::string& path,
+    const std::unordered_map<std::string, std::string>& headers, const std::string& body,
+    const StreamSink& sink, StreamCancel& cancel)
+{
+    httplib::Client cli(url.c_str());
+#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
+    cli.enable_server_certificate_verification(verify_ssl());
+#endif
+    cli.set_connection_timeout(30, 0);
+    // A listen stream is idle between events; the server pings every 15 s.
+    cli.set_read_timeout(300, 0);
+    cli.set_follow_location(false);
+
+    httplib::Request req;
+    req.method = "POST";
+    req.path = path;
+    for (const auto& [key, value] : headers)
+        req.headers.emplace(key, value);
+    req.body = body;
+    if (!req.has_header("Content-Type"))
+        req.set_header("Content-Type", "application/json");
+    req.response_handler = [&](const httplib::Response& response)
+    { return !sink.on_head || sink.on_head(response.status, to_multimap(response.headers)); };
+    req.content_receiver = [&](const char* data, size_t len, uint64_t, uint64_t)
+    { return !sink.on_body || sink.on_body(data, len); };
+
+    // Shutting the socket down is the one thread-safe way to unblock a read.
+    cancel.set_hook([&cli] { cli.stop(); });
+    // Cleared on every exit, a throwing sink included: the hook names `cli`.
+    struct ClearHook
+    {
+        StreamCancel& cancel;
+        ~ClearHook()
+        {
+            cancel.set_hook(nullptr);
+        }
+    } clear_hook{cancel};
+    httplib::Response res;
+    httplib::Error error = httplib::Error::Success;
+    const bool ok = cli.send(req, res, error);
+    if (!ok && error != httplib::Error::Canceled && !cancel.cancelled())
+        throw fastmcpp::TransportError("StreamableHttp stream failed: " +
+                                       httplib::to_string(error));
+}
+
 } // namespace fastmcpp::client

@@ -1,6 +1,10 @@
 #include "fastmcpp/server/streamable_http_server.hpp"
 
 #include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/mcp/dual_era.hpp"
+#include "fastmcpp/protocol.hpp"
+#include "fastmcpp/server/subscriptions.hpp"
+#include "fastmcpp/telemetry.hpp"
 #include "fastmcpp/util/json.hpp"
 
 #include <algorithm>
@@ -13,6 +17,293 @@
 
 namespace fastmcpp::server
 {
+
+namespace
+{
+
+// A present MCP-Protocol-Version that is not a handshake revision (an unknown
+// value included) routes to the sessionless entry, which then tells the client
+// what it serves.
+// PYTHON REFERENCE: mcp/server/streamable_http_manager.py:186-199
+bool routes_to_modern(const httplib::Request& req)
+{
+    if (!req.has_header("MCP-Protocol-Version"))
+        return false;
+    return !protocol::is_handshake(req.get_header_value("MCP-Protocol-Version"));
+}
+
+// PYTHON REFERENCE: mcp/server/streamable_http.py:87-101 (check_accept_headers)
+std::pair<bool, bool> accept_types(const httplib::Request& req)
+{
+    std::string header = req.get_header_value("Accept");
+    bool has_json = false, has_sse = false;
+    size_t start = 0;
+    while (start <= header.size())
+    {
+        size_t comma = header.find(',', start);
+        std::string item =
+            header.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+        item = item.substr(0, item.find(';'));
+        size_t b = item.find_first_not_of(" \t");
+        size_t e = item.find_last_not_of(" \t");
+        item = b == std::string::npos ? std::string() : item.substr(b, e - b + 1);
+        std::transform(item.begin(), item.end(), item.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (item == "*/*")
+            has_json = has_sse = true;
+        if (item == "application/json" || item == "application/*")
+            has_json = true;
+        if (item == "text/event-stream" || item == "text/*")
+            has_sse = true;
+        if (comma == std::string::npos)
+            break;
+        start = comma + 1;
+    }
+    return {has_json, has_sse};
+}
+
+void write_jsonrpc(httplib::Response& res, const Json& msg)
+{
+    int status = 200;
+    if (msg.contains("error") && msg["error"].is_object())
+        status = mcp::http_status_for_error(msg["error"].value("code", 0), 200);
+    res.status = status;
+    res.set_content(msg.dump(), "application/json");
+}
+
+} // namespace
+
+void StreamableHttpServerWrapper::handle_modern_post(const httplib::Request& req,
+                                                     httplib::Response& res)
+{
+    // PYTHON REFERENCE: mcp/server/_streamable_http_modern.py:380-520
+    auto [has_json, has_sse] = accept_types(req);
+    if (!has_json && !has_sse)
+    {
+        res.status = 406;
+        return;
+    }
+
+    Json decoded;
+    try
+    {
+        decoded = fastmcpp::util::json::parse(req.body);
+    }
+    catch (...)
+    {
+        write_jsonrpc(res, mcp::make_error_response(nullptr, mcp::kParseError, "Parse error"));
+        return;
+    }
+
+    // A notification POST: accept at a served version, refuse otherwise.
+    if (decoded.is_object() && !decoded.contains("id"))
+    {
+        if (!decoded.contains("method") || !decoded["method"].is_string())
+        {
+            write_jsonrpc(res, mcp::make_error_response(
+                                   nullptr, mcp::kInvalidRequest,
+                                   "Body must be a single JSON-RPC request or notification "
+                                   "object"));
+            return;
+        }
+        const std::string requested = req.get_header_value("MCP-Protocol-Version");
+        if (!protocol::is_modern(requested))
+        {
+            auto rej = mcp::unsupported_protocol_version(requested);
+            write_jsonrpc(res, mcp::make_error_response(nullptr, rej.code, rej.message, rej.data));
+            return;
+        }
+        res.status = 202;
+        return;
+    }
+
+    // A batch, a posted response, or a malformed request.
+    if (!decoded.is_object() || !decoded.contains("method") || !decoded["method"].is_string() ||
+        decoded.value("jsonrpc", std::string()) != "2.0" ||
+        !(decoded["id"].is_string() || decoded["id"].is_number_integer()))
+    {
+        write_jsonrpc(res, mcp::make_error_response(
+                               nullptr, mcp::kInvalidRequest,
+                               "Body must be a single JSON-RPC request or notification object"));
+        return;
+    }
+
+    // A listen response IS a notification stream, never JSON.
+    // PYTHON REFERENCE: mcp/server/_streamable_http_modern.py:429-434
+    if (decoded["method"] == "subscriptions/listen" && !has_sse)
+    {
+        res.status = 406;
+        return;
+    }
+
+    mcp::HeaderMap headers;
+    for (const char* name : {mcp::kProtocolVersionHeader, mcp::kMethodHeader, mcp::kNameHeader})
+    {
+        // PYTHON REFERENCE: mcp/shared/inbound.py:340-355 (duplicated routing header)
+        if (req.get_header_value_count(name) > 1)
+        {
+            write_jsonrpc(res, mcp::make_error_response(decoded["id"], mcp::kHeaderMismatch,
+                                                        std::string(name) +
+                                                            " header appears more than once"));
+            return;
+        }
+        if (req.has_header(name))
+            headers[name] = req.get_header_value(name);
+    }
+    // httplib percent-decodes header values on read, so `Mcp-Name: a%2Fb`
+    // arrives as `a/b`. The raw value matched the body when the body value
+    // decodes to what httplib produced; compare against the body then.
+    if (auto it = headers.find(mcp::kNameHeader);
+        it != headers.end() && decoded.contains("params") && decoded["params"].is_object())
+    {
+        for (const char* key : {"uri", "name"})
+        {
+            const Json& params = decoded["params"];
+            if (!params.contains(key) || !params[key].is_string())
+                continue;
+            const std::string body_value = params[key].get<std::string>();
+            if (it->second != body_value &&
+                httplib::detail::decode_url(body_value, false) == it->second)
+                it->second = body_value;
+        }
+    }
+
+    Json reply;
+    try
+    {
+        reply = mcp::DualEraHandler(handler_, request_state_security_)
+                    .enable_listen_streams()
+                    .handle_modern(decoded, &headers);
+    }
+    catch (const fastmcpp::NotFoundError& e)
+    {
+        reply = mcp::make_error_response(decoded["id"], mcp::kMethodNotFound, e.what());
+    }
+    catch (const fastmcpp::ValidationError& e)
+    {
+        reply = mcp::make_error_response(decoded["id"], mcp::kInvalidParams, e.what());
+    }
+    catch (const std::exception& e)
+    {
+        reply = mcp::make_error_response(decoded["id"], mcp::kInternalError, e.what());
+    }
+    if (auto stream = claim_listen_stream(reply))
+    {
+        // Each stream holds a worker for its life. Past the pool's listen share
+        // further streams would queue behind it and stall every other request,
+        // so refuse them the way the handler refuses past its own limit.
+        bool full = false;
+        {
+            std::lock_guard<std::mutex> lock(listen_mutex_);
+            full = listen_active_ >= max_listen_streams();
+        }
+        if (full)
+        {
+            stream->abort();
+            write_jsonrpc(res, mcp::make_error_response(decoded["id"], mcp::kInternalError,
+                                                        "Subscription limit reached"));
+            return;
+        }
+        serve_listen_stream(std::move(stream), req, res);
+        return;
+    }
+    write_jsonrpc(res, reply);
+}
+
+size_t StreamableHttpServerWrapper::max_listen_streams() const
+{
+    // Keep a quarter of the workers (at least 4) for ordinary requests.
+    const size_t reserve = std::max<size_t>(4, worker_threads_ / 4);
+    return worker_threads_ > reserve ? worker_threads_ - reserve : 0;
+}
+
+// PYTHON REFERENCE: mcp/server/_streamable_http_modern.py:465-534 (SSE response path)
+void StreamableHttpServerWrapper::serve_listen_stream(std::shared_ptr<ListenStream> stream,
+                                                      const httplib::Request& req,
+                                                      httplib::Response& res)
+{
+    {
+        std::lock_guard<std::mutex> lock(listen_mutex_);
+        listen_streams_.push_back(stream);
+        ++listen_active_;
+    }
+
+    res.status = 200;
+    res.set_header("Cache-Control", "no-cache, no-transform");
+    // No explicit Connection header: httplib owns it (close vs Keep-Alive), and
+    // a second one could contradict it. HTTP/1.1 is persistent by default.
+    (void)req;
+    res.set_header("X-Accel-Buffering", "no");
+
+    struct State
+    {
+        bool acked{false};
+        std::chrono::steady_clock::time_point last_write{std::chrono::steady_clock::now()};
+    };
+    auto state = std::make_shared<State>();
+    const auto ping_interval = listen_ping_interval_;
+
+    res.set_chunked_content_provider(
+        "text/event-stream",
+        [stream, state, ping_interval](size_t, httplib::DataSink& sink) -> bool
+        {
+            auto write_frame = [&](const Json& frame)
+            {
+                const std::string event = "event: message\r\ndata: " + frame.dump() + "\r\n\r\n";
+                state->last_write = std::chrono::steady_clock::now();
+                return sink.write(event.data(), event.size());
+            };
+            if (!state->acked)
+            {
+                state->acked = true;
+                return write_frame(stream->ack_frame());
+            }
+            // Short waits keep httplib's liveness and shutdown checks running.
+            const auto since = std::chrono::steady_clock::now() - state->last_write;
+            auto wait =
+                std::chrono::duration_cast<std::chrono::milliseconds>(ping_interval - since);
+            wait = std::clamp(wait, std::chrono::milliseconds(0), std::chrono::milliseconds(250));
+            Json frame;
+            switch (stream->next(frame, wait))
+            {
+            case ListenStream::Next::Event:
+                return write_frame(frame);
+            case ListenStream::Next::Final:
+                if (!write_frame(frame))
+                    return false;
+                sink.done();
+                return true;
+            case ListenStream::Next::Aborted:
+                return false;
+            case ListenStream::Next::Timeout:
+                break;
+            }
+            if (std::chrono::steady_clock::now() - state->last_write >= ping_interval)
+            {
+                static const std::string ping = ": ping\r\n\r\n";
+                state->last_write = std::chrono::steady_clock::now();
+                return sink.write(ping.data(), ping.size());
+            }
+            return true;
+        },
+        [this, stream](bool)
+        {
+            // A dropped client or a shutdown ends the stream abruptly.
+            stream->abort();
+            {
+                std::lock_guard<std::mutex> lock(listen_mutex_);
+                --listen_active_;
+                listen_streams_.erase(std::remove_if(listen_streams_.begin(), listen_streams_.end(),
+                                                     [&](const auto& weak)
+                                                     {
+                                                         auto s = weak.lock();
+                                                         return !s || s == stream;
+                                                     }),
+                                      listen_streams_.end());
+            }
+            listen_cv_.notify_all();
+        });
+}
 
 StreamableHttpServerWrapper::StreamableHttpServerWrapper(
     McpHandler handler, std::string host, int port, std::string mcp_path, std::string auth_token,
@@ -113,6 +404,9 @@ bool StreamableHttpServerWrapper::start()
     svr_->set_payload_max_length(10 * 1024 * 1024); // 10MB max payload
     svr_->set_read_timeout(30, 0);                  // 30 second read timeout
     svr_->set_write_timeout(30, 0);                 // 30 second write timeout
+    // Each open subscriptions/listen stream holds a worker for its lifetime.
+    const size_t workers = worker_threads_;
+    svr_->new_task_queue = [workers] { return new httplib::ThreadPool(workers); };
 
     // Handle OPTIONS for CORS preflight
     svr_->Options(mcp_path_,
@@ -120,7 +414,8 @@ bool StreamableHttpServerWrapper::start()
                   {
                       res.set_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
                       res.set_header("Access-Control-Allow-Headers",
-                                     "Content-Type, Authorization, Mcp-Session-Id");
+                                     "Content-Type, Authorization, Mcp-Session-Id, "
+                                     "MCP-Protocol-Version, Mcp-Method, Mcp-Name");
                       apply_additional_response_headers(res);
                       res.status = 204;
                   });
@@ -141,11 +436,52 @@ bool StreamableHttpServerWrapper::start()
             // propagated to the catch handlers below.
             apply_additional_response_headers(res);
 
+            std::shared_ptr<const AccessToken> access;
+            if (token_verifier_)
+            {
+                const std::string header = req.get_header_value("Authorization");
+                if (header.size() > 7 &&
+                    (header.compare(0, 7, "Bearer ") == 0 || header.compare(0, 7, "bearer ") == 0))
+                {
+                    if (auto verified = token_verifier_(header.substr(7)))
+                        access = std::make_shared<const AccessToken>(std::move(*verified));
+                }
+                if (!access)
+                {
+                    res.status = 401;
+                    res.set_header("WWW-Authenticate",
+                                   "Bearer error=\"invalid_token\", "
+                                   "error_description=\"Authentication required\"");
+                    res.set_content("{\"error\": \"invalid_token\", \"error_description\": "
+                                    "\"Authentication required\"}",
+                                    "application/json");
+                    return;
+                }
+            }
+            AccessTokenScope access_scope(access);
+            telemetry::NetworkTransportScope network_scope(telemetry::http_transport(req.version));
+
             // Expose response headers that cross-origin JS clients legitimately need to
             // read. Without this, browsers hide Mcp-Session-Id from response.headers.get()
             // even though it is sent on the wire, because browsers only expose a small
             // whitelist of "safe" response headers by default.
             res.set_header("Access-Control-Expose-Headers", "Mcp-Session-Id");
+
+            if (routes_to_modern(req))
+            {
+                if (!auth_token_.empty())
+                {
+                    auto auth_it = req.headers.find("Authorization");
+                    if (auth_it == req.headers.end() || !check_auth(auth_it->second))
+                    {
+                        res.status = 401;
+                        res.set_content("{\"error\":\"Unauthorized\"}", "application/json");
+                        return;
+                    }
+                }
+                handle_modern_post(req, res);
+                return;
+            }
 
             try
             {
@@ -281,8 +617,13 @@ bool StreamableHttpServerWrapper::start()
                     return;
                 }
 
-                // Normal request - process with handler
-                auto response = handler_(message);
+                // Normal request - process with handler. Post-initialize clients
+                // name the negotiated version in MCP-Protocol-Version.
+                std::optional<std::string> negotiated;
+                if (req.has_header("MCP-Protocol-Version"))
+                    negotiated = req.get_header_value("MCP-Protocol-Version");
+                auto response = mcp::DualEraHandler(handler_, request_state_security_)
+                                    .handle_handshake(message, negotiated);
 
                 // Set session ID header in response
                 res.set_header("Mcp-Session-Id", session_id);
@@ -363,6 +704,13 @@ bool StreamableHttpServerWrapper::start()
             // "No 'Access-Control-Allow-Origin' header is present" error.
             apply_additional_response_headers(res);
 
+            if (routes_to_modern(req))
+            {
+                res.status = 405;
+                res.set_header("Allow", "POST");
+                return;
+            }
+
             res.status = 405;
             res.set_header("Allow", "POST, DELETE, OPTIONS");
             res.set_header("Content-Type", "application/json");
@@ -382,6 +730,13 @@ bool StreamableHttpServerWrapper::start()
                  [this](const httplib::Request& req, httplib::Response& res)
                  {
                      apply_additional_response_headers(res);
+
+                     if (routes_to_modern(req))
+                     {
+                         res.status = 405;
+                         res.set_header("Allow", "POST");
+                         return;
+                     }
 
                      // Security: Check authentication if configured
                      if (!auth_token_.empty())
@@ -453,8 +808,28 @@ bool StreamableHttpServerWrapper::start()
     return true;
 }
 
+void StreamableHttpServerWrapper::close_listen_streams(std::chrono::milliseconds wait)
+{
+    std::vector<std::shared_ptr<ListenStream>> live;
+    {
+        std::lock_guard<std::mutex> lock(listen_mutex_);
+        for (const auto& weak : listen_streams_)
+            if (auto s = weak.lock())
+                live.push_back(std::move(s));
+    }
+    for (const auto& stream : live)
+        stream->close();
+    std::unique_lock<std::mutex> lock(listen_mutex_);
+    listen_cv_.wait_for(lock, wait, [this] { return listen_active_ == 0; });
+}
+
 void StreamableHttpServerWrapper::stop()
 {
+    // Open listen streams end gracefully: each sends its closing result before
+    // the server stops writing. One a client stopped reading is cut off.
+    if (svr_ && running_)
+        close_listen_streams(std::chrono::seconds(2));
+
     running_ = false;
 
     // Python fastmcp commit 82090938 (#4118): drain active streamable-HTTP responses

@@ -232,6 +232,11 @@ class StreamableHttpTransport : public HttpRpcTransport
     HttpResponse post(const std::string& url, const std::string& path,
                       const std::unordered_map<std::string, std::string>& headers,
                       const std::string& body) override;
+
+    void post_stream(const std::string& url, const std::string& path,
+                     const std::unordered_map<std::string, std::string>& headers,
+                     const std::string& body, const StreamSink& sink,
+                     StreamCancel& cancel) override;
 };
 
 } // namespace fastmcpp::client

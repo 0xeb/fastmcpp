@@ -2,8 +2,10 @@
 
 #include "fastmcpp/client/auth.hpp"
 #include "fastmcpp/exceptions.hpp"
+#include "fastmcpp/mcp/envelope.hpp"
 #include "fastmcpp/util/json.hpp"
 #include "http_detail.hpp"
+#include "sse_stream.hpp"
 
 #include <cctype>
 #include <iterator>
@@ -88,6 +90,14 @@ void HttpRpcTransport::set_protocol_version(std::string version)
     protocol_version_ = std::move(version);
 }
 
+void HttpRpcTransport::set_modern_routing(bool enabled)
+{
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    modern_routing_ = enabled;
+    if (enabled)
+        session_id_.clear();
+}
+
 void HttpRpcTransport::set_auth(std::shared_ptr<auth::ClientAuth> auth)
 {
     if (auth)
@@ -121,7 +131,7 @@ HttpRpcTransport::build_headers(const HeaderRequest& req) const
     std::lock_guard<std::mutex> lock(state_mutex_);
     if (!protocol_version_.empty())
         merged.emplace("MCP-Protocol-Version", protocol_version_);
-    if (!session_id_.empty())
+    if (!session_id_.empty() && !modern_routing_)
         merged.emplace("Mcp-Session-Id", session_id_);
     return merged;
 }
@@ -186,6 +196,79 @@ fastmcpp::Json HttpRpcTransport::select_response(const std::vector<fastmcpp::Jso
     return response;
 }
 
+std::unordered_map<std::string, std::string>
+HttpRpcTransport::request_headers(const fastmcpp::Json& rpc, const std::string& url,
+                                  const std::string& path, const std::string& body) const
+{
+    auto headers = build_headers({"POST", url + path, path, body});
+    // Sessionless-era routing headers mirror body fields so a gateway can route
+    // without parsing JSON-RPC.
+    // PYTHON REFERENCE: mcp/client/session.py:153-191 (_make_modern_stamp)
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        if (modern_routing_ && rpc.contains("method") && rpc["method"].is_string())
+        {
+            const std::string method = rpc["method"].get<std::string>();
+            headers["Mcp-Method"] = method;
+            const char* name_key = method == "resources/read"                            ? "uri"
+                                   : (method == "tools/call" || method == "prompts/get") ? "name"
+                                                                                         : nullptr;
+            if (name_key && rpc.contains("params") && rpc["params"].is_object() &&
+                rpc["params"].contains(name_key) && rpc["params"][name_key].is_string())
+                headers["Mcp-Name"] =
+                    fastmcpp::mcp::encode_header_value(rpc["params"][name_key].get<std::string>());
+        }
+    }
+    headers.emplace("Accept", "application/json, text/event-stream");
+    headers.emplace("Content-Type", "application/json");
+    return headers;
+}
+
+void HttpRpcTransport::throw_http_error(HttpResponse response, bool expect_response) const
+{
+    // The sessionless era maps JSON-RPC errors to HTTP 400/404 with the error
+    // in a JSON body; surface that as the JSON-RPC error it is. A bare 404 is
+    // method-not-found when there is no session yet.
+    // PYTHON REFERENCE: mcp/client/streamable_http.py:398-430
+    const std::string content_type = detail::find_header(response.headers, "Content-Type");
+    const bool auth_status = response.status == 401 || response.status == 403;
+    if (expect_response && !auth_status &&
+        content_type.find("application/json") != std::string::npos)
+    {
+        fastmcpp::Json parsed;
+        try
+        {
+            parsed = fastmcpp::util::json::parse(response.body);
+        }
+        catch (...)
+        {
+        }
+        // Only a JSON-RPC error object: an integer code and a jsonrpc envelope.
+        if (parsed.is_object() && parsed.value("jsonrpc", std::string()) == "2.0" &&
+            parsed.contains("error") && parsed["error"].is_object() &&
+            parsed["error"].contains("code") && parsed["error"]["code"].is_number_integer())
+        {
+            const auto& error = parsed["error"];
+            throw fastmcpp::RpcError(
+                "JSON-RPC error: " + error.value("message", std::string("Unknown error")),
+                error.value("code", 0), error.contains("data") ? error["data"] : fastmcpp::Json());
+        }
+    }
+    if (expect_response && response.status == 404)
+    {
+        bool has_session = false;
+        {
+            std::lock_guard<std::mutex> lock(state_mutex_);
+            has_session = !session_id_.empty();
+        }
+        if (!has_session)
+            throw fastmcpp::RpcError("JSON-RPC error: Not Found", -32601);
+    }
+    throw fastmcpp::TransportHttpError("HTTP error: " + std::to_string(response.status),
+                                       response.status, std::move(response.headers),
+                                       std::move(response.body));
+}
+
 fastmcpp::Json HttpRpcTransport::exchange(const fastmcpp::Json& rpc, bool expect_response)
 {
     const auto url = detail::parse_url(base_url_);
@@ -208,9 +291,7 @@ fastmcpp::Json HttpRpcTransport::exchange(const fastmcpp::Json& rpc, bool expect
         got_response = false;
         for (int redirects = 0; redirects <= kMaxRedirects; ++redirects)
         {
-            auto headers = build_headers({"POST", full_url + path, path, body});
-            headers.emplace("Accept", "application/json, text/event-stream");
-            headers.emplace("Content-Type", "application/json");
+            auto headers = request_headers(rpc, full_url, path, body);
 
             // Credentials are scoped to the origin they were issued for.
             if (full_url != origin)
@@ -254,15 +335,14 @@ fastmcpp::Json HttpRpcTransport::exchange(const fastmcpp::Json& rpc, bool expect
     }
 
     if (response.status < 200 || response.status >= 300)
-        throw fastmcpp::TransportHttpError("HTTP error: " + std::to_string(response.status),
-                                           response.status, std::move(response.headers),
-                                           std::move(response.body));
+        throw_http_error(std::move(response), expect_response);
 
     const std::string session = detail::find_header(response.headers, "Mcp-Session-Id");
     if (!session.empty())
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
-        session_id_ = session;
+        if (!modern_routing_)
+            session_id_ = session;
     }
 
     // A notification has no reply to parse; servers commonly answer 202 with an
@@ -300,13 +380,147 @@ fastmcpp::Json HttpRpcTransport::exchange(const fastmcpp::Json& rpc, bool expect
         return fastmcpp::Json::object();
 
     if (rpc_response.contains("error"))
-        throw fastmcpp::TransportError("JSON-RPC error: " +
-                                       rpc_response.at("error").value("message", "Unknown error"));
+    {
+        const auto& error = rpc_response.at("error");
+        const std::string message =
+            error.is_object() ? error.value("message", "Unknown error") : "Unknown error";
+        const int code =
+            error.is_object() && error.contains("code") && error["code"].is_number_integer()
+                ? error["code"].get<int>()
+                : 0;
+        throw fastmcpp::RpcError("JSON-RPC error: " + message, code,
+                                 error.is_object() && error.contains("data") ? error["data"]
+                                                                             : fastmcpp::Json());
+    }
 
     if (rpc_response.contains("result"))
         return rpc_response.at("result");
 
     return fastmcpp::Json::object();
+}
+
+void HttpRpcTransport::post_stream(const std::string& url, const std::string& path,
+                                   const std::unordered_map<std::string, std::string>& headers,
+                                   const std::string& body, const StreamSink& sink,
+                                   StreamCancel& cancel)
+{
+    HttpResponse response = post(url, path, headers, body);
+    if (cancel.cancelled())
+        return;
+    if (sink.on_head && !sink.on_head(response.status, response.headers))
+        return;
+    if (sink.on_body && !response.body.empty())
+        sink.on_body(response.body.data(), response.body.size());
+}
+
+// PYTHON REFERENCE: mcp/client/streamable_http.py (SSE response reading)
+void HttpRpcTransport::stream_request(const std::string& route, const fastmcpp::Json& payload,
+                                      const fastmcpp::Json& id,
+                                      const std::function<bool(const fastmcpp::Json&)>& on_message,
+                                      StreamCancel& cancel)
+{
+    const fastmcpp::Json rpc = {
+        {"jsonrpc", "2.0"}, {"method", route}, {"params", payload}, {"id", id}};
+    const std::string body = rpc.dump();
+    const auto url = detail::parse_url(base_url_);
+    std::string full_url = url.scheme + "://" + url.host + ":" + std::to_string(url.port);
+    std::string path = mcp_path_;
+    const std::string origin = full_url;
+
+    for (int redirects = 0; redirects <= kMaxRedirects; ++redirects)
+    {
+        auto headers = request_headers(rpc, full_url, path, body);
+        if (full_url != origin)
+            for (auto it = headers.begin(); it != headers.end();)
+                it = is_credential_header(it->first) ? headers.erase(it) : std::next(it);
+
+        HttpResponse head;
+        bool is_sse = false;
+        bool stopped = false;
+        detail::SseEventStream framer;
+        std::string json_body;
+
+        auto deliver = [&](const std::string& data) -> bool
+        {
+            fastmcpp::Json message;
+            try
+            {
+                message = fastmcpp::util::json::parse(data);
+            }
+            catch (...)
+            {
+                return true; // Not a JSON-RPC frame; ignore it.
+            }
+            if (!on_message(message))
+            {
+                stopped = true;
+                return false;
+            }
+            return true;
+        };
+
+        StreamSink sink;
+        sink.on_head = [&](int status, const std::multimap<std::string, std::string>& hdrs)
+        {
+            head.status = status;
+            head.headers = hdrs;
+            if (status < 200 || status >= 300)
+                return true; // Read the (small) error body.
+            is_sse = detail::find_header(hdrs, "Content-Type").find("text/event-stream") !=
+                     std::string::npos;
+            return true;
+        };
+        sink.on_body = [&](const char* data, size_t len)
+        {
+            if (head.status < 200 || head.status >= 300 || !is_sse)
+            {
+                (head.status < 200 || head.status >= 300 ? head.body : json_body).append(data, len);
+                return true;
+            }
+            bool keep_going = true;
+            framer.feed(data, len,
+                        [&](const detail::SseEvent& event)
+                        {
+                            if (keep_going)
+                                keep_going = deliver(event.data);
+                        });
+            return keep_going && !cancel.cancelled();
+        };
+
+        post_stream(full_url, path, headers, body, sink, cancel);
+        if (cancel.cancelled() || stopped)
+            return;
+
+        if (detail::is_redirect_status(head.status))
+        {
+            const std::string location = detail::find_header(head.headers, "Location");
+            if (location.empty())
+                throw fastmcpp::TransportError(
+                    "HttpRpcTransport: redirect without a Location header");
+            auto next = detail::resolve_redirect_target(full_url, path, location);
+            full_url = std::move(next.first);
+            path = std::move(next.second);
+            continue;
+        }
+        if (head.status < 200 || head.status >= 300)
+            throw_http_error(std::move(head), true);
+
+        if (is_sse)
+        {
+            framer.flush(
+                [&](const detail::SseEvent& event)
+                {
+                    if (!stopped)
+                        deliver(event.data);
+                });
+            return;
+        }
+        // A plain JSON reply (an error answered without a stream).
+        if (!json_body.empty())
+            deliver(json_body);
+        return;
+    }
+    throw fastmcpp::TransportError("HttpRpcTransport: redirect limit exceeded");
 }
 
 } // namespace fastmcpp::client

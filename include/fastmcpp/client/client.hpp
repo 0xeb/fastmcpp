@@ -4,6 +4,8 @@
 /// @details Provides a full MCP client API matching Python fastmcp's Client class.
 ///          Supports tool invocation, resource access, prompt retrieval, and more.
 
+#include "fastmcpp/client/response_cache.hpp"
+#include "fastmcpp/client/subscription.hpp"
 #include "fastmcpp/client/types.hpp"
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/protocol.hpp"
@@ -14,10 +16,12 @@
 #include "fastmcpp/util/json_schema_type.hpp"
 #include "fastmcpp/version.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <functional>
 #include <future>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -26,12 +30,19 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace fastmcpp::client
 {
 
 /// Maximum number of pages to auto-fetch in convenience list methods (parity with Python 85c71fa8)
 static constexpr int kAutoPaginationMaxPages = 250;
+/// Matches the MCP SDKs: mcp/client/_input_required.py DEFAULT_INPUT_REQUIRED_MAX_ROUNDS.
+static constexpr int kDefaultInputRequiredMaxRounds = 10;
+
+/// Extension identifier for SEP-2663 background tasks.
+inline constexpr const char* kTasksExtensionId = "io.modelcontextprotocol/tasks";
 
 class ToolTask;
 class PromptTask;
@@ -132,6 +143,17 @@ class IProtocolVersionTransport
     virtual void set_protocol_version(std::string version) = 0;
 };
 
+/// Optional transport interface: transports that can carry the sessionless
+/// 2026-07-28 era, which mirrors body fields into `Mcp-Method` / `Mcp-Name`
+/// headers and has no session.
+class IModernEraTransport
+{
+  public:
+    virtual ~IModernEraTransport() = default;
+    /// Switch the routing headers on (modern era) or off (handshake era).
+    virtual void set_modern_routing(bool enabled) = 0;
+};
+
 /// Optional transport interface: some transports expose MCP session IDs.
 class ISessionTransport
 {
@@ -139,6 +161,24 @@ class ISessionTransport
     virtual ~ISessionTransport() = default;
     virtual std::string session_id() const = 0;
     virtual bool has_session() const = 0;
+};
+
+/// Optional transport interface: transports that can carry a request whose
+/// response is a stream of messages (`subscriptions/listen`).
+class IStreamingTransport
+{
+  public:
+    virtual ~IStreamingTransport() = default;
+
+    /// Send request @p route with JSON-RPC id @p id and pass every JSON-RPC
+    /// message of its response to @p on_message, in arrival order, until the
+    /// response ends, @p on_message returns false, or @p cancel fires.
+    /// @throws fastmcpp::RpcError when the server answers with a JSON-RPC error
+    ///         at the HTTP layer, fastmcpp::TransportError on transport failure.
+    virtual void stream_request(const std::string& route, const fastmcpp::Json& payload,
+                                const fastmcpp::Json& id,
+                                const std::function<bool(const fastmcpp::Json&)>& on_message,
+                                StreamCancel& cancel) = 0;
 };
 
 /// Loopback transport for in-process server testing
@@ -294,7 +334,7 @@ class Client
     /// @return Raw JSON response
     fastmcpp::Json call(const std::string& route, const fastmcpp::Json& payload)
     {
-        return transport_->request(route, payload);
+        return transport_->request(route, stamp_envelope(payload));
     }
 
     /// Send a JSON-RPC notification through the transport (no `id`, no reply).
@@ -309,9 +349,9 @@ class Client
 
     /// List all available tools
     /// @return ListToolsResult containing tool information
-    ListToolsResult list_tools_mcp()
+    ListToolsResult list_tools_mcp(CacheMode cache_mode = CacheMode::Use)
     {
-        auto response = call("tools/list", fastmcpp::Json::object());
+        auto response = cacheable_call("tools/list", fastmcpp::Json::object(), "", cache_mode);
         auto parsed = parse_list_tools_result(response);
         tool_output_schemas_.clear();
         for (const auto& t : parsed.tools)
@@ -332,7 +372,7 @@ class Client
             fastmcpp::Json payload = fastmcpp::Json::object();
             if (cursor)
                 payload["cursor"] = *cursor;
-            auto response = call("tools/list", payload);
+            auto response = cacheable_call("tools/list", payload, "", CacheMode::Use);
             auto parsed = parse_list_tools_result(response);
             for (auto& t : parsed.tools)
             {
@@ -381,7 +421,7 @@ class Client
         };
         auto sent = std::make_shared<SentId>();
 
-        auto invoke_request = [this, payload, sent]()
+        auto invoke_request = [this, payload = stamp_envelope(payload), sent]()
         {
             return transport_->request_tracked("tools/call", payload,
                                                [sent](const fastmcpp::Json& id)
@@ -392,6 +432,7 @@ class Client
         };
 
         fastmcpp::Json response;
+        const auto started = std::chrono::steady_clock::now();
         if (options.timeout.count() > 0)
         {
             // Deliberately a detached thread rather than std::async. An async
@@ -467,6 +508,14 @@ class Client
         {
             response = invoke_request();
         }
+
+        response = resolve_input_required(
+            std::move(response), [this](const fastmcpp::Json& retry_payload)
+            { return call("tools/call", retry_payload); }, payload);
+
+        // A tool the server ran as a background task (SEP-2663): drive it to its
+        // result, so callers see the same CallToolResult a foreground call gives.
+        response = resolve_task_result(std::move(response), options.timeout, started);
 
         const auto& response_body = unwrap_rpc_result(response);
 
@@ -551,17 +600,20 @@ class Client
     }
 
     // ==========================================================================
-    // Task Operations (experimental, SEP-1686 subset)
+    // Task Operations
     // ==========================================================================
 
-    /// Call a tool as a background task (if supported by server).
-    /// When the server accepts background execution, returns a ToolTask that
-    /// polls 'tasks/get' and 'tasks/result'. When the server executes
-    /// synchronously (no task support), ToolTask wraps the immediate result.
-    /// @param name Tool name
-    /// @param arguments Tool arguments
-    /// @param ttl_ms Time to keep results available in milliseconds (hint to server)
-    /// @return Shared pointer to ToolTask wrapper
+    /// Call a tool as a background task and return a handle immediately.
+    ///
+    /// On the 2026-07-28 era this uses the tasks extension (SEP-2663): the
+    /// handle's status()/wait()/result()/cancel() drive `tasks/get`,
+    /// `tasks/update` and `tasks/cancel`, and result() answers input requests
+    /// through the elicitation callback. A call the server runs in the
+    /// foreground throws, matching the reference client.
+    ///
+    /// On the handshake era it uses SEP-1686 task metadata; a server that runs
+    /// the call synchronously yields a handle wrapping the immediate result.
+    /// @param ttl_ms Handshake era only: how long to keep results (server hint).
     std::shared_ptr<ToolTask> call_tool_task(const std::string& name,
                                              const fastmcpp::Json& arguments, int ttl_ms = 60000);
 
@@ -569,9 +621,14 @@ class Client
     /// @throws fastmcpp::Error if server does not support tasks or returns error
     TaskStatus get_task_status(const std::string& task_id)
     {
+        TaskStatus status;
+        if (modern_)
+        {
+            from_json(get_task_raw(task_id), status);
+            return status;
+        }
         fastmcpp::Json response = call("tasks/get", {{"taskId", task_id}});
         const auto& body = unwrap_rpc_result(response);
-        TaskStatus status;
         from_json(body, status);
         return status;
     }
@@ -613,9 +670,9 @@ class Client
     // ==========================================================================
 
     /// List all available resources
-    ListResourcesResult list_resources_mcp()
+    ListResourcesResult list_resources_mcp(CacheMode cache_mode = CacheMode::Use)
     {
-        auto response = call("resources/list", fastmcpp::Json::object());
+        auto response = cacheable_call("resources/list", fastmcpp::Json::object(), "", cache_mode);
         return parse_list_resources_result(response);
     }
 
@@ -631,7 +688,7 @@ class Client
             fastmcpp::Json payload = fastmcpp::Json::object();
             if (cursor)
                 payload["cursor"] = *cursor;
-            auto response = call("resources/list", payload);
+            auto response = cacheable_call("resources/list", payload, "", CacheMode::Use);
             auto parsed = parse_list_resources_result(response);
             all.insert(all.end(), std::make_move_iterator(parsed.resources.begin()),
                        std::make_move_iterator(parsed.resources.end()));
@@ -646,9 +703,10 @@ class Client
     }
 
     /// List resource templates
-    ListResourceTemplatesResult list_resource_templates_mcp()
+    ListResourceTemplatesResult list_resource_templates_mcp(CacheMode cache_mode = CacheMode::Use)
     {
-        auto response = call("resources/templates/list", fastmcpp::Json::object());
+        auto response =
+            cacheable_call("resources/templates/list", fastmcpp::Json::object(), "", cache_mode);
         return parse_list_resource_templates_result(response);
     }
 
@@ -659,7 +717,8 @@ class Client
     }
 
     /// Read a resource by URI
-    ReadResourceResult read_resource_mcp(const std::string& uri)
+    ReadResourceResult read_resource_mcp(const std::string& uri,
+                                         CacheMode cache_mode = CacheMode::Use)
     {
         auto span = telemetry::client_span("resource " + uri, "resources/read", uri,
                                            transport_session_id());
@@ -667,7 +726,10 @@ class Client
         auto propagated_meta = telemetry::inject_trace_context(std::nullopt);
         if (propagated_meta)
             payload["_meta"] = *propagated_meta;
-        auto response = call("resources/read", payload);
+        auto response = cacheable_call("resources/read", payload, uri, cache_mode);
+        response = resolve_input_required(
+            std::move(response), [this](const fastmcpp::Json& retry_payload)
+            { return call("resources/read", retry_payload); }, payload);
         return parse_read_resource_result(response);
     }
 
@@ -689,9 +751,9 @@ class Client
     // ==========================================================================
 
     /// List all available prompts
-    ListPromptsResult list_prompts_mcp()
+    ListPromptsResult list_prompts_mcp(CacheMode cache_mode = CacheMode::Use)
     {
-        auto response = call("prompts/list", fastmcpp::Json::object());
+        auto response = cacheable_call("prompts/list", fastmcpp::Json::object(), "", cache_mode);
         return parse_list_prompts_result(response);
     }
 
@@ -707,7 +769,7 @@ class Client
             fastmcpp::Json payload = fastmcpp::Json::object();
             if (cursor)
                 payload["cursor"] = *cursor;
-            auto response = call("prompts/list", payload);
+            auto response = cacheable_call("prompts/list", payload, "", CacheMode::Use);
             auto parsed = parse_list_prompts_result(response);
             all.insert(all.end(), std::make_move_iterator(parsed.prompts.begin()),
                        std::make_move_iterator(parsed.prompts.end()));
@@ -745,6 +807,9 @@ class Client
             payload["_meta"] = *propagated_meta;
 
         auto response = call("prompts/get", payload);
+        response = resolve_input_required(
+            std::move(response), [this](const fastmcpp::Json& retry_payload)
+            { return call("prompts/get", retry_payload); }, payload);
         return parse_get_prompt_result(response);
     }
 
@@ -774,8 +839,9 @@ class Client
     {
 
         fastmcpp::Json payload = {{"ref", ref}, {"argument", argument}};
+        // PYTHON REFERENCE: mcp/client/session.py:1264-1265 (CompletionContext)
         if (context_arguments)
-            payload["contextArguments"] = *context_arguments;
+            payload["context"] = fastmcpp::Json{{"arguments", *context_arguments}};
 
         auto response = call("completion/complete", payload);
         return parse_complete_result(response);
@@ -805,21 +871,9 @@ class Client
     /// and `WinHttpTransport::set_timeouts`.
     InitializeResult initialize(bool send_initialized = true)
     {
-        fastmcpp::Json caps = fastmcpp::Json::object();
-        if (get_sampling_callback())
-        {
-            caps["sampling"] = fastmcpp::Json::object();
-            // Optimistically advertise tools support when a sampling callback is present.
-            caps["sampling"]["tools"] = fastmcpp::Json::object();
-        }
-        if (get_elicitation_callback())
-            caps["elicitation"] = fastmcpp::Json::object();
-        if (get_roots_callback())
-            caps["roots"] = fastmcpp::Json::object();
-
         fastmcpp::Json payload = {
             {"protocolVersion", protocol_version_},
-            {"capabilities", std::move(caps)},
+            {"capabilities", client_capabilities()},
             {"clientInfo", {{"name", "fastmcpp"}, {"version", fastmcpp::VERSION_STRING}}}};
 
         auto response = call("initialize", payload);
@@ -845,7 +899,247 @@ class Client
             }
         }
 
+        negotiated_ = parsed;
+        modern_ = false;
         return parsed;
+    }
+
+    /// How connect() chooses the protocol era.
+    enum class ConnectMode
+    {
+        Auto,   ///< Try the sessionless 2026-07-28 era, fall back to the handshake.
+        Legacy, ///< The `initialize` handshake only.
+        Modern, ///< 2026-07-28 without probing; fails if the server does not serve it.
+    };
+
+    /// Connect to the server, negotiating the protocol era.
+    ///
+    /// Auto sends `server/discover` at 2026-07-28. A server that serves it is
+    /// used sessionlessly from then on: every request carries the envelope, and
+    /// there is no session or `initialize`. Any JSON-RPC error answer (including
+    /// an HTTP 4xx mapped to one) means a handshake-era server, and connect()
+    /// falls back to initialize(). A failure to reach the server is not a
+    /// verdict and propagates.
+    ///
+    /// Returns the facts either era yields, as an InitializeResult.
+    // PYTHON REFERENCE: mcp/client/_probe.py:53-113 (negotiate_auto)
+    InitializeResult connect(ConnectMode mode = ConnectMode::Auto)
+    {
+        if (mode == ConnectMode::Legacy)
+            return initialize();
+
+        try
+        {
+            return adopt_modern(discover(protocol::kLatestModern));
+        }
+        catch (const fastmcpp::RpcError& e)
+        {
+            if (mode == ConnectMode::Modern)
+                throw;
+            // -32022 naming a modern version we share: re-probe once at it.
+            if (e.code() == -32022 && e.data().is_object() && e.data().contains("supported"))
+            {
+                bool any_handshake = false;
+                for (const auto& v : e.data()["supported"])
+                {
+                    if (!v.is_string())
+                        continue;
+                    const std::string s = v.get<std::string>();
+                    if (protocol::is_modern(s) && s != protocol::kLatestModern)
+                        return adopt_modern(discover(s));
+                    any_handshake = any_handshake || protocol::is_handshake(s);
+                }
+                if (!any_handshake)
+                    throw;
+            }
+            disable_modern_routing();
+            return initialize();
+        }
+    }
+
+    /// True when connect() settled on the sessionless 2026-07-28 era.
+    bool is_modern() const noexcept
+    {
+        return modern_;
+    }
+
+    /// Cache cacheable results (`tools/list`, `prompts/list`, `resources/list`,
+    /// `resources/templates/list` first pages and `resources/read`) per the
+    /// server's `ttlMs`/`cacheScope` hints (SEP-2549). Opt-in, and inert on a
+    /// handshake-era connection. A `listen()` stream evicts what its events
+    /// make stale; each cacheable method takes a per-call CacheMode.
+    /// @throws ValidationError on an invalid configuration.
+    // PYTHON REFERENCE: fastmcp/client/client.py:529-548, 620-665 (cache=)
+    void enable_response_cache(CacheConfig config = {})
+    {
+        response_cache_ = std::make_shared<ClientResponseCache>(std::move(config));
+    }
+
+    void disable_response_cache()
+    {
+        response_cache_.reset();
+    }
+
+    /// The response cache, or null when disabled.
+    const std::shared_ptr<ClientResponseCache>& response_cache() const noexcept
+    {
+        return response_cache_;
+    }
+
+    /// Open a `subscriptions/listen` stream of change events (2026-07-28 only).
+    ///
+    /// On 2026-07-28 connections the server has no standing channel to push
+    /// change notifications on, so they arrive on a stream the client opens.
+    /// Returns once the server has acknowledged it (`honored()`); each event is
+    /// a level trigger to refetch.
+    ///
+    /// @throws ListenNotSupportedError on a handshake-era connection or a
+    ///         transport that cannot stream.
+    /// @throws fastmcpp::RpcError when the server refuses the request.
+    /// @throws SubscriptionLost when the stream ends before it is acknowledged.
+    /// @throws fastmcpp::TransportError when the ack does not arrive in time.
+    // PYTHON REFERENCE: mcp/client/subscriptions.py:199-283 (listen)
+    //                   fastmcp/client/client.py:1528-1568 (Client.listen)
+    std::unique_ptr<Subscription> listen(const ListenOptions& options)
+    {
+        auto* streaming = dynamic_cast<IStreamingTransport*>(transport_.get());
+        if (!modern_ || streaming == nullptr)
+            throw ListenNotSupportedError(negotiated_protocol_version());
+
+        fastmcpp::Json filter = fastmcpp::Json::object();
+        if (options.tools_list_changed)
+            filter["toolsListChanged"] = true;
+        if (options.prompts_list_changed)
+            filter["promptsListChanged"] = true;
+        if (options.resources_list_changed)
+            filter["resourcesListChanged"] = true;
+        if (!options.resource_subscriptions.empty())
+            filter["resourceSubscriptions"] = options.resource_subscriptions;
+
+        static std::atomic<std::uint64_t> listen_ids{1};
+        const fastmcpp::Json id = "listen-" + std::to_string(listen_ids.fetch_add(1));
+        const fastmcpp::Json params = stamp_envelope(fastmcpp::Json{{"notifications", filter}});
+
+        auto route = std::make_shared<detail::ListenRoute>();
+        auto cancel = std::make_shared<StreamCancel>();
+        // Evict before the event is visible, so an immediate refetch misses.
+        auto cache = response_cache_;
+        const std::string version = modern_version_;
+        // The transport outlives the driver: the Subscription joins it on close.
+        auto transport = transport_;
+
+        std::thread driver(
+            [transport, streaming, params, id, route, cancel, cache, version]()
+            {
+                using End = detail::ListenRoute::End;
+                bool graceful = false;
+                try
+                {
+                    streaming->stream_request(
+                        "subscriptions/listen", params, id,
+                        [&](const fastmcpp::Json& message)
+                        {
+                            // Demultiplex by the stamped subscription id.
+                            const bool has_id = message.contains("id");
+                            if (has_id && message["id"] == id)
+                            {
+                                if (message.contains("error") && message["error"].is_object())
+                                {
+                                    // Read without value(): it throws on a mistyped field.
+                                    const auto& error = message["error"];
+                                    const auto code = error.find("code");
+                                    const auto text = error.find("message");
+                                    const auto data = error.find("data");
+                                    route->reject(code != error.end() && code->is_number_integer()
+                                                      ? code->get<int>()
+                                                      : 0,
+                                                  "JSON-RPC error: " +
+                                                      (text != error.end() && text->is_string()
+                                                           ? text->get<std::string>()
+                                                           : std::string()),
+                                                  data != error.end() ? *data : fastmcpp::Json());
+                                    return false;
+                                }
+                                // A result, whatever its body, is the graceful close;
+                                // with no prior ack it opens already closed.
+                                route->set_acked(fastmcpp::Json::object());
+                                graceful = true;
+                                return false;
+                            }
+                            if (has_id || !message.contains("method") ||
+                                !message["method"].is_string() || !message.contains("params"))
+                                return true;
+                            const std::string method = message["method"].get<std::string>();
+                            const fastmcpp::Json& p = message["params"];
+                            if (!p.is_object() || !p.contains("_meta") || !p["_meta"].is_object())
+                                return true;
+                            const auto sid = p["_meta"].find(mcp::kSubscriptionIdMetaKey);
+                            if (sid == p["_meta"].end() || *sid != id)
+                                return true;
+                            if (method == "notifications/subscriptions/acknowledged")
+                                route->set_acked(p.contains("notifications")
+                                                     ? p["notifications"]
+                                                     : fastmcpp::Json::object());
+                            else if (auto event = mcp::event_from_wire(method, p))
+                            {
+                                if (cache)
+                                    cache->evict_for_event(*event, version);
+                                route->deliver(*event);
+                            }
+                            return true;
+                        },
+                        *cancel);
+                    if (graceful)
+                        route->settle(End::Graceful);
+                    else
+                        route->settle(End::Lost, "stream ended without a result");
+                }
+                catch (const fastmcpp::RpcError& e)
+                {
+                    route->reject(e.code(), e.what(), e.data());
+                }
+                catch (const std::exception& e)
+                {
+                    route->settle(End::Lost, e.what());
+                }
+            });
+
+        auto fail = [&](auto&& error)
+        {
+            cancel->cancel();
+            driver.join();
+            throw error;
+        };
+
+        if (!route->wait_acked(options.ack_timeout))
+            fail(fastmcpp::TransportError("subscriptions/listen: no acknowledgment within " +
+                                          std::to_string(options.ack_timeout.count()) + " ms"));
+        auto honored = route->honored();
+        if (!honored)
+        {
+            if (auto rejection = route->rejection())
+                fail(*rejection);
+            const std::string cause = route->error();
+            fail(SubscriptionLost("subscription '" + id.get<std::string>() +
+                                  "' ended before it was acknowledged" +
+                                  (cause.empty() ? std::string() : " (" + cause + ")")));
+        }
+        return std::unique_ptr<Subscription>(
+            new Subscription(id, *honored, route, cancel, std::move(driver)));
+    }
+
+    /// What the server told us when we connected, whichever era was negotiated.
+    const std::optional<InitializeResult>& server_info() const noexcept
+    {
+        return negotiated_;
+    }
+
+    /// The version the connection runs at: the modern revision when connect()
+    /// adopted it, otherwise what initialize() negotiated, otherwise the version
+    /// that would be requested.
+    std::string negotiated_protocol_version() const
+    {
+        return negotiated_ ? negotiated_->protocolVersion : protocol_version_;
     }
 
     /// Send `notifications/initialized`, completing the MCP handshake.
@@ -895,6 +1189,11 @@ class Client
     /// implement it cannot be cancelled.
     void cancel(const fastmcpp::Json& request_id, const std::string& reason = "")
     {
+        // The sessionless era cancels by abandoning the request; a posted
+        // notifications/cancelled naming a client-chosen id is not honoured there.
+        // PYTHON REFERENCE: mcp/client/session.py:171-178
+        if (modern_)
+            return;
         fastmcpp::Json payload = {{"requestId", request_id}};
         if (!reason.empty())
             payload["reason"] = reason;
@@ -1013,6 +1312,35 @@ class Client
         set_elicitation_callback_impl(cb);
     }
 
+    /// Cap on multi-round-trip (`InputRequiredResult`) retry rounds for
+    /// call_tool / get_prompt / read_resource before the client gives up.
+    void set_input_required_max_rounds(int rounds)
+    {
+        input_required_max_rounds_ = rounds;
+    }
+
+    /// Declare a client extension (SEP-2133). On the 2026-07-28 era every
+    /// request repeats the declared extensions in its `_meta` client
+    /// capabilities, which is how the client opts them in per request. The
+    /// tasks extension (`io.modelcontextprotocol/tasks`) is declared by default
+    /// and resolved transparently by call_tool(); remove it to keep
+    /// task-capable tools running in the foreground.
+    void set_extension(const std::string& identifier,
+                       fastmcpp::Json settings = fastmcpp::Json::object())
+    {
+        extensions_[identifier] = std::move(settings);
+    }
+
+    void remove_extension(const std::string& identifier)
+    {
+        extensions_.erase(identifier);
+    }
+
+    const std::map<std::string, fastmcpp::Json>& extensions() const
+    {
+        return extensions_;
+    }
+
     /// Poll server notifications and dispatch to callbacks (sampling/elicitation/roots)
     void poll_notifications()
     {
@@ -1044,6 +1372,171 @@ class Client
 
     std::shared_ptr<ITransport> transport_;
     std::string protocol_version_{fastmcpp::protocol::kDefaultVersion};
+    /// Set by connect() when the server serves the sessionless era.
+    bool modern_{false};
+    /// Version stamped into each request's envelope on the modern era.
+    std::string modern_version_;
+    std::shared_ptr<ClientResponseCache> response_cache_;
+
+    /// Serve a cacheable request through the response cache. Cursor pages skip
+    /// it (an expired-cursor -32602 evicts the listing); interim and error
+    /// replies are never stored.
+    // PYTHON REFERENCE: fastmcp/client/client.py:1342-1392 (_cached_request)
+    fastmcpp::Json cacheable_call(const std::string& method, const fastmcpp::Json& payload,
+                                  const std::string& params_key, CacheMode mode)
+    {
+        auto cache = response_cache_;
+        if (!cache || mode == CacheMode::Bypass || !modern_)
+            return call(method, payload);
+        if (payload.contains("cursor"))
+        {
+            try
+            {
+                return call(method, payload);
+            }
+            catch (const fastmcpp::RpcError& e)
+            {
+                if (e.code() == -32602)
+                    cache->evict_method(method, modern_version_);
+                throw;
+            }
+        }
+        if (mode == CacheMode::Use)
+            if (auto hit = cache->read(method, params_key, modern_version_))
+                return *hit;
+        const auto generation = cache->capture(method, params_key);
+        auto result = call(method, payload);
+        // Some transports hand back the whole JSON-RPC envelope.
+        const fastmcpp::Json& body =
+            result.is_object() && result.contains("result") && result.contains("jsonrpc")
+                ? result["result"]
+                : result;
+        const bool storable = body.is_object() && !result.contains("error") &&
+                              (!body.contains("resultType") || (body["resultType"].is_string() &&
+                                                                body["resultType"] == "complete"));
+        if (storable)
+            cache->write(method, params_key, body, generation, mode, modern_version_);
+        return result;
+    }
+    std::optional<InitializeResult> negotiated_;
+
+    /// Capabilities this client advertises, in either era.
+    fastmcpp::Json client_capabilities() const
+    {
+        fastmcpp::Json caps = fastmcpp::Json::object();
+        if (get_sampling_callback())
+        {
+            caps["sampling"] = fastmcpp::Json::object();
+            // Optimistically advertise tools support when a sampling callback is present.
+            caps["sampling"]["tools"] = fastmcpp::Json::object();
+        }
+        if (get_elicitation_callback())
+            caps["elicitation"] = fastmcpp::Json::object();
+        if (get_roots_callback())
+            caps["roots"] = fastmcpp::Json::object();
+        return caps;
+    }
+
+    /// On the modern era every request carries its own envelope in _meta.
+    // PYTHON REFERENCE: mcp/client/session.py:153-191 (_make_modern_stamp)
+    fastmcpp::Json stamp_envelope(const fastmcpp::Json& payload) const
+    {
+        if (!modern_)
+            return payload;
+        return with_envelope(payload, modern_version_);
+    }
+
+    fastmcpp::Json with_envelope(const fastmcpp::Json& payload, const std::string& version) const
+    {
+        fastmcpp::Json out = payload.is_object() ? payload : fastmcpp::Json::object();
+        if (!out.contains("_meta") || !out["_meta"].is_object())
+            out["_meta"] = fastmcpp::Json::object();
+        out["_meta"]["io.modelcontextprotocol/protocolVersion"] = version;
+        out["_meta"]["io.modelcontextprotocol/clientInfo"] = {
+            {"name", "fastmcpp"}, {"version", fastmcpp::VERSION_STRING}};
+        fastmcpp::Json caps = client_capabilities();
+        // Extensions are negotiated per request, on this era only.
+        // PYTHON REFERENCE: mcp/client/session.py:614-649 (_build_capabilities)
+        if (!extensions_.empty())
+        {
+            caps["extensions"] = fastmcpp::Json::object();
+            for (const auto& [identifier, settings] : extensions_)
+                caps["extensions"][identifier] = settings;
+        }
+        out["_meta"]["io.modelcontextprotocol/clientCapabilities"] = std::move(caps);
+        return out;
+    }
+
+    void enable_modern_routing(const std::string& version)
+    {
+        if (auto* versioned = dynamic_cast<IProtocolVersionTransport*>(transport_.get()))
+            versioned->set_protocol_version(version);
+        if (auto* routed = dynamic_cast<IModernEraTransport*>(transport_.get()))
+            routed->set_modern_routing(true);
+    }
+
+    void disable_modern_routing()
+    {
+        if (auto* routed = dynamic_cast<IModernEraTransport*>(transport_.get()))
+            routed->set_modern_routing(false);
+        // The probe's version header must not leak into the handshake.
+        if (auto* resettable = dynamic_cast<IResettableTransport*>(transport_.get()))
+            resettable->reset(true);
+    }
+
+    /// Send server/discover at @p version, bypassing the handshake.
+    fastmcpp::Json discover(const std::string& version)
+    {
+        enable_modern_routing(version);
+        auto reply = transport_->request("server/discover",
+                                         with_envelope(fastmcpp::Json::object(), version));
+        // Some transports (stdio) hand back the whole JSON-RPC envelope rather
+        // than throwing on an error reply; treat an error object the same way.
+        if (reply.is_object() && reply.contains("error") && reply["error"].is_object())
+        {
+            const auto& error = reply["error"];
+            throw fastmcpp::RpcError("JSON-RPC error: " +
+                                         error.value("message", std::string("Unknown error")),
+                                     error.contains("code") && error["code"].is_number_integer()
+                                         ? error["code"].get<int>()
+                                         : 0,
+                                     error.contains("data") ? error["data"] : fastmcpp::Json());
+        }
+        modern_version_ = version;
+        return reply;
+    }
+
+    /// Adopt a server/discover result, or fall back when it names no modern
+    /// version we share.
+    InitializeResult adopt_modern(const fastmcpp::Json& discovered)
+    {
+        const auto& body = discovered.contains("result") ? discovered["result"] : discovered;
+        std::string version;
+        if (body.contains("supportedVersions") && body["supportedVersions"].is_array())
+            for (const auto& v : body["supportedVersions"])
+                if (v.is_string() && protocol::is_modern(v.get<std::string>()))
+                    version = v.get<std::string>();
+        if (version.empty())
+        {
+            // A reply that is not a discover result means a handshake server.
+            disable_modern_routing();
+            return initialize();
+        }
+
+        InitializeResult result;
+        result.protocolVersion = version;
+        fastmcpp::Json as_init = body;
+        as_init["protocolVersion"] = version;
+        if (body.contains("_meta") && body["_meta"].is_object() &&
+            body["_meta"].contains("io.modelcontextprotocol/serverInfo"))
+            as_init["serverInfo"] = body["_meta"]["io.modelcontextprotocol/serverInfo"];
+        result = parse_initialize_result(as_init);
+        enable_modern_routing(version);
+        modern_version_ = version;
+        modern_ = true;
+        negotiated_ = result;
+        return result;
+    }
     struct CallbackState
     {
         std::mutex mutex;
@@ -1054,6 +1547,272 @@ class Client
 
     std::shared_ptr<CallbackState> callbacks_;
     std::unordered_map<std::string, fastmcpp::Json> tool_output_schemas_;
+    int input_required_max_rounds_{kDefaultInputRequiredMaxRounds};
+    std::map<std::string, fastmcpp::Json> extensions_{
+        {kTasksExtensionId, fastmcpp::Json::object()}};
+
+    /// The result body of a reply: transports return either the JSON-RPC
+    /// envelope or the bare result.
+    static const fastmcpp::Json& rpc_body(const fastmcpp::Json& r)
+    {
+        if (r.is_object() && r.contains("result") && r["result"].is_object() &&
+            !r.contains("resultType"))
+            return r["result"];
+        return r;
+    }
+
+    // PYTHON REFERENCE: fastmcp_tasks/client.py:60-90 (_send_get)
+    fastmcpp::Json get_task_raw(const std::string& task_id)
+    {
+        // Not unwrap_rpc_result(): a task's body has its own `result` (completed)
+        // or `error` (failed) member, which must not be mistaken for the
+        // JSON-RPC envelope. Only a reply carrying `jsonrpc` is an envelope.
+        fastmcpp::Json response = call("tasks/get", {{"taskId", task_id}});
+        if (response.is_object() && response.contains("jsonrpc"))
+        {
+            if (response.contains("error"))
+                (void)unwrap_rpc_result(response);
+            if (response.contains("result"))
+                return response["result"];
+        }
+        return response;
+    }
+
+    /// Answer a parked task's input requests through the elicitation callback
+    /// and deliver the answers with `tasks/update`.
+    // PYTHON REFERENCE: fastmcp_tasks/client.py:180-246 (_answer_input_requests)
+    void answer_task_input(const std::string& task_id, const fastmcpp::Json& input_requests)
+    {
+        auto cb = get_elicitation_callback();
+        if (!cb)
+            throw fastmcpp::Error("Task " + task_id +
+                                  " requires input but the client has no elicitation handler; "
+                                  "set one with set_elicitation_callback() to drive tasks that "
+                                  "ask for input.");
+        fastmcpp::Json responses = fastmcpp::Json::object();
+        for (const auto& [surfaced_key, payload] : input_requests.items())
+        {
+            const std::string method =
+                payload.is_object() && payload.contains("method") && payload["method"].is_string()
+                    ? payload["method"].get<std::string>()
+                    : std::string();
+            if (method != "elicitation/create")
+                throw fastmcpp::Error(
+                    "Task " + task_id + " requested in-task input via " +
+                    (method.empty() ? std::string("None") : "'" + method + "'") +
+                    ", which the client cannot answer; only elicitation is supported on the "
+                    "modern protocol (sampling and roots are deprecated).");
+            responses[surfaced_key] = cb(payload.value("params", fastmcpp::Json::object()));
+        }
+        unwrap_rpc_result(
+            call("tasks/update", {{"taskId", task_id}, {"inputResponses", responses}}));
+    }
+
+    /// Poll `tasks/get` until the task is terminal, answering input requests
+    /// along the way. Polling backs off from 20ms, doubling up to the server's
+    /// `pollIntervalMs`, so a quick task resolves quickly and a slow one
+    /// settles at the server's cadence.
+    // PYTHON REFERENCE: fastmcp_tasks/client.py:253-310 (_drive_to_terminal)
+    fastmcpp::Json
+    drive_task_to_terminal(const std::string& task_id,
+                           std::optional<std::chrono::steady_clock::time_point> deadline)
+    {
+        using std::chrono::milliseconds;
+        const milliseconds floor{20};
+        milliseconds backoff = floor;
+        while (true)
+        {
+            if (deadline && std::chrono::steady_clock::now() >= *deadline)
+                throw fastmcpp::TransportError("Task " + task_id +
+                                               " did not finish within the call timeout");
+            fastmcpp::Json current = get_task_raw(task_id);
+            const std::string status = current.value("status", std::string());
+            if (status == "completed" || status == "failed" || status == "cancelled")
+                return current;
+            if (status == "input_required")
+            {
+                answer_task_input(task_id,
+                                  current.value("inputRequests", fastmcpp::Json::object()));
+                backoff = floor;
+                continue;
+            }
+            // PYTHON REFERENCE: fastmcp_tasks/client.py:136-170 (_poll_ceiling, _next_poll_delay)
+            milliseconds ceiling{500};
+            if (current.contains("pollIntervalMs") && current["pollIntervalMs"].is_number() &&
+                current["pollIntervalMs"].get<double>() > 0)
+                ceiling = std::max(
+                    milliseconds(static_cast<long long>(current["pollIntervalMs"].get<double>())),
+                    floor);
+            milliseconds delay = std::min(backoff, ceiling);
+            backoff = std::min(backoff * 2, ceiling);
+            if (deadline)
+                delay = std::min(delay, std::chrono::duration_cast<milliseconds>(
+                                            *deadline - std::chrono::steady_clock::now()));
+            if (delay.count() > 0)
+                std::this_thread::sleep_for(delay);
+        }
+    }
+
+    /// A terminal task as the `CallToolResult` the foreground call would return.
+    // PYTHON REFERENCE: fastmcp_tasks/client.py:313-377 (_resolve_task)
+    static fastmcpp::Json task_outcome(const fastmcpp::Json& final_task)
+    {
+        const std::string status = final_task.value("status", std::string());
+        const std::string task_id = final_task.value("taskId", std::string());
+        if (status == "completed")
+        {
+            if (final_task.contains("result") && final_task["result"].is_object())
+                return final_task["result"];
+            return fastmcpp::Json{{"content", fastmcpp::Json::array()}};
+        }
+        std::string message = "Task " + task_id + " was cancelled";
+        if (status == "failed")
+        {
+            message = "Task " + task_id + " failed";
+            if (final_task.contains("statusMessage") && final_task["statusMessage"].is_string() &&
+                !final_task["statusMessage"].get<std::string>().empty())
+                message = final_task["statusMessage"].get<std::string>();
+            if (final_task.contains("error") && final_task["error"].is_object() &&
+                final_task["error"].contains("message") &&
+                final_task["error"]["message"].is_string() &&
+                !final_task["error"]["message"].get<std::string>().empty())
+                message = final_task["error"]["message"].get<std::string>();
+        }
+        return fastmcpp::Json{
+            {"content", fastmcpp::Json::array({{{"type", "text"}, {"text", message}}})},
+            {"isError", true}};
+    }
+
+    /// Resolve a `tools/call` the server ran as a task to the tool's result.
+    fastmcpp::Json resolve_task_result(fastmcpp::Json response, std::chrono::milliseconds timeout,
+                                       std::chrono::steady_clock::time_point started)
+    {
+        const fastmcpp::Json& body = rpc_body(response);
+        if (!body.is_object() || body.value("resultType", std::string()) != "task" ||
+            !body.contains("taskId") || !body["taskId"].is_string())
+            return response;
+        std::optional<std::chrono::steady_clock::time_point> deadline;
+        if (timeout.count() > 0)
+            deadline = started + timeout;
+        return task_outcome(drive_task_to_terminal(body["taskId"].get<std::string>(), deadline));
+    }
+
+    /// Fulfil one embedded input request through the registered callbacks.
+    // PYTHON REFERENCE: mcp/client/session.py:1371-1390 (dispatch_input_request),
+    //                   mcp/client/session.py:249-275 (default callbacks refuse)
+    fastmcpp::Json dispatch_input_request(const fastmcpp::Json& request) const
+    {
+        const std::string method =
+            request.is_object() ? request.value("method", std::string()) : std::string();
+        const fastmcpp::Json params =
+            request.is_object() && request.contains("params") && request["params"].is_object()
+                ? request["params"]
+                : fastmcpp::Json::object();
+        if (method == "sampling/createMessage")
+        {
+            auto cb = get_sampling_callback();
+            if (!cb)
+                throw fastmcpp::RpcError("Sampling not supported", -32600);
+            return cb(params);
+        }
+        if (method == "elicitation/create")
+        {
+            auto cb = get_elicitation_callback();
+            if (!cb)
+                throw fastmcpp::RpcError("Elicitation not supported", -32600);
+            return cb(params);
+        }
+        if (method == "roots/list")
+        {
+            auto cb = get_roots_callback();
+            if (!cb)
+                throw fastmcpp::RpcError("List roots not supported", -32600);
+            fastmcpp::Json roots = cb();
+            // The legacy callback may return the bare list.
+            if (roots.is_array())
+                return fastmcpp::Json{{"roots", roots}};
+            return roots;
+        }
+        throw fastmcpp::RpcError("Unsupported input request method: " + method, -32601);
+    }
+
+    /// Drive a multi-round-trip (SEP-2322) call to its terminal result: fulfil
+    /// each round's input requests and retry with the answers and the echoed
+    /// state. A result that is not `input_required` passes straight through.
+    // PYTHON REFERENCE: mcp/client/_input_required.py:52-95 (run_input_required_driver)
+    template <typename Retry>
+    fastmcpp::Json resolve_input_required(fastmcpp::Json response, Retry&& retry,
+                                          const fastmcpp::Json& original_payload)
+    {
+        // Transports return either the JSON-RPC envelope or the bare result.
+        auto body_of = [](const fastmcpp::Json& r) -> const fastmcpp::Json&
+        {
+            if (r.is_object() && r.contains("result") && r["result"].is_object() &&
+                !r.contains("resultType"))
+                return r["result"];
+            return r;
+        };
+        auto is_interim = [&body_of](const fastmcpp::Json& r)
+        {
+            const fastmcpp::Json& body = body_of(r);
+            return body.is_object() && body.value("resultType", std::string()) == "input_required";
+        };
+        int rounds = 0;
+        auto delay = std::chrono::milliseconds(50);
+        while (is_interim(response))
+        {
+            if (++rounds > input_required_max_rounds_)
+                throw fastmcpp::Error(
+                    "Server returned InputRequiredResult for more than " +
+                    std::to_string(input_required_max_rounds_) +
+                    " rounds; raise the limit with set_input_required_max_rounds()");
+            const fastmcpp::Json interim = body_of(response);
+            fastmcpp::Json retry_payload = original_payload;
+            retry_payload.erase("inputResponses");
+            retry_payload.erase("requestState");
+
+            const bool has_requests = interim.contains("inputRequests") &&
+                                      interim["inputRequests"].is_object() &&
+                                      !interim["inputRequests"].empty();
+            if (has_requests)
+            {
+                delay = std::chrono::milliseconds(50);
+                // Requests in one round are independent: run them concurrently.
+                std::vector<std::pair<std::string, std::future<fastmcpp::Json>>> pending;
+                for (const auto& [key, request] : interim["inputRequests"].items())
+                    pending.emplace_back(key,
+                                         std::async(std::launch::async, [this, request]
+                                                    { return dispatch_input_request(request); }));
+                fastmcpp::Json answers = fastmcpp::Json::object();
+                std::exception_ptr first_error;
+                for (auto& [key, future] : pending)
+                {
+                    try
+                    {
+                        answers[key] = future.get();
+                    }
+                    catch (...)
+                    {
+                        if (!first_error)
+                            first_error = std::current_exception();
+                    }
+                }
+                if (first_error)
+                    std::rethrow_exception(first_error);
+                retry_payload["inputResponses"] = std::move(answers);
+            }
+            else
+            {
+                // State-only round: back off before re-asking.
+                std::this_thread::sleep_for(delay);
+                delay = std::min(delay * 2, std::chrono::milliseconds(250));
+            }
+            if (interim.contains("requestState") && !interim["requestState"].is_null())
+                retry_payload["requestState"] = interim["requestState"];
+            response = retry(retry_payload);
+        }
+        return response;
+    }
 
     std::function<fastmcpp::Json()> get_roots_callback() const
     {
@@ -1541,6 +2300,8 @@ class Client
                 result.capabilities.tools = caps["tools"];
             if (caps.contains("extensions"))
                 result.capabilities.extensions = caps["extensions"];
+            if (caps.contains("completions"))
+                result.capabilities.completions = caps["completions"];
         }
 
         if (body.contains("serverInfo"))
@@ -1563,16 +2324,21 @@ class Client
 // Task Wrapper Types (client-side)
 // ============================================================================
 
-/// Wrapper for tool background tasks (SEP-1686 subset).
-/// Provides a synchronous interface that works for both background-executed
-/// and immediate (graceful degradation) executions.
+/// Handle to a tool call the server is running as a background task.
+///
+/// On the 2026-07-28 era (the tasks extension, SEP-2663) status() and wait()
+/// poll `tasks/get`, result() drives the task to completion -- answering input
+/// requests through the client's elicitation callback -- and cancel() sends
+/// `tasks/cancel`. On the handshake era (SEP-1686) it polls `tasks/get` and
+/// reads `tasks/result`, and also wraps a call the server ran synchronously.
+// PYTHON REFERENCE: fastmcp_tasks/client.py:392-522 (ToolTask)
 class ToolTask
 {
   public:
     ToolTask(Client* client, std::string task_id, std::string tool_name,
-             std::optional<CallToolResult> immediate_result)
+             std::optional<CallToolResult> immediate_result, bool modern = false)
         : client_(client), tool_name_(std::move(tool_name)),
-          immediate_result_(std::move(immediate_result))
+          immediate_result_(std::move(immediate_result)), modern_(modern)
     {
         if (!client_)
             throw fastmcpp::Error("ToolTask requires non-null client");
@@ -1621,12 +2387,28 @@ class ToolTask
         return client_->get_task_status(task_id_);
     }
 
+    /// Request cooperative cancellation of the task via `tasks/cancel`.
+    void cancel() const
+    {
+        if (returned_immediately())
+            return;
+        if (modern_)
+            client_->unwrap_rpc_result(client_->call("tasks/cancel", {{"taskId", task_id_}}));
+        else
+            (void)client_->cancel_task(task_id_);
+    }
+
     /// Wait until the task reaches the desired state or timeout elapses.
-    /// If timeout_ms == 0, waits until terminal state.
+    /// If timeout_ms == 0, waits until terminal state. Does not answer input
+    /// requests; wait("input_required") lets a caller observe a parked task.
     TaskStatus wait(const std::string& desired_state = "completed",
                     std::chrono::milliseconds timeout_ms = std::chrono::milliseconds(60000)) const
     {
         auto start = std::chrono::steady_clock::now();
+        // The modern era has no status notifications, so back off from a quick
+        // first poll up to the server's interval.
+        // PYTHON REFERENCE: fastmcp_tasks/client.py:438-479 (ToolTask.wait)
+        auto backoff = std::chrono::milliseconds(20);
 
         while (true)
         {
@@ -1640,7 +2422,13 @@ class ToolTask
             int poll_ms = s.pollInterval.value_or(1000);
             if (poll_ms <= 0)
                 poll_ms = 1000;
-            std::this_thread::sleep_for(std::chrono::milliseconds(poll_ms));
+            auto delay = std::chrono::milliseconds(poll_ms);
+            if (modern_)
+            {
+                delay = std::min(backoff, std::max(delay, std::chrono::milliseconds(20)));
+                backoff = std::min(backoff * 2, std::chrono::milliseconds(poll_ms));
+            }
+            std::this_thread::sleep_for(delay);
         }
     }
 
@@ -1664,6 +2452,26 @@ class ToolTask
                 }
                 throw fastmcpp::Error(msg);
             }
+            return res;
+        }
+
+        if (modern_)
+        {
+            auto raise_text = [](const CallToolResult& r)
+            {
+                std::string msg = "Tool task error";
+                if (!r.content.empty())
+                    if (const auto* text = std::get_if<TextContent>(&r.content.front()))
+                        msg = text->text;
+                throw fastmcpp::Error(msg);
+            };
+            fastmcpp::Json final_task = client_->drive_task_to_terminal(task_id_, std::nullopt);
+            CallToolResult res =
+                client_->parse_call_tool_result(Client::task_outcome(final_task), tool_name_);
+            if (res.structuredContent)
+                res.data = res.structuredContent;
+            if (res.isError && raise_on_error)
+                raise_text(res);
             return res;
         }
 
@@ -1700,6 +2508,7 @@ class ToolTask
     std::string task_id_;
     std::string tool_name_;
     std::optional<CallToolResult> immediate_result_;
+    bool modern_{false};
 
     inline static std::atomic<uint64_t> next_synthetic_id_{0};
 };
@@ -1707,6 +2516,23 @@ class ToolTask
 inline std::shared_ptr<ToolTask> Client::call_tool_task(const std::string& name,
                                                         const fastmcpp::Json& arguments, int ttl_ms)
 {
+    if (modern_)
+    {
+        // PYTHON REFERENCE: fastmcp_tasks/client.py:525-583 (call_tool_task)
+        fastmcpp::Json payload = {{"name", name}, {"arguments", arguments}};
+        fastmcpp::Json response = call("tools/call", payload);
+        const fastmcpp::Json& body = rpc_body(response);
+        if (body.is_object() && body.value("resultType", std::string()) == "task" &&
+            body.contains("taskId") && body["taskId"].is_string())
+            return std::make_shared<ToolTask>(this, body["taskId"].get<std::string>(), name,
+                                              std::nullopt, true);
+        (void)unwrap_rpc_result(response);
+        throw fastmcpp::Error("Tool '" + name +
+                              "' did not run as a task: the server returned a result instead of "
+                              "a task. Ensure the tool supports tasks and the server serves the "
+                              "tasks extension.");
+    }
+
     CallToolOptions opts;
     opts.timeout = std::chrono::milliseconds{0};
     opts.progress_handler = nullptr;

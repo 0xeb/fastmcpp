@@ -66,6 +66,11 @@ class CurlTransport : public HttpRpcTransport
                       const std::unordered_map<std::string, std::string>& headers,
                       const std::string& body) override;
 
+    void post_stream(const std::string& url, const std::string& path,
+                     const std::unordered_map<std::string, std::string>& headers,
+                     const std::string& body, const StreamSink& sink,
+                     StreamCancel& cancel) override;
+
   private:
     /// Delegated to from the public constructor so the endpoint is split once.
     CurlTransport(std::pair<std::string, std::string> endpoint,

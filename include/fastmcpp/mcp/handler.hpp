@@ -76,6 +76,12 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor);
 // Uses app's aggregated lists (local + remote) and routing
 std::function<fastmcpp::Json(const fastmcpp::Json&)> make_mcp_handler(const ProxyApp& app);
 
+/// Shape a tool's return value as an MCP CallToolResult object (a value that
+/// already is one is kept). @p include_structured_content when the tool has an
+/// output schema; @p wrap_result when that schema wraps a non-object result.
+fastmcpp::Json tool_call_result(const fastmcpp::Json& tool_output,
+                                bool include_structured_content = false, bool wrap_result = false);
+
 /// MCP handler with sampling support
 /// The session_accessor callback is used to get ServerSession for sampling requests.
 /// Session ID is extracted from params._meta.session_id (injected by SSE server).

@@ -155,6 +155,102 @@ std::string url_encode_path_value(const std::string& value)
     return out;
 }
 
+std::string to_string_value(const Json& value);
+
+// OpenAPI "simple" style for a path parameter: each item is encoded on its own so the
+// ',' / '=' separators stay literal; nested lists flatten one level.
+// PYTHON REFERENCE: fastmcp/utilities/openapi/director.py (_simple_param_to_path_segment)
+std::string simple_path_segment(const std::string& name, const Json& value, bool explode)
+{
+    auto encode = [&](const std::string& raw)
+    {
+        validate_path_value(name, raw);
+        return url_encode_path_value(raw);
+    };
+    std::string out;
+    auto append = [&](const std::string& part)
+    {
+        if (!out.empty())
+            out += ",";
+        out += part;
+    };
+    if (value.is_object())
+    {
+        for (auto it = value.cbegin(); it != value.cend(); ++it)
+        {
+            const auto k = encode(it.key());
+            const auto v = encode(to_string_value(it.value()));
+            append(explode ? k + "=" + v : k + "," + v);
+        }
+        return out;
+    }
+    if (value.is_array())
+    {
+        for (const auto& item : value)
+        {
+            if (item.is_array())
+                for (const auto& inner : item)
+                    append(encode(to_string_value(inner)));
+            else
+                append(encode(to_string_value(item)));
+        }
+        return out;
+    }
+    return encode(to_string_value(value));
+}
+
+// Turn a "simple" segment into the OpenAPI "label" or "matrix" form. Every item is
+// already percent-encoded, so each literal ',' is a delimiter.
+// PYTHON REFERENCE: fastmcp/utilities/openapi/director.py (_restyle_path_segment, #6725)
+std::string restyle_path_segment(const std::string& name, const Json& value, std::string segment,
+                                 const std::string& style, bool explode)
+{
+    auto replace_commas = [](std::string text, const std::string& with)
+    {
+        std::string out;
+        for (char c : text)
+            if (c == ',')
+                out += with;
+            else
+                out += c;
+        return out;
+    };
+    if (style == "label")
+    {
+        segment = "." + (explode ? replace_commas(segment, ".") : segment);
+        if (segment.find_first_not_of('.') == std::string::npos)
+            throw ValidationError("Path parameter '" + name +
+                                  "' cannot serialize to a dot segment");
+        return segment;
+    }
+    // An exploded matrix object names each property instead of the parameter.
+    if (explode && value.is_object())
+        return ";" + replace_commas(segment, ";");
+    const std::string prefix = ";" + url_encode_component(name) + "=";
+    if (explode && value.is_array())
+        return prefix + replace_commas(segment, prefix);
+    return prefix + segment;
+}
+
+// Explicit defaults serialize like an omitted encoding; anything else is an override.
+bool uses_default_multipart_encoding(const Json& encoding)
+{
+    if (!encoding.is_object())
+        return true;
+    for (auto it = encoding.cbegin(); it != encoding.cend(); ++it)
+    {
+        const auto& k = it.key();
+        const auto& v = it.value();
+        const bool is_default = (k == "style" && v == "form") || (k == "explode" && v == true) ||
+                                (k == "contentType" && v == "text/plain") ||
+                                (k == "allowReserved" && v == false) ||
+                                (k == "headers" && v.is_object() && v.empty());
+        if (!is_default)
+            return false;
+    }
+    return true;
+}
+
 std::string to_string_value(const Json& value)
 {
     if (value.is_string())
@@ -405,6 +501,13 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
                     if (param.contains("description") && param["description"].is_string() &&
                         (!schema.contains("description") || !schema["description"].is_string()))
                         schema["description"] = param["description"];
+                    // PYTHON REFERENCE: fastmcp/utilities/openapi/parser.py:321 (#4793)
+                    if (param.contains("example") && !param["example"].is_null() &&
+                        schema.is_object())
+                    {
+                        schema.erase("examples");
+                        schema["example"] = param["example"];
+                    }
 
                     ParsedParameter parsed_param{
                         param_name,
@@ -437,17 +540,48 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
             if (op.contains("parameters"))
                 consume_parameters(op["parameters"]);
 
+            // A parameter whose name matches the whole-body argument, or another
+            // parameter's name, becomes `name__location` so neither is lost.
+            // PYTHON REFERENCE: fastmcp/utilities/openapi/schemas.py:465-490 (#5113)
+            bool has_body_schema = false;
+            if (op.contains("requestBody") && op["requestBody"].is_object() &&
+                op["requestBody"].contains("content") && op["requestBody"]["content"].is_object())
+                for (const auto& ct : {"application/json", "application/x-www-form-urlencoded",
+                                       "multipart/form-data"})
+                {
+                    const auto& c = op["requestBody"]["content"];
+                    if (c.contains(ct) && c[ct].is_object() && c[ct].contains("schema") &&
+                        c[ct]["schema"].is_object())
+                        has_body_schema = true;
+                }
+            std::unordered_map<std::string, int> name_counts_by_param;
+            for (const auto& key : parameter_order)
+                ++name_counts_by_param[parsed_parameters[parameter_indices[key]].name];
+
             std::unordered_set<std::string> required_names;
             for (const auto& key : parameter_order)
             {
                 const auto& parsed_param = parsed_parameters[parameter_indices[key]];
-                properties[parsed_param.name] = parsed_param.schema;
+                std::string arg_name = parsed_param.name;
+                if ((has_body_schema && arg_name == "body") ||
+                    name_counts_by_param[parsed_param.name] > 1)
+                {
+                    arg_name = parsed_param.name + "__" + parsed_param.location;
+                    route.param_arg_names[key] = arg_name;
+                }
+                properties[arg_name] = parsed_param.schema;
 
-                if (parsed_param.required && required_names.insert(parsed_param.name).second)
-                    required.push_back(parsed_param.name);
+                if (parsed_param.required && required_names.insert(arg_name).second)
+                    required.push_back(arg_name);
 
                 if (parsed_param.location == "path")
+                {
                     route.path_params.push_back(parsed_param.name);
+                    route.path_param_explode[parsed_param.name] =
+                        parsed_param.explode.value_or(false);
+                    if (parsed_param.style == "label" || parsed_param.style == "matrix")
+                        route.path_param_style[parsed_param.name] = parsed_param.style;
+                }
                 else
                 {
                     route.query_params.push_back(parsed_param.name);
@@ -474,6 +608,8 @@ std::vector<OpenAPIProvider::RouteDefinition> OpenAPIProvider::parse_routes() co
                         if (!content[ct].contains("schema") || !content[ct]["schema"].is_object())
                             return false;
                         properties["body"] = content[ct]["schema"];
+                        if (content[ct].contains("encoding") && content[ct]["encoding"].is_object())
+                            route.multipart_encoding = content[ct]["encoding"];
                         route.request_content_type = ct;
                         route.has_json_body = true;
                         route.has_multipart_body = (ct == "multipart/form-data");
@@ -529,15 +665,26 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
 {
     const auto parsed = parse_base_url(base_url_);
 
+    auto arg_name = [&](const std::string& location, const std::string& name)
+    {
+        auto it = route.param_arg_names.find(location + ":" + name);
+        return it == route.param_arg_names.end() ? name : it->second;
+    };
+
     std::string resolved_path = route.path;
     for (const auto& param : route.path_params)
     {
-        if (!arguments.contains(param) || arguments.at(param).is_null())
+        const auto arg = arg_name("path", param);
+        if (!arguments.contains(arg) || arguments.at(arg).is_null())
             throw ValidationError("Missing required path parameter: " + param);
         const std::string placeholder = "{" + param + "}";
-        const std::string raw = to_string_value(arguments.at(param));
-        validate_path_value(param, raw);
-        const auto value = url_encode_path_value(raw);
+        auto explode_it = route.path_param_explode.find(param);
+        const bool explode = explode_it != route.path_param_explode.end() && explode_it->second;
+        auto value = simple_path_segment(param, arguments.at(arg), explode);
+        if (auto style_it = route.path_param_style.find(param);
+            style_it != route.path_param_style.end())
+            value =
+                restyle_path_segment(param, arguments.at(arg), value, style_it->second, explode);
         size_t pos = std::string::npos;
         while ((pos = resolved_path.find(placeholder)) != std::string::npos)
             resolved_path.replace(pos, placeholder.size(), value);
@@ -565,9 +712,10 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
     };
     for (const auto& param : route.query_params)
     {
-        if (!arguments.contains(param))
+        const auto arg = arg_name("query", param);
+        if (!arguments.contains(arg))
             continue;
-        const auto& val = arguments.at(param);
+        const auto& val = arguments.at(arg);
 
         bool explode = true;
         std::string style = "form";
@@ -578,6 +726,9 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
                 style = meta_it->second.style;
             if (meta_it->second.explode.has_value())
                 explode = *meta_it->second.explode;
+            // Delimited array styles default to explode=false (#5065).
+            else if (val.is_array() && (style == "pipeDelimited" || style == "spaceDelimited"))
+                explode = false;
         }
         const std::string delim = style_delimiter(style);
 
@@ -664,6 +815,21 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
         for (auto it = arguments["body"].cbegin(); it != arguments["body"].cend(); ++it)
         {
             const auto& v = it.value();
+            // A string array under the default encoding repeats the field once per item
+            // PYTHON REFERENCE: fastmcp/utilities/openapi/director.py (#5121)
+            if (v.is_array() && !v.empty() &&
+                std::all_of(v.begin(), v.end(), [](const Json& i) { return i.is_string(); }) &&
+                uses_default_multipart_encoding(route.multipart_encoding.value(it.key(), Json())))
+            {
+                for (const auto& item : v)
+                {
+                    httplib::MultipartFormData repeated;
+                    repeated.name = it.key();
+                    repeated.content = item.get<std::string>();
+                    mp_items.push_back(std::move(repeated));
+                }
+                continue;
+            }
             httplib::MultipartFormData part;
             part.name = it.key();
             if (v.is_object() && v.contains("content") && v.contains("filename"))
@@ -710,6 +876,9 @@ Json OpenAPIProvider::invoke_route(const RouteDefinition& route, const Json& arg
     auto dispatch = [&](auto& client) -> httplib::Result
     {
         client.set_follow_location(true);
+        // The target is already percent-encoded; httplib's own pass would turn the
+        // simple-style ',' separators into %2C.
+        client.set_url_encode(false);
         client.set_connection_timeout(30, 0);
         client.set_read_timeout(30, 0);
 

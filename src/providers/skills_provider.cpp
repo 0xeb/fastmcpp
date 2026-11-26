@@ -25,6 +25,48 @@ std::string to_uri_path(const std::filesystem::path& path)
     return text;
 }
 
+// quote(path, safe='/'): file names are percent-encoded in skill:// URIs so a
+// space or a literal '%' round-trips unambiguously.
+// PYTHON REFERENCE: fastmcp_slim/fastmcp/server/providers/skills/skill_provider.py:291,324
+std::string quote_path(const std::string& text)
+{
+    static const char* digits = "0123456789ABCDEF";
+    std::string out;
+    for (unsigned char c : text)
+    {
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~' || c == '/')
+        {
+            out += static_cast<char>(c);
+        }
+        else
+        {
+            out += '%';
+            out += digits[c >> 4];
+            out += digits[c & 0xF];
+        }
+    }
+    return out;
+}
+
+// unquote(): %XX only ('+' stays literal).
+std::string unquote(const std::string& text)
+{
+    std::string out;
+    for (size_t i = 0; i < text.size(); ++i)
+    {
+        if (text[i] == '%' && i + 2 < text.size() &&
+            std::isxdigit(static_cast<unsigned char>(text[i + 1])) &&
+            std::isxdigit(static_cast<unsigned char>(text[i + 2])))
+        {
+            out += static_cast<char>(std::stoi(text.substr(i + 1, 2), nullptr, 16));
+            i += 2;
+            continue;
+        }
+        out += text[i];
+    }
+    return out;
+}
+
 bool is_text_extension(const std::filesystem::path& path)
 {
     const auto ext = path.extension().string();
@@ -162,6 +204,9 @@ std::optional<std::string> parse_frontmatter_description(const std::filesystem::
     std::string line;
     if (!std::getline(in, line))
         return std::nullopt;
+    // PYTHON REFERENCE: fastmcp_slim/fastmcp/server/providers/skills/_common.py:42
+    if (line.rfind("\xEF\xBB\xBF", 0) == 0)
+        line.erase(0, 3);
     if (trim_copy(line) != "---")
         return std::nullopt;
 
@@ -382,7 +427,7 @@ std::vector<resources::Resource> SkillProvider::list_resources() const
     const auto description = build_description();
 
     resources::Resource main_file;
-    main_file.uri = "skill://" + skill_name_ + "/" + main_file_name_;
+    main_file.uri = "skill://" + skill_name_ + "/" + quote_path(main_file_name_);
     main_file.name = skill_name_ + "/" + main_file_name_;
     main_file.description = description;
     main_file.mime_type = "text/markdown";
@@ -417,7 +462,7 @@ std::vector<resources::Resource> SkillProvider::list_resources() const
                 continue;
 
             resources::Resource resource;
-            resource.uri = "skill://" + skill_name_ + "/" + to_uri_path(rel);
+            resource.uri = "skill://" + skill_name_ + "/" + quote_path(to_uri_path(rel));
             resource.name = skill_name_ + "/" + to_uri_path(rel);
             resource.description = "File from " + skill_name_ + " skill";
             resource.mime_type = detect_mime_type(rel);
@@ -432,8 +477,10 @@ std::vector<resources::Resource> SkillProvider::list_resources() const
 
 std::optional<resources::Resource> SkillProvider::get_resource(const std::string& uri) const
 {
+    // PYTHON REFERENCE: fastmcp_slim/fastmcp/server/providers/skills/skill_provider.py:355
+    const auto wanted = unquote(uri);
     for (const auto& resource : list_resources())
-        if (resource.uri == uri)
+        if (unquote(resource.uri) == wanted)
             return resource;
     return std::nullopt;
 }
@@ -461,8 +508,8 @@ std::vector<resources::ResourceTemplate> SkillProvider::list_resource_templates(
         if (!is_within(root, full))
             throw ValidationError("Skill path escapes root: " + rel);
 
-        const std::string uri =
-            "skill://" + skill_name + "/" + to_uri_path(std::filesystem::relative(full, root));
+        const std::string uri = "skill://" + skill_name + "/" +
+                                quote_path(to_uri_path(std::filesystem::relative(full, root)));
         return read_file_content(full, uri);
     };
     templ.parse();

@@ -2,6 +2,7 @@
 #include "fastmcpp/resources/types.hpp"
 #include "fastmcpp/types.hpp"
 
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
@@ -16,6 +17,12 @@ struct ResourceContent
     std::string uri;
     std::optional<std::string> mime_type;
     std::variant<std::string, std::vector<uint8_t>> data; // text or binary
+    /// Per-read cache hint (SEP-2549) overriding the server-wide one on the
+    /// modern era: `ttl_ms` (0 = immediately stale) and `cache_scope`
+    /// ("public" or "private").
+    // PYTHON REFERENCE: fastmcp/resources/base.py:156-157 (#5380)
+    std::optional<std::int64_t> ttl_ms;
+    std::optional<std::string> cache_scope;
 };
 
 /// MCP Resource definition

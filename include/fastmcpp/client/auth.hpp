@@ -243,9 +243,55 @@ class OAuth : public ClientAuth
     std::optional<OAuthToken> current_token() const;
 
     struct State;
+    friend class ClientCredentialsOAuth;
 
   private:
     std::unique_ptr<State> state_;
+};
+
+/// Options mirroring fastmcp's ClientCredentialsOAuthProvider(...).
+struct ClientCredentialsOptions
+{
+    /// MCP endpoint URL. Optional: HttpRpcTransport::set_auth() binds the transport's URL.
+    std::string mcp_url;
+    std::string client_id;
+    std::string client_secret;
+    /// Scopes to request; they take precedence over server-advertised scopes.
+    std::vector<std::string> scopes;
+    /// "client_secret_basic" (default) or "client_secret_post".
+    std::string token_endpoint_auth_method{"client_secret_basic"};
+    /// The authorization server that issued the credentials. Token requests are only built
+    /// from metadata with this issuer; otherwise the flow stops with OAuthFlowError. Without
+    /// it the MCP server decides where the credentials go, so always set it.
+    std::optional<std::string> issuer;
+    /// Token storage, namespaced by (client_id, scopes, issuer). Defaults to a MemoryStore.
+    std::shared_ptr<KeyValueStore> token_storage;
+    /// HTTP client for the flow's own requests. Default: default_http_function().
+    HttpFunction http;
+};
+
+/// Machine-to-machine OAuth: the `client_credentials` grant with a client ID and secret.
+/// The token endpoint is discovered from the MCP server's metadata (RFC 9728 / 8414); no
+/// browser, registration or refresh token is involved. A 403 insufficient_scope steps up to
+/// the union of the held and challenged scopes (SEP-2350).
+// PYTHON REFERENCE: fastmcp/client/auth/client_credentials.py:172-307
+class ClientCredentialsOAuth : public ClientAuth
+{
+  public:
+    /// @throws std::invalid_argument for an empty client_id or secret, an unknown
+    ///         token_endpoint_auth_method, or an issuer that is not an http(s) URL.
+    explicit ClientCredentialsOAuth(ClientCredentialsOptions options);
+    ~ClientCredentialsOAuth() override;
+    ClientCredentialsOAuth(const ClientCredentialsOAuth&) = delete;
+    ClientCredentialsOAuth& operator=(const ClientCredentialsOAuth&) = delete;
+
+    void bind(const std::string& mcp_url) override;
+    std::unordered_map<std::string, std::string> headers(const HeaderRequest& request) override;
+    bool handle_challenge(const AuthChallenge& challenge) override;
+    std::optional<OAuthToken> current_token() const;
+
+  private:
+    std::unique_ptr<OAuth> impl_;
 };
 
 /// Whether an MCP endpoint appears to require authentication: a GET answered 401/403 or with
@@ -265,6 +311,9 @@ std::optional<std::string> www_authenticate_field(const std::string& header,
 bool check_resource_allowed(const std::string& requested, const std::string& configured);
 /// RFC 8414 issuer comparison; a root issuer with or without its trailing slash match.
 bool issuers_match(const std::string& a, const std::string& b);
+/// SEP-2350 scope union: previous scopes first, then new ones not already present.
+std::optional<std::string> union_scopes(const std::optional<std::string>& previous,
+                                        const std::optional<std::string>& added);
 /// SEP-985 protected-resource metadata discovery URLs, in order.
 std::vector<std::string> protected_resource_discovery_urls(const std::optional<std::string>& www,
                                                            const std::string& server_url);

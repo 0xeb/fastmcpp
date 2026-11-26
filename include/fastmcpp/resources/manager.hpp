@@ -18,6 +18,17 @@ class ResourceManager
         by_uri_[res.uri] = res;
     }
 
+    /// Server-wide path-safety default for templated reads (nullopt disables).
+    void set_default_security(std::optional<ResourceSecurity> security)
+    {
+        default_security_ = std::move(security);
+    }
+
+    const std::optional<ResourceSecurity>& default_security() const
+    {
+        return default_security_;
+    }
+
     void register_template(ResourceTemplate templ)
     {
         templ.parse();
@@ -68,6 +79,7 @@ class ResourceManager
             auto match_params = templ.match(uri);
             if (match_params)
             {
+                enforce_resource_security(templ.security, *match_params, uri, default_security_);
                 // Merge explicit params with matched params (explicit takes precedence).
                 // Matched values are string-typed; coerce them per-param against the
                 // template's parameter schema. Parity with Python fastmcp 9ccaef2b:
@@ -101,6 +113,7 @@ class ResourceManager
   private:
     std::unordered_map<std::string, Resource> by_uri_;
     std::vector<ResourceTemplate> templates_;
+    std::optional<ResourceSecurity> default_security_{ResourceSecurity{}};
 };
 
 } // namespace fastmcpp::resources

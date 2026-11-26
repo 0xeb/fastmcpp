@@ -45,9 +45,21 @@ struct HttpResponse
 class HttpRpcTransport : public ITransport,
                          public IResettableTransport,
                          public ISessionTransport,
-                         public IProtocolVersionTransport
+                         public IProtocolVersionTransport,
+                         public IModernEraTransport,
+                         public IStreamingTransport
 {
   public:
+    /// Receives a streamed response: @p on_head once with the status and
+    /// headers, then @p on_body per chunk of body bytes. Either returning false
+    /// asks the backend to stop reading.
+    struct StreamSink
+    {
+        std::function<bool(int status, const std::multimap<std::string, std::string>& headers)>
+            on_head;
+        std::function<bool(const char* data, size_t len)> on_body;
+    };
+
     ~HttpRpcTransport() override = default;
 
     HttpRpcTransport(const HttpRpcTransport&) = delete;
@@ -90,8 +102,19 @@ class HttpRpcTransport : public ITransport,
     /// Called by `Client::initialize()` with whatever the server settled on.
     void set_protocol_version(std::string version) override;
 
+    /// On the sessionless era: send `Mcp-Method` / `Mcp-Name` routing headers,
+    /// and neither send nor capture `Mcp-Session-Id`.
+    void set_modern_routing(bool enabled) override;
+
     /// Callback for server-initiated notifications arriving on a streamed reply.
     void set_notification_callback(std::function<void(const fastmcpp::Json&)> callback);
+
+    /// Send a request whose response is a message stream (`subscriptions/listen`),
+    /// handing each message to @p on_message as it arrives.
+    void stream_request(const std::string& route, const fastmcpp::Json& payload,
+                        const fastmcpp::Json& id,
+                        const std::function<bool(const fastmcpp::Json&)>& on_message,
+                        StreamCancel& cancel) override;
 
   protected:
     /// @param base_url Origin, e.g. "https://example.com" or "127.0.0.1:8080".
@@ -117,6 +140,17 @@ class HttpRpcTransport : public ITransport,
                               const std::unordered_map<std::string, std::string>& headers,
                               const std::string& body) = 0;
 
+    /// POST and deliver the response incrementally, for a response that is a
+    /// long-lived stream. Returns when the body ends, a sink callback returns
+    /// false, or @p cancel fires (backends install a hook on it that unblocks
+    /// their read). Same redirect and error rules as post().
+    ///
+    /// The default buffers through post() and then replays the body, which is
+    /// correct but delivers nothing until the response ends.
+    virtual void post_stream(const std::string& url, const std::string& path,
+                             const std::unordered_map<std::string, std::string>& headers,
+                             const std::string& body, const StreamSink& sink, StreamCancel& cancel);
+
     bool verify_ssl() const noexcept
     {
         return verify_ssl_;
@@ -131,6 +165,15 @@ class HttpRpcTransport : public ITransport,
     /// @param expect_response false for notifications, where there is no reply
     ///        to parse and servers commonly answer 202 with an empty body.
     fastmcpp::Json exchange(const fastmcpp::Json& rpc, bool expect_response);
+
+    /// The headers exchange() attaches to @p body (routing headers included).
+    std::unordered_map<std::string, std::string> request_headers(const fastmcpp::Json& rpc,
+                                                                 const std::string& url,
+                                                                 const std::string& path,
+                                                                 const std::string& body) const;
+
+    /// Throw the error a non-2xx reply means.
+    [[noreturn]] void throw_http_error(HttpResponse response, bool expect_response) const;
 
     /// Pick the reply out of the messages an SSE body carried, routing
     /// server-initiated notifications to the callback on the way past.
@@ -149,6 +192,7 @@ class HttpRpcTransport : public ITransport,
     mutable std::mutex state_mutex_;
     std::string session_id_;
     std::string protocol_version_;
+    bool modern_routing_{false};
 
     std::function<void(const fastmcpp::Json&)> notification_callback_;
 };
