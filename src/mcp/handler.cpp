@@ -509,19 +509,79 @@ run_tool_reporting_errors(const std::string& name, const fastmcpp::Json& args,
     }
 }
 
-/// Run a tool call through the registered extensions. With @p report_errors
-/// the tool body's failures become isError results; the extensions still see
+/// Run @p run_tool, raising its failure as upstream's tool body does: an
+/// unknown tool (NotFoundError), a ValidationError, a timeout or any other
+/// fastmcpp::Error unchanged; anything else (an McpError from the body, a
+/// std::exception) as fastmcpp::Error "Error calling tool '<name>': ...",
+/// fastmcp's ToolError. Middleware then sees the typed failure.
+// PYTHON REFERENCE: fastmcp/server/server.py:1711-1776 (call_tool error handling)
+static fastmcpp::Json
+run_tool_raising_errors(const std::string& name, const fastmcpp::Json& args,
+                        const std::function<fastmcpp::Json(const fastmcpp::Json&)>& run_tool)
+{
+    try
+    {
+        return run_tool(args);
+    }
+    catch (const InputRequired&)
+    {
+        throw;
+    }
+    catch (const fastmcpp::McpError& e)
+    {
+        throw fastmcpp::Error("Error calling tool '" + name + "': " + e.what());
+    }
+    catch (const fastmcpp::Error&)
+    {
+        throw;
+    }
+    catch (const std::exception& e)
+    {
+        throw fastmcpp::Error("Error calling tool '" + name + "': " + e.what());
+    }
+    catch (...)
+    {
+        throw fastmcpp::Error("Error calling tool '" + name + "'");
+    }
+}
+
+/// How a tools/call reports a failure of the tool itself.
+enum class ToolErrors
+{
+    Raise,  ///< throw it (extensions' own errors always propagate)
+    Report, ///< render it as an isError result, below the extensions
+    Defer,  ///< throw it, normalized, for middleware to see; isError is applied above the chain
+};
+
+/// Carries a tool failure out of the dispatch core, past its JSON-RPC error
+/// translation, to the middleware chain. Not a std::exception for that reason.
+struct ToolCallFailure
+{
+    std::exception_ptr error;
+};
+
+/// Run a tool call through the registered extensions. With ToolErrors::Report
+/// the tool body's failures become isError results; with ToolErrors::Defer they
+/// are thrown normalized for the middleware chain. The extensions still see
 /// (and may raise) protocol errors, and receive the raw `run_tool` for work
 /// they defer (background tasks keep their own error mapping).
 static fastmcpp::Json
 invoke_tool_intercepted(const FastMCP& app, const std::string& name, const fastmcpp::Json& args,
                         const fastmcpp::Json& params,
                         std::function<fastmcpp::Json(const fastmcpp::Json&)> run_tool,
-                        bool report_errors = false)
+                        ToolErrors errors = ToolErrors::Raise)
 {
+    auto run_body = [&name, &run_tool, errors](const fastmcpp::Json& call_args) -> fastmcpp::Json
+    {
+        if (errors == ToolErrors::Report)
+            return run_tool_reporting_errors(name, call_args, run_tool);
+        if (errors == ToolErrors::Defer)
+            return run_tool_raising_errors(name, call_args, run_tool);
+        return run_tool(call_args);
+    };
     const auto& extensions = app.extensions();
     if (extensions.empty())
-        return report_errors ? run_tool_reporting_errors(name, args, run_tool) : run_tool(args);
+        return run_body(args);
 
     server::ToolCallRequest request;
     request.name = name;
@@ -533,11 +593,8 @@ invoke_tool_intercepted(const FastMCP& app, const std::string& name, const fastm
     request.protocol_version = wire_version_of_request(params);
     request.run_tool = run_tool;
 
-    server::ToolCallContinuation chain = [&request, run_tool, report_errors, &name]()
-    {
-        return report_errors ? run_tool_reporting_errors(name, request.arguments, run_tool)
-                             : run_tool(request.arguments);
-    };
+    server::ToolCallContinuation chain = [&request, run_body]()
+    { return run_body(request.arguments); };
     for (auto it = extensions.rbegin(); it != extensions.rend(); ++it)
     {
         server::ServerExtension* extension = it->get();
@@ -2641,8 +2698,34 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
                         return build_fastmcp_tool_result(app.invoke_tool(name, call_args),
                                                          has_output_schema, wrap_result);
                     };
-                    fastmcpp::Json result_payload =
-                        invoke_tool_intercepted(app, name, args, params, run_tool, true);
+                    // With middleware registered, a tool failure is thrown past
+                    // this core so on_call_tool sees the typed exception; the
+                    // isError result is applied above the chain, as upstream does.
+                    // PYTHON REFERENCE: fastmcp/server/mixins/mcp_operations.py:290-315
+                    if (app.has_middleware())
+                    {
+                        try
+                        {
+                            return fastmcpp::Json{
+                                {"jsonrpc", "2.0"},
+                                {"id", id},
+                                {"result", invoke_tool_intercepted(app, name, args, params,
+                                                                   run_tool, ToolErrors::Defer)},
+                            };
+                        }
+                        catch (const InputRequired&)
+                        {
+                            throw;
+                        }
+                        catch (const std::exception& e)
+                        {
+                            if (span.active())
+                                span.span().record_exception(e.what());
+                            throw ToolCallFailure{std::current_exception()};
+                        }
+                    }
+                    fastmcpp::Json result_payload = invoke_tool_intercepted(
+                        app, name, args, params, run_tool, ToolErrors::Report);
                     if (span.active() && result_payload.value("isError", false))
                         span.span().record_exception(tool_error_text(result_payload));
                     return fastmcpp::Json{
@@ -3205,8 +3288,53 @@ make_mcp_handler(const FastMCP& app, SessionAccessor session_accessor)
         else if (ctx.method == "prompts/get")
             ctx.prompt_name = params.value("name", "");
 
-        return app.middleware_pipeline()->execute(ctx, [&core](const server::MiddlewareContext& c)
-                                                  { return core(c.message); });
+        if (ctx.method != "tools/call")
+            return app.middleware_pipeline()->execute(
+                ctx, [&core](const server::MiddlewareContext& c) { return core(c.message); });
+
+        // A tool failure reaches the middleware as its exception (ValidationError,
+        // NotFoundError for an unknown tool, fastmcpp::Error for anything else), and
+        // becomes the isError result here, above the chain, when no middleware
+        // answered it. An McpError a middleware raises stays a protocol error.
+        // PYTHON REFERENCE: fastmcp/server/mixins/mcp_operations.py:290-315 (_on_call_tool)
+        const auto id = message.contains("id") ? message.at("id") : fastmcpp::Json();
+        const std::string name = ctx.tool_name.value_or("");
+        bool from_tool = false;
+        try
+        {
+            return app.middleware_pipeline()->execute(
+                ctx,
+                [&core, &from_tool](const server::MiddlewareContext& c)
+                {
+                    try
+                    {
+                        return core(c.message);
+                    }
+                    catch (const ToolCallFailure& failure)
+                    {
+                        from_tool = true;
+                        std::rethrow_exception(failure.error);
+                    }
+                });
+        }
+        catch (const fastmcpp::McpError& e)
+        {
+            return mcp_error_response(id, e);
+        }
+        catch (const fastmcpp::Error&)
+        {
+            return fastmcpp::Json{{"jsonrpc", "2.0"},
+                                  {"id", id},
+                                  {"result", tool_error_result(name, std::current_exception())}};
+        }
+        catch (const std::exception& e)
+        {
+            // An extension's own failure, as without middleware; a middleware's own
+            // exception propagates as before.
+            if (from_tool)
+                return jsonrpc_tool_error(id, e);
+            throw;
+        }
     };
 }
 
@@ -3859,8 +3987,8 @@ make_mcp_handler_with_sampling(const FastMCP& app, SessionAccessor session_acces
                         return build_fastmcp_tool_result(app.invoke_tool(name, call_args),
                                                          has_output_schema);
                     };
-                    fastmcpp::Json result_payload =
-                        invoke_tool_intercepted(app, name, args, params, run_tool, true);
+                    fastmcpp::Json result_payload = invoke_tool_intercepted(
+                        app, name, args, params, run_tool, ToolErrors::Report);
                     if (span.active() && result_payload.value("isError", false))
                         span.span().record_exception(tool_error_text(result_payload));
                     return fastmcpp::Json{

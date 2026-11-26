@@ -15,7 +15,7 @@ fastmcpp is a C++ port of the Python [fastmcp](https://github.com/jlowin/fastmcp
 
 **Status:** Beta – core MCP features track the Python `fastmcp` reference.
 
-**Current version:** 4.2.6
+**Current version:** 4.2.6.1
 
 ## Features
 
@@ -445,6 +445,41 @@ programs need nothing. What changes:
 - **fastmcp 4 servers list static resources with a trailing slash**
   (`file://readme.txt/`) and resolve only that form; read resources by the URI
   the server lists.
+
+### Tool errors
+
+A failure of the tool itself (bad arguments, an unknown tool name, an
+exception from the tool body) is returned as a result with `isError: true`,
+not as a JSON-RPC error, so the model can read it and retry. A tool that
+returns `isError` itself is answered as is.
+
+Middleware sees the failure before that conversion, as its exception:
+`fastmcpp::ValidationError` for invalid arguments, `fastmcpp::NotFoundError`
+for an unknown tool, and `fastmcpp::Error` ("Error calling tool '<name>': ...")
+for anything else. If no middleware answers, the `isError` result is applied
+above the chain. A host that keeps a JSON-RPC error for some cases catches them
+in `on_call_tool`:
+
+```cpp
+struct JsonRpcArgumentErrors : fastmcpp::server::Middleware
+{
+    fastmcpp::Json on_call_tool(const fastmcpp::server::MiddlewareContext& ctx,
+                                fastmcpp::server::CallNext next) override
+    {
+        try
+        {
+            return next(ctx);
+        }
+        catch (const fastmcpp::ValidationError& e)
+        {
+            return {{"jsonrpc", "2.0"},
+                    {"id", ctx.message.value("id", fastmcpp::Json())},
+                    {"error", {{"code", -32602}, {"message", e.what()}}}};
+        }
+    }
+};
+// app.add_middleware(std::make_shared<JsonRpcArgumentErrors>());
+```
 
 ### Asking the client for input across rounds
 
