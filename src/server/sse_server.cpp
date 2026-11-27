@@ -4,6 +4,7 @@
 #include "fastmcpp/mcp/dual_era.hpp"
 #include "fastmcpp/telemetry.hpp"
 #include "fastmcpp/util/json.hpp"
+#include "http_auth_detail.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -317,6 +318,18 @@ bool SseServerWrapper::start()
     svr_->set_read_timeout(30, 0);                  // 30 second read timeout
     svr_->set_write_timeout(30, 0);                 // 30 second write timeout
 
+    auth_gate_.reset();
+    if (auth_)
+    {
+        auto prepared = auth::prepare_http_auth(auth_, sse_path_);
+        auth_gate_ = prepared.gate;
+        for (const auto& route : prepared.routes)
+            detail::register_custom_route(
+                *svr_, route, [this](const httplib::Request& req, httplib::Response& res)
+                { return host_origin_reject_ && host_origin_reject_(req, res); },
+                [this](httplib::Response& res) { apply_additional_response_headers(res); });
+    }
+
     // Set up SSE endpoint (GET)
     svr_->Get(sse_path_,
               [this](const httplib::Request& req, httplib::Response& res)
@@ -337,6 +350,19 @@ bool SseServerWrapper::start()
                           res.set_content("{\"error\":\"Unauthorized\"}", "application/json");
                           return;
                       }
+                  }
+
+                  auto admitted = detail::authenticate_request(auth_gate_, req, res);
+                  if (!admitted)
+                  {
+                      apply_additional_response_headers(res);
+                      return;
+                  }
+                  std::shared_ptr<const AccessToken> access = *admitted;
+                  std::optional<std::string> owner;
+                  {
+                      AccessTokenScope access_scope(access);
+                      owner = current_principal();
                   }
 
                   // Security: Check connection limit before accepting new connection
@@ -364,13 +390,15 @@ bool SseServerWrapper::start()
 
                   res.set_chunked_content_provider(
                       "text/event-stream",
-                      [this](size_t /*offset*/, httplib::DataSink& sink)
+                      [this, access, owner](size_t /*offset*/, httplib::DataSink& sink)
                       {
                           // Generate cryptographically secure session ID
                           auto session_id = generate_session_id();
 
                           auto conn = std::make_shared<ConnectionState>();
                           conn->session_id = session_id;
+                          conn->owner = owner;
+                          conn->access = access;
 
                           // Create ServerSession for bidirectional communication
                           // The send callback pushes events to this connection's queue
@@ -465,6 +493,11 @@ bool SseServerWrapper::start()
 
                 apply_additional_response_headers(res);
 
+                auto admitted = detail::authenticate_request(auth_gate_, req, res);
+                if (!admitted)
+                    return;
+                AccessTokenScope access_scope(*admitted);
+
                 // Security: Require session_id parameter to prevent message injection
                 std::string session_id;
                 if (req.has_param("session_id"))
@@ -479,10 +512,11 @@ bool SseServerWrapper::start()
                     return;
                 }
 
-                // Security: Verify session exists
+                // Security: Verify session exists and belongs to this principal
                 {
                     std::lock_guard<std::mutex> lock(conns_mutex_);
-                    if (connections_.find(session_id) == connections_.end())
+                    auto found = connections_.find(session_id);
+                    if (found == connections_.end() || found->second->owner != current_principal())
                     {
                         res.status = 404;
                         res.set_content("{\"error\":\"Invalid or expired session_id\"}",

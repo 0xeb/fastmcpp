@@ -1,4 +1,5 @@
 #pragma once
+#include "fastmcpp/server/authorization.hpp"
 #include "fastmcpp/types.hpp"
 
 #include <functional>
@@ -44,6 +45,8 @@ struct Prompt
     std::vector<PromptArgument> arguments;
     std::function<std::vector<PromptMessage>(const Json&)> generator;     // Message generator
     fastmcpp::TaskSupport task_support{fastmcpp::TaskSupport::Forbidden}; // SEP-1686 task mode
+    std::vector<std::string> tags;                 // `_meta.fastmcp.tags`, restrict_tag()
+    std::vector<fastmcpp::server::AuthCheck> auth; // Denied callers see no such prompt
 
     // Legacy constructor for backwards compatibility
     Prompt() = default;

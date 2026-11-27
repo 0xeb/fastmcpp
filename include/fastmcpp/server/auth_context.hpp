@@ -29,6 +29,11 @@ struct AccessToken
     std::optional<std::int64_t> expires_at;
     std::optional<std::string> subject;
     Json claims = Json::object();
+    /// RFC 8707 resource indicator the token was issued for.
+    std::optional<std::string> resource;
+    /// The verifier's own client_id, kept when MultiAuth qualifies client_id
+    /// with the source that accepted the token.
+    std::optional<std::string> original_client_id;
 };
 
 /// Validates a bearer token; nullopt rejects it.

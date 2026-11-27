@@ -1,5 +1,6 @@
 #pragma once
 #include "fastmcpp/mcp/request_state.hpp"
+#include "fastmcpp/server/auth.hpp"
 #include "fastmcpp/server/auth_context.hpp"
 #include "fastmcpp/server/host_origin_guard.hpp"
 #include "fastmcpp/server/session.hpp"
@@ -92,14 +93,27 @@ class StreamableHttpServerWrapper
         request_state_security_ = std::move(security);
     }
 
-    /// Authenticate every request with a bearer token @p verifier accepts;
-    /// others get 401 `invalid_token` with a WWW-Authenticate challenge. The
-    /// accepted AccessToken is the request's principal (current_access_token,
-    /// session state). Combines with a static auth_token if both are set.
-    /// Call before start().
+    /// Protect the MCP endpoint with @p provider: every GET, POST and DELETE
+    /// needs a bearer token it accepts (see auth::RequireAuth for the 401/403
+    /// answers), and the provider's routes (protected resource metadata, OAuth
+    /// endpoints) are served alongside. The accepted AccessToken is the
+    /// request's principal, and a session answers only the principal that
+    /// created it. Combines with a static auth_token if both are set. Call
+    /// before start().
+    void set_auth(std::shared_ptr<auth::AuthProvider> provider)
+    {
+        auth_ = std::move(provider);
+    }
+    const std::shared_ptr<auth::AuthProvider>& auth() const
+    {
+        return auth_;
+    }
+
+    /// set_auth() with a provider over @p verifier.
     void set_token_verifier(TokenVerifier verifier)
     {
-        token_verifier_ = std::move(verifier);
+        set_auth(verifier ? std::make_shared<auth::FunctionTokenVerifier>(std::move(verifier))
+                          : nullptr);
     }
 
     /// HTTP worker threads (default 64). Every open `subscriptions/listen`
@@ -221,7 +235,8 @@ class StreamableHttpServerWrapper
     std::atomic<int> bound_port_ = 0;
     std::string mcp_path_;
     std::string auth_token_; // Optional Bearer token for authentication
-    TokenVerifier token_verifier_;
+    std::shared_ptr<auth::AuthProvider> auth_;
+    std::shared_ptr<auth::RequireAuth> auth_gate_;
     std::unordered_map<std::string, std::string> response_headers_;
 
     std::unique_ptr<httplib::Server> svr_;
@@ -233,6 +248,8 @@ class StreamableHttpServerWrapper
 
     // Active sessions mapped by session ID
     std::unordered_map<std::string, std::shared_ptr<ServerSession>> sessions_;
+    /// The principal that created each session (nullopt = unauthenticated).
+    std::unordered_map<std::string, std::optional<std::string>> session_owners_;
     mutable std::mutex sessions_mutex_;
 
     size_t worker_threads_{64};

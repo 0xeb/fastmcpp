@@ -4,6 +4,7 @@
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/util/http_methods.hpp"
 #include "fastmcpp/util/json.hpp"
+#include "http_auth_detail.hpp"
 
 #include <httplib.h>
 
@@ -76,6 +77,18 @@ bool HttpServerWrapper::start()
     svr_->set_read_timeout(30, 0);                  // 30 second read timeout
     svr_->set_write_timeout(30, 0);                 // 30 second write timeout
 
+    auth_gate_.reset();
+    if (auth_)
+    {
+        auto prepared = auth::prepare_http_auth(auth_, auth_path_);
+        auth_gate_ = prepared.gate;
+        for (const auto& route : prepared.routes)
+            detail::register_custom_route(
+                *svr_, route, [this](const httplib::Request& req, httplib::Response& res)
+                { return host_origin_reject_ && host_origin_reject_(req, res); },
+                [this](httplib::Response& res) { apply_additional_response_headers(res); });
+    }
+
     // Handle OPTIONS for CORS preflight on all routes
     svr_->Options(R"(/(.*))",
                   [this](const httplib::Request&, httplib::Response& res)
@@ -90,6 +103,15 @@ bool HttpServerWrapper::start()
 
     auto authorize_or_401 = [this](const httplib::Request& req, httplib::Response& res) -> bool
     {
+        if (auth_gate_)
+        {
+            auto admitted = detail::authenticate_request(auth_gate_, req, res);
+            if (!admitted)
+            {
+                apply_additional_response_headers(res);
+                return false;
+            }
+        }
         if (auth_token_.empty())
             return true;
 

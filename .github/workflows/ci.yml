@@ -97,3 +97,40 @@ jobs:
       - name: Build
         run: cmake --build build-curl --config Release --parallel 2
 
+  # FASTMCPP_ENABLE_SERVER_AUTH switches in a platform crypto backend (CNG on
+  # Windows, OpenSSL 3 elsewhere) that the default matrix never compiles.
+  server-auth:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} (server auth)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenSSL (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          extra=""
+          if [ "$RUNNER_OS" = "macOS" ]; then extra="-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)"; fi
+          cmake -B build-auth -S . -DCMAKE_BUILD_TYPE=Release -DFASTMCPP_BUILD_EXAMPLES=OFF -DFASTMCPP_ENABLE_SERVER_AUTH=ON $extra
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -B build-auth -S . -A x64 -DFASTMCPP_BUILD_EXAMPLES=OFF -DFASTMCPP_ENABLE_SERVER_AUTH=ON
+
+      - name: Build (Unix)
+        if: runner.os != 'Windows'
+        run: cmake --build build-auth --config Release --parallel 2
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: cmake --build build-auth --config Release -- /m:1 /p:CL_MPCount=1

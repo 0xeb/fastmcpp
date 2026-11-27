@@ -673,9 +673,11 @@ authorization_server_discovery_urls(const std::optional<std::string>& auth_serve
 
 // ================================================================== HTTP
 
-HttpFunction default_http_function(bool verify_ssl)
+namespace
 {
-    return [verify_ssl](const HttpRequest& req) -> HttpResponse
+HttpFunction make_http_function(bool verify_ssl, std::optional<std::chrono::seconds> timeout)
+{
+    return [verify_ssl, timeout](const HttpRequest& req) -> HttpResponse
     {
         const auto target = fastmcpp::client::detail::parse_url_with_path(req.url);
         const std::string origin =
@@ -689,12 +691,17 @@ HttpFunction default_http_function(bool verify_ssl)
         {
 #if defined(_WIN32) && defined(FASTMCPP_HAS_WINHTTP)
             WinHttpTransport backend(origin + "/", {}, verify_ssl);
+            if (timeout)
+                backend.set_timeouts(*timeout, *timeout);
             return backend.send(req.method, origin, path, req.headers, req.body);
 #elif defined(FASTMCPP_HAS_CURL_TRANSPORT)
             CurlTransport backend(origin + "/", {}, verify_ssl);
+            if (timeout)
+                backend.set_timeouts(*timeout, *timeout);
             return backend.send(req.method, origin, path, req.headers, req.body);
 #else
             (void)verify_ssl;
+            (void)timeout;
             throw fastmcpp::TransportError(
                 "OAuth: https:// requires a build with WinHTTP or libcurl "
                 "(FASTMCPP_ENABLE_WINHTTP / FASTMCPP_ENABLE_CURL_TRANSPORT)");
@@ -702,8 +709,8 @@ HttpFunction default_http_function(bool verify_ssl)
         }
 
         httplib::Client cli(target.base.host, target.base.port);
-        cli.set_connection_timeout(30, 0);
-        cli.set_read_timeout(60, 0);
+        cli.set_connection_timeout(timeout ? timeout->count() : 30, 0);
+        cli.set_read_timeout(timeout ? timeout->count() : 60, 0);
         cli.set_follow_location(false);
         httplib::Headers headers;
         std::string content_type = "application/octet-stream";
@@ -724,6 +731,17 @@ HttpFunction default_http_function(bool verify_ssl)
             out.headers.emplace(k, v);
         return out;
     };
+}
+} // namespace
+
+HttpFunction default_http_function(bool verify_ssl)
+{
+    return make_http_function(verify_ssl, std::nullopt);
+}
+
+HttpFunction default_http_function(bool verify_ssl, std::chrono::seconds timeout)
+{
+    return make_http_function(verify_ssl, timeout);
 }
 
 // ================================================================== stores

@@ -1,7 +1,7 @@
 #pragma once
 /// @file crypto.hpp
-/// @brief Self-contained primitives for sealing request state: SHA-256, HMAC,
-///        HKDF, AES-256-GCM, a CSPRNG and unpadded base64url.
+/// @brief Self-contained primitives: SHA-2, SHAKE256, HMAC, HKDF, AES-256-GCM,
+///        a CSPRNG and unpadded base64url.
 /// @details No crypto backend is required (OpenSSL is optional for this
 ///          library), so these are portable reference implementations. They
 ///          process small inputs (tokens of a few hundred bytes); they are not
@@ -22,8 +22,17 @@ using Bytes = std::vector<std::uint8_t>;
 
 std::array<std::uint8_t, 32> sha256(const std::uint8_t* data, std::size_t len);
 std::array<std::uint8_t, 32> sha256(std::string_view data);
+std::array<std::uint8_t, 48> sha384(const std::uint8_t* data, std::size_t len);
+std::array<std::uint8_t, 64> sha512(const std::uint8_t* data, std::size_t len);
+
+/// FIPS 202 SHAKE256 with @p out_len bytes of output.
+Bytes shake256(const std::uint8_t* data, std::size_t len, std::size_t out_len);
 
 std::array<std::uint8_t, 32> hmac_sha256(const Bytes& key, const std::uint8_t* data,
+                                         std::size_t len);
+std::array<std::uint8_t, 48> hmac_sha384(const Bytes& key, const std::uint8_t* data,
+                                         std::size_t len);
+std::array<std::uint8_t, 64> hmac_sha512(const Bytes& key, const std::uint8_t* data,
                                          std::size_t len);
 
 /// RFC 5869 HKDF-SHA256. An empty @p salt means "not provided" (HashLen zeros).

@@ -1,5 +1,6 @@
 #pragma once
 #include "fastmcpp/resources/types.hpp"
+#include "fastmcpp/server/authorization.hpp"
 #include "fastmcpp/types.hpp"
 
 #include <cstdint>
@@ -38,6 +39,8 @@ struct Resource
     std::optional<fastmcpp::AppConfig> app;               // MCP Apps metadata (_meta.ui)
     std::function<ResourceContent(const Json&)> provider; // Content provider function
     fastmcpp::TaskSupport task_support{fastmcpp::TaskSupport::Forbidden}; // SEP-1686 task mode
+    std::vector<std::string> tags;                 // `_meta.fastmcp.tags`, restrict_tag()
+    std::vector<fastmcpp::server::AuthCheck> auth; // Denied callers see no such resource
 
     // Legacy fields (for backwards compatibility)
     fastmcpp::Id id;

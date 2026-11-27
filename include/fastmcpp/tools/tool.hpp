@@ -1,6 +1,7 @@
 #pragma once
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/server/auth_context.hpp"
+#include "fastmcpp/server/authorization.hpp"
 #include "fastmcpp/types.hpp"
 #include "fastmcpp/util/json_schema.hpp"
 
@@ -239,6 +240,28 @@ class Tool
         return *this;
     }
 
+    /// Tags, for tag-based authorization (restrict_tag) and `_meta.fastmcp.tags`.
+    const std::vector<std::string>& tags() const
+    {
+        return tags_;
+    }
+    Tool& set_tags(std::vector<std::string> tags)
+    {
+        tags_ = std::move(tags);
+        return *this;
+    }
+
+    /// Authorization checks; a caller they deny sees no such tool.
+    const std::vector<fastmcpp::server::AuthCheck>& auth() const
+    {
+        return auth_;
+    }
+    Tool& set_auth(std::vector<fastmcpp::server::AuthCheck> auth)
+    {
+        auth_ = std::move(auth);
+        return *this;
+    }
+
   private:
     static std::string format_timeout_seconds(std::chrono::milliseconds timeout)
     {
@@ -304,6 +327,8 @@ class Tool
     std::optional<fastmcpp::AppConfig> app_;
     std::optional<std::string> version_;
     std::optional<fastmcpp::Json> meta_;
+    std::vector<std::string> tags_;
+    std::vector<fastmcpp::server::AuthCheck> auth_;
 };
 
 } // namespace fastmcpp::tools

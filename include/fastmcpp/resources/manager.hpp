@@ -3,6 +3,7 @@
 #include "fastmcpp/resources/resource.hpp"
 #include "fastmcpp/resources/template.hpp"
 
+#include <functional>
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -60,6 +61,33 @@ class ResourceManager
     std::vector<ResourceTemplate> list_templates() const
     {
         return templates_;
+    }
+
+    /// As read(), skipping templates @p template_allowed rejects.
+    ResourceContent read(const std::string& uri, const Json& params,
+                         const std::function<bool(const ResourceTemplate&)>& template_allowed) const
+    {
+        auto it = by_uri_.find(uri);
+        if (it != by_uri_.end())
+        {
+            if (it->second.provider)
+                return it->second.provider(params);
+            return ResourceContent{uri, it->second.mime_type, std::string{}};
+        }
+        for (const auto& templ : templates_)
+        {
+            auto match_params = templ.match(uri);
+            if (!match_params || (template_allowed && !template_allowed(templ)))
+                continue;
+            enforce_resource_security(templ.security, *match_params, uri, default_security_);
+            Json merged_params = templ.build_typed_params(*match_params);
+            for (const auto& [key, value] : params.items())
+                merged_params[key] = value;
+            if (templ.provider)
+                return templ.provider(merged_params);
+            return ResourceContent{uri, templ.mime_type, std::string{}};
+        }
+        throw NotFoundError("Resource not found: " + uri);
     }
 
     ResourceContent read(const std::string& uri, const Json& params = Json::object()) const

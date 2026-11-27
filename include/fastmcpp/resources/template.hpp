@@ -55,6 +55,8 @@ struct ResourceTemplate
     fastmcpp::TaskSupport task_support{fastmcpp::TaskSupport::Forbidden}; // SEP-1686 task mode
     /// Path-safety policy for extracted params; inherits the server default.
     TemplateSecurity security;
+    std::vector<std::string> tags;                 // `_meta.fastmcp.tags`, restrict_tag()
+    std::vector<fastmcpp::server::AuthCheck> auth; // Denied callers see no such template
 
     // Provider function: takes extracted params, returns content
     std::function<ResourceContent(const Json& params)> provider;

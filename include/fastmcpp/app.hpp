@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fastmcpp/client/types.hpp"
+#include "fastmcpp/custom_route.hpp"
 #include "fastmcpp/prompts/manager.hpp"
 #include "fastmcpp/proxy.hpp"
 #include "fastmcpp/resources/manager.hpp"
@@ -38,37 +39,11 @@ class ServerExtension;
 class Session;
 class SessionStateStore;
 struct MethodBinding;
+namespace auth
+{
+class AuthProvider;
+}
 } // namespace server
-
-/// HTTP request snapshot passed to a custom-route handler.
-/// Kept transport-agnostic so HttpServerWrapper can populate it from
-/// cpp-httplib without leaking that dependency into app.hpp.
-struct CustomRouteRequest
-{
-    std::string method;
-    std::string path;
-    std::string body;
-    std::unordered_map<std::string, std::string> headers;
-    std::string target;
-    std::multimap<std::string, std::string> query_params;
-};
-
-/// HTTP response returned by a custom-route handler.
-struct CustomRouteResponse
-{
-    int status{200};
-    std::string body;
-    std::string content_type{"text/plain"};
-    std::unordered_map<std::string, std::string> headers;
-};
-
-/// User-registered HTTP endpoint outside the JSON-RPC core.
-struct CustomRoute
-{
-    std::string method; // GET, POST, PUT, DELETE, PATCH
-    std::string path;   // Absolute path, e.g. "/health" — must start with '/'
-    std::function<CustomRouteResponse(const CustomRouteRequest&)> handler;
-};
 
 /// Mounted app reference with prefix (direct mode)
 struct MountedApp
@@ -124,6 +99,9 @@ class FastMCP
         std::optional<std::chrono::milliseconds> timeout;
         bool sequential{false};
         std::optional<AppConfig> app;
+        std::vector<std::string> tags;
+        /// Authorization checks; callers they deny see no such tool.
+        std::vector<server::AuthCheck> auth;
     };
 
     struct PromptOptions
@@ -133,6 +111,8 @@ class FastMCP
         std::optional<Json> meta;
         std::vector<prompts::PromptArgument> arguments;
         TaskSupport task_support{TaskSupport::Forbidden};
+        std::vector<std::string> tags;
+        std::vector<server::AuthCheck> auth;
     };
 
     struct ResourceOptions
@@ -145,6 +125,8 @@ class FastMCP
         std::optional<std::vector<Icon>> icons;
         TaskSupport task_support{TaskSupport::Forbidden};
         std::optional<AppConfig> app;
+        std::vector<std::string> tags;
+        std::vector<server::AuthCheck> auth;
     };
 
     struct ResourceTemplateOptions
@@ -160,6 +142,8 @@ class FastMCP
         /// Path-safety policy: inherit the server default (default),
         /// resources::kNoResourceSecurity, or an explicit ResourceSecurity.
         resources::TemplateSecurity security;
+        std::vector<std::string> tags;
+        std::vector<server::AuthCheck> auth;
     };
 
     /// Construct app with metadata
@@ -345,6 +329,19 @@ class FastMCP
     /// Register a custom HTTP route handled outside the JSON-RPC core. Re-registering the
     /// same (method, path) replaces the previous handler.
     FastMCP& add_custom_route(CustomRoute route);
+
+    /// The server's auth provider. HTTP transports take it with
+    /// `set_auth(app.auth())`; component and AuthMiddleware checks read the
+    /// token it accepted.
+    FastMCP& set_auth(std::shared_ptr<server::auth::AuthProvider> provider)
+    {
+        auth_ = std::move(provider);
+        return *this;
+    }
+    const std::shared_ptr<server::auth::AuthProvider>& auth() const
+    {
+        return auth_;
+    }
 
     /// Get this app's directly registered custom routes (no mount prefixes).
     const std::vector<CustomRoute>& custom_routes() const
@@ -570,6 +567,7 @@ class FastMCP
     std::vector<MountedApp> mounted_;
     std::vector<ProxyMountedApp> proxy_mounted_;
     std::vector<CustomRoute> custom_routes_;
+    std::shared_ptr<server::auth::AuthProvider> auth_;
     mutable std::vector<tools::Tool> provider_tools_cache_;
     mutable std::vector<prompts::Prompt> provider_prompts_cache_;
     int list_page_size_{0};

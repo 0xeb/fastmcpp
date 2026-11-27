@@ -1,4 +1,5 @@
 #pragma once
+#include "fastmcpp/server/auth.hpp"
 #include "fastmcpp/server/host_origin_guard.hpp"
 #include "fastmcpp/server/session.hpp"
 #include "fastmcpp/types.hpp"
@@ -78,6 +79,19 @@ class SseServerWrapper
     void set_host_origin_guard(HostOriginGuardOptions options)
     {
         host_origin_guard_options_ = std::move(options);
+    }
+
+    /// Protect the SSE stream and the message endpoint with @p provider:
+    /// both need a bearer token it accepts (see auth::RequireAuth), and the
+    /// provider's routes are served alongside. A session answers only the
+    /// principal that opened it. Call before start().
+    void set_auth(std::shared_ptr<auth::AuthProvider> provider)
+    {
+        auth_ = std::move(provider);
+    }
+    const std::shared_ptr<auth::AuthProvider>& auth() const
+    {
+        return auth_;
     }
 
     bool start();
@@ -205,6 +219,8 @@ class SseServerWrapper
     std::string sse_path_;
     std::string message_path_;
     std::string auth_token_; // Optional Bearer token for authentication
+    std::shared_ptr<auth::AuthProvider> auth_;
+    std::shared_ptr<auth::RequireAuth> auth_gate_;
     std::unordered_map<std::string, std::string> response_headers_;
 
     std::unique_ptr<httplib::Server> svr_;
@@ -223,6 +239,8 @@ class SseServerWrapper
         std::condition_variable cv;
         bool alive{true};
         std::shared_ptr<ServerSession> server_session; // For bidirectional requests
+        std::optional<std::string> owner;              // Principal that opened the stream
+        std::shared_ptr<const AccessToken> access;     // Its token, for server-side work
     };
 
     void handle_sse_connection(httplib::DataSink& sink, std::shared_ptr<ConnectionState> conn,

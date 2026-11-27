@@ -125,6 +125,178 @@ class Sha256
     std::uint64_t bits_ = 0;
 };
 
+// ------------------------------------------------------------------ SHA-384 / SHA-512 (FIPS 180-4)
+
+constexpr std::uint64_t kSha512K[80] = {
+    0x428a2f98d728ae22ULL, 0x7137449123ef65cdULL, 0xb5c0fbcfec4d3b2fULL, 0xe9b5dba58189dbbcULL,
+    0x3956c25bf348b538ULL, 0x59f111f1b605d019ULL, 0x923f82a4af194f9bULL, 0xab1c5ed5da6d8118ULL,
+    0xd807aa98a3030242ULL, 0x12835b0145706fbeULL, 0x243185be4ee4b28cULL, 0x550c7dc3d5ffb4e2ULL,
+    0x72be5d74f27b896fULL, 0x80deb1fe3b1696b1ULL, 0x9bdc06a725c71235ULL, 0xc19bf174cf692694ULL,
+    0xe49b69c19ef14ad2ULL, 0xefbe4786384f25e3ULL, 0x0fc19dc68b8cd5b5ULL, 0x240ca1cc77ac9c65ULL,
+    0x2de92c6f592b0275ULL, 0x4a7484aa6ea6e483ULL, 0x5cb0a9dcbd41fbd4ULL, 0x76f988da831153b5ULL,
+    0x983e5152ee66dfabULL, 0xa831c66d2db43210ULL, 0xb00327c898fb213fULL, 0xbf597fc7beef0ee4ULL,
+    0xc6e00bf33da88fc2ULL, 0xd5a79147930aa725ULL, 0x06ca6351e003826fULL, 0x142929670a0e6e70ULL,
+    0x27b70a8546d22ffcULL, 0x2e1b21385c26c926ULL, 0x4d2c6dfc5ac42aedULL, 0x53380d139d95b3dfULL,
+    0x650a73548baf63deULL, 0x766a0abb3c77b2a8ULL, 0x81c2c92e47edaee6ULL, 0x92722c851482353bULL,
+    0xa2bfe8a14cf10364ULL, 0xa81a664bbc423001ULL, 0xc24b8b70d0f89791ULL, 0xc76c51a30654be30ULL,
+    0xd192e819d6ef5218ULL, 0xd69906245565a910ULL, 0xf40e35855771202aULL, 0x106aa07032bbd1b8ULL,
+    0x19a4c116b8d2d0c8ULL, 0x1e376c085141ab53ULL, 0x2748774cdf8eeb99ULL, 0x34b0bcb5e19b48a8ULL,
+    0x391c0cb3c5c95a63ULL, 0x4ed8aa4ae3418acbULL, 0x5b9cca4f7763e373ULL, 0x682e6ff3d6b2b8a3ULL,
+    0x748f82ee5defb2fcULL, 0x78a5636f43172f60ULL, 0x84c87814a1f0ab72ULL, 0x8cc702081a6439ecULL,
+    0x90befffa23631e28ULL, 0xa4506cebde82bde9ULL, 0xbef9a3f7b2c67915ULL, 0xc67178f2e372532bULL,
+    0xca273eceea26619cULL, 0xd186b8c721c0c207ULL, 0xeada7dd6cde0eb1eULL, 0xf57d4f7fee6ed178ULL,
+    0x06f067aa72176fbaULL, 0x0a637dc5a2c898a6ULL, 0x113f9804bef90daeULL, 0x1b710b35131c471bULL,
+    0x28db77f523047d84ULL, 0x32caab7b40c72493ULL, 0x3c9ebe0a15c9bebcULL, 0x431d67c49c100d4cULL,
+    0x4cc5d4becb3e42b6ULL, 0x597f299cfc657e2aULL, 0x5fcb6fab3ad6faecULL, 0x6c44198c4a475817ULL,
+};
+constexpr std::uint64_t kSha512Iv[8] = {
+    0x6a09e667f3bcc908ULL, 0xbb67ae8584caa73bULL, 0x3c6ef372fe94f82bULL, 0xa54ff53a5f1d36f1ULL,
+    0x510e527fade682d1ULL, 0x9b05688c2b3e6c1fULL, 0x1f83d9abfb41bd6bULL, 0x5be0cd19137e2179ULL,
+};
+constexpr std::uint64_t kSha384Iv[8] = {
+    0xcbbb9d5dc1059ed8ULL, 0x629a292a367cd507ULL, 0x9159015a3070dd17ULL, 0x152fecd8f70e5939ULL,
+    0x67332667ffc00b31ULL, 0x8eb44a8768581511ULL, 0xdb0c2e0d64f98fa7ULL, 0x47b5481dbefa4fa4ULL,
+};
+constexpr std::uint64_t kKeccakRc[24] = {
+    0x0000000000000001ULL, 0x0000000000008082ULL, 0x800000000000808aULL, 0x8000000080008000ULL,
+    0x000000000000808bULL, 0x0000000080000001ULL, 0x8000000080008081ULL, 0x8000000000008009ULL,
+    0x000000000000008aULL, 0x0000000000000088ULL, 0x0000000080008009ULL, 0x000000008000000aULL,
+    0x000000008000808bULL, 0x800000000000008bULL, 0x8000000000008089ULL, 0x8000000000008003ULL,
+    0x8000000000008002ULL, 0x8000000000000080ULL, 0x000000000000800aULL, 0x800000008000000aULL,
+    0x8000000080008081ULL, 0x8000000000008080ULL, 0x0000000080000001ULL, 0x8000000080008008ULL,
+};
+// kKeccakRot[x][y]
+constexpr int kKeccakRot[5][5] = {{0, 36, 3, 41, 18},
+                                  {1, 44, 10, 45, 2},
+                                  {62, 6, 43, 15, 61},
+                                  {28, 55, 25, 21, 56},
+                                  {27, 20, 39, 8, 14}};
+
+class Sha512
+{
+  public:
+    explicit Sha512(const std::uint64_t (&iv)[8])
+    {
+        for (int i = 0; i < 8; ++i)
+            h_[i] = iv[i];
+    }
+
+    void update(const std::uint8_t* data, std::size_t len)
+    {
+        for (std::size_t i = 0; i < len; ++i)
+        {
+            buffer_[buffered_++] = data[i];
+            if (buffered_ == 128)
+            {
+                block(buffer_.data());
+                buffered_ = 0;
+            }
+        }
+        bytes_ += len;
+    }
+
+    std::array<std::uint8_t, 64> finish()
+    {
+        const std::uint64_t bits = bytes_ * 8;
+        const std::uint8_t one = 0x80;
+        update(&one, 1);
+        const std::uint8_t zero = 0;
+        while (buffered_ != 112)
+            update(&zero, 1);
+        std::uint8_t len[16] = {};
+        for (int i = 0; i < 8; ++i)
+            len[8 + i] = static_cast<std::uint8_t>(bits >> (56 - 8 * i));
+        update(len, 16);
+        std::array<std::uint8_t, 64> out{};
+        for (int i = 0; i < 8; ++i)
+            for (int b = 0; b < 8; ++b)
+                out[i * 8 + b] = static_cast<std::uint8_t>(h_[i] >> (56 - 8 * b));
+        return out;
+    }
+
+  private:
+    static std::uint64_t rotr(std::uint64_t x, int n)
+    {
+        return (x >> n) | (x << (64 - n));
+    }
+
+    void block(const std::uint8_t* p)
+    {
+        std::uint64_t w[80];
+        for (int i = 0; i < 16; ++i)
+        {
+            w[i] = 0;
+            for (int b = 0; b < 8; ++b)
+                w[i] = (w[i] << 8) | p[i * 8 + b];
+        }
+        for (int i = 16; i < 80; ++i)
+        {
+            const std::uint64_t s0 = rotr(w[i - 15], 1) ^ rotr(w[i - 15], 8) ^ (w[i - 15] >> 7);
+            const std::uint64_t s1 = rotr(w[i - 2], 19) ^ rotr(w[i - 2], 61) ^ (w[i - 2] >> 6);
+            w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+        }
+        std::uint64_t a = h_[0], b = h_[1], c = h_[2], d = h_[3], e = h_[4], f = h_[5], g = h_[6],
+                      h = h_[7];
+        for (int i = 0; i < 80; ++i)
+        {
+            const std::uint64_t s1 = rotr(e, 14) ^ rotr(e, 18) ^ rotr(e, 41);
+            const std::uint64_t ch = (e & f) ^ (~e & g);
+            const std::uint64_t t1 = h + s1 + ch + kSha512K[i] + w[i];
+            const std::uint64_t s0 = rotr(a, 28) ^ rotr(a, 34) ^ rotr(a, 39);
+            const std::uint64_t maj = (a & b) ^ (a & c) ^ (b & c);
+            const std::uint64_t t2 = s0 + maj;
+            h = g;
+            g = f;
+            f = e;
+            e = d + t1;
+            d = c;
+            c = b;
+            b = a;
+            a = t1 + t2;
+        }
+        h_[0] += a;
+        h_[1] += b;
+        h_[2] += c;
+        h_[3] += d;
+        h_[4] += e;
+        h_[5] += f;
+        h_[6] += g;
+        h_[7] += h;
+    }
+
+    std::array<std::uint64_t, 8> h_{};
+    std::array<std::uint8_t, 128> buffer_{};
+    std::size_t buffered_ = 0;
+    std::uint64_t bytes_ = 0;
+};
+
+// ------------------------------------------------------------------ SHAKE256 (FIPS 202)
+
+void keccak_f1600(std::uint64_t (&a)[25])
+{
+    auto rotl = [](std::uint64_t x, int n) { return n == 0 ? x : (x << n) | (x >> (64 - n)); };
+    for (int round = 0; round < 24; ++round)
+    {
+        std::uint64_t c[5];
+        for (int x = 0; x < 5; ++x)
+            c[x] = a[x] ^ a[x + 5] ^ a[x + 10] ^ a[x + 15] ^ a[x + 20];
+        for (int x = 0; x < 5; ++x)
+        {
+            const std::uint64_t d = c[(x + 4) % 5] ^ rotl(c[(x + 1) % 5], 1);
+            for (int y = 0; y < 5; ++y)
+                a[x + 5 * y] ^= d;
+        }
+        std::uint64_t b[25];
+        for (int x = 0; x < 5; ++x)
+            for (int y = 0; y < 5; ++y)
+                b[y + 5 * ((2 * x + 3 * y) % 5)] = rotl(a[x + 5 * y], kKeccakRot[x][y]);
+        for (int x = 0; x < 5; ++x)
+            for (int y = 0; y < 5; ++y)
+                a[x + 5 * y] = b[x + 5 * y] ^ (~b[(x + 1) % 5 + 5 * y] & b[(x + 2) % 5 + 5 * y]);
+        a[0] ^= kKeccakRc[round];
+    }
+}
+
 // ------------------------------------------------------------------ AES-256 (FIPS 197)
 
 constexpr std::uint8_t kSbox[256] = {
@@ -397,6 +569,105 @@ std::array<std::uint8_t, 32> hmac_sha256(const Bytes& key, const std::uint8_t* d
     outer.update(opad.data(), opad.size());
     outer.update(inner_digest.data(), inner_digest.size());
     return outer.finish();
+}
+
+std::array<std::uint8_t, 48> sha384(const std::uint8_t* data, std::size_t len)
+{
+    Sha512 s(kSha384Iv);
+    s.update(data, len);
+    const auto full = s.finish();
+    std::array<std::uint8_t, 48> out{};
+    std::memcpy(out.data(), full.data(), out.size());
+    return out;
+}
+
+std::array<std::uint8_t, 64> sha512(const std::uint8_t* data, std::size_t len)
+{
+    Sha512 s(kSha512Iv);
+    s.update(data, len);
+    return s.finish();
+}
+
+Bytes shake256(const std::uint8_t* data, std::size_t len, std::size_t out_len)
+{
+    constexpr std::size_t rate = 136;
+    std::uint64_t state[25] = {};
+    auto absorb = [&](const std::uint8_t* block)
+    {
+        for (std::size_t i = 0; i < rate / 8; ++i)
+        {
+            std::uint64_t lane = 0;
+            for (int b = 7; b >= 0; --b)
+                lane = (lane << 8) | block[i * 8 + b];
+            state[i] ^= lane;
+        }
+        keccak_f1600(state);
+    };
+    std::size_t off = 0;
+    for (; len - off >= rate; off += rate)
+        absorb(data + off);
+    std::uint8_t last[rate] = {};
+    std::memcpy(last, data + off, len - off);
+    last[len - off] ^= 0x1f;
+    last[rate - 1] ^= 0x80;
+    absorb(last);
+    Bytes out;
+    out.reserve(out_len);
+    while (true)
+    {
+        for (std::size_t i = 0; i < rate && out.size() < out_len; ++i)
+            out.push_back(static_cast<std::uint8_t>(state[i / 8] >> (8 * (i % 8))));
+        if (out.size() == out_len)
+            return out;
+        keccak_f1600(state);
+    }
+}
+
+namespace
+{
+
+template <std::size_t Block, std::size_t Out, typename Hash>
+std::array<std::uint8_t, Out> hmac(const Bytes& key, const std::uint8_t* data, std::size_t len,
+                                   Hash hash)
+{
+    std::array<std::uint8_t, Block> k{};
+    if (key.size() > Block)
+    {
+        const auto digest = hash(key.data(), key.size());
+        std::memcpy(k.data(), digest.data(), digest.size());
+    }
+    else if (!key.empty())
+    {
+        std::memcpy(k.data(), key.data(), key.size());
+    }
+    Bytes inner(Block + len);
+    Bytes outer(Block + Out);
+    for (std::size_t i = 0; i < Block; ++i)
+    {
+        inner[i] = static_cast<std::uint8_t>(k[i] ^ 0x36);
+        outer[i] = static_cast<std::uint8_t>(k[i] ^ 0x5c);
+    }
+    if (len)
+        std::memcpy(inner.data() + Block, data, len);
+    const auto inner_digest = hash(inner.data(), inner.size());
+    std::memcpy(outer.data() + Block, inner_digest.data(), Out);
+    return hash(outer.data(), outer.size());
+}
+
+} // namespace
+
+std::array<std::uint8_t, 48> hmac_sha384(const Bytes& key, const std::uint8_t* data,
+                                         std::size_t len)
+{
+    return hmac<128, 48>(key, data, len,
+                         [](const std::uint8_t* d, std::size_t n) { return sha384(d, n); });
+}
+
+std::array<std::uint8_t, 64> hmac_sha512(const Bytes& key, const std::uint8_t* data,
+                                         std::size_t len)
+{
+    return hmac<128, 64>(key, data, len,
+                         [](const std::uint8_t* d, std::size_t n) { return sha512(d, n); });
 }
 
 Bytes hkdf_sha256(const Bytes& ikm, const Bytes& salt, std::string_view info, std::size_t length)

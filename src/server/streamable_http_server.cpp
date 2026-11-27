@@ -6,6 +6,7 @@
 #include "fastmcpp/server/subscriptions.hpp"
 #include "fastmcpp/telemetry.hpp"
 #include "fastmcpp/util/json.hpp"
+#include "http_auth_detail.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -402,6 +403,18 @@ bool StreamableHttpServerWrapper::start()
     const size_t workers = worker_threads_;
     svr_->new_task_queue = [workers] { return new httplib::ThreadPool(workers); };
 
+    auth_gate_.reset();
+    if (auth_)
+    {
+        auto prepared = auth::prepare_http_auth(auth_, mcp_path_);
+        auth_gate_ = prepared.gate;
+        for (const auto& route : prepared.routes)
+            detail::register_custom_route(
+                *svr_, route, [this](const httplib::Request& req, httplib::Response& res)
+                { return host_origin_reject_ && host_origin_reject_(req, res); },
+                [this](httplib::Response& res) { apply_additional_response_headers(res); });
+    }
+
     // Handle OPTIONS for CORS preflight
     svr_->Options(mcp_path_,
                   [this](const httplib::Request&, httplib::Response& res)
@@ -430,29 +443,10 @@ bool StreamableHttpServerWrapper::start()
             // propagated to the catch handlers below.
             apply_additional_response_headers(res);
 
-            std::shared_ptr<const AccessToken> access;
-            if (token_verifier_)
-            {
-                const std::string header = req.get_header_value("Authorization");
-                if (header.size() > 7 &&
-                    (header.compare(0, 7, "Bearer ") == 0 || header.compare(0, 7, "bearer ") == 0))
-                {
-                    if (auto verified = token_verifier_(header.substr(7)))
-                        access = std::make_shared<const AccessToken>(std::move(*verified));
-                }
-                if (!access)
-                {
-                    res.status = 401;
-                    res.set_header("WWW-Authenticate",
-                                   "Bearer error=\"invalid_token\", "
-                                   "error_description=\"Authentication required\"");
-                    res.set_content("{\"error\": \"invalid_token\", \"error_description\": "
-                                    "\"Authentication required\"}",
-                                    "application/json");
-                    return;
-                }
-            }
-            AccessTokenScope access_scope(access);
+            auto admitted = detail::authenticate_request(auth_gate_, req, res);
+            if (!admitted)
+                return;
+            AccessTokenScope access_scope(*admitted);
             telemetry::NetworkTransportScope network_scope(telemetry::http_transport(req.version));
 
             // Expose response headers that cross-origin JS clients legitimately need to
@@ -537,6 +531,7 @@ bool StreamableHttpServerWrapper::start()
                     {
                         std::lock_guard<std::mutex> lock(sessions_mutex_);
                         sessions_[session_id] = session;
+                        session_owners_[session_id] = current_principal();
                     }
                 }
                 else if (session_id.empty())
@@ -549,9 +544,11 @@ bool StreamableHttpServerWrapper::start()
                 }
                 else
                 {
-                    // Verify session exists
+                    // Verify session exists and belongs to this principal
                     std::lock_guard<std::mutex> lock(sessions_mutex_);
-                    if (sessions_.find(session_id) == sessions_.end())
+                    auto owner = session_owners_.find(session_id);
+                    if (sessions_.find(session_id) == sessions_.end() ||
+                        (owner != session_owners_.end() && owner->second != current_principal()))
                     {
                         res.status = 404;
                         res.set_content("{\"error\":\"Invalid or expired session\"}",
@@ -705,6 +702,9 @@ bool StreamableHttpServerWrapper::start()
             // "No 'Access-Control-Allow-Origin' header is present" error.
             apply_additional_response_headers(res);
 
+            if (!detail::authenticate_request(auth_gate_, req, res))
+                return;
+
             if (routes_to_modern(req))
             {
                 res.status = 405;
@@ -731,6 +731,11 @@ bool StreamableHttpServerWrapper::start()
                  [this](const httplib::Request& req, httplib::Response& res)
                  {
                      apply_additional_response_headers(res);
+
+                     auto admitted = detail::authenticate_request(auth_gate_, req, res);
+                     if (!admitted)
+                         return;
+                     AccessTokenScope access_scope(*admitted);
 
                      if (routes_to_modern(req))
                      {
@@ -764,7 +769,12 @@ bool StreamableHttpServerWrapper::start()
                      bool did_remove = false;
                      {
                          std::lock_guard<std::mutex> lock(sessions_mutex_);
-                         did_remove = sessions_.erase(session_id) > 0;
+                         auto owner = session_owners_.find(session_id);
+                         if (owner == session_owners_.end() || owner->second == current_principal())
+                         {
+                             did_remove = sessions_.erase(session_id) > 0;
+                             session_owners_.erase(session_id);
+                         }
                      }
 
                      if (did_remove)
@@ -846,6 +856,7 @@ void StreamableHttpServerWrapper::stop()
     {
         std::lock_guard<std::mutex> lock(sessions_mutex_);
         sessions_.clear();
+        session_owners_.clear();
     }
 
     bound_port_.store(0); // Reset the bound port's value.

@@ -26,6 +26,11 @@
 #include <unordered_set>
 #include <vector>
 
+namespace fastmcpp
+{
+class FastMCP;
+}
+
 namespace fastmcpp::server
 {
 
@@ -45,6 +50,7 @@ struct MiddlewareContext
     std::optional<std::string> tool_name;            ///< Tool name for tools/call
     std::optional<std::string> resource_uri;         ///< Resource URI for resources/read
     std::optional<std::string> prompt_name;          ///< Prompt name for prompts/get
+    const FastMCP* server = nullptr;                 ///< The server handling the request
 
     /// Create a copy with modified fields
     MiddlewareContext copy() const
@@ -186,6 +192,12 @@ class MiddlewarePipeline
     size_t size() const
     {
         return middleware_.size();
+    }
+
+    /// The registered middleware, in order.
+    const std::vector<std::shared_ptr<Middleware>>& middlewares() const
+    {
+        return middleware_;
     }
 
   private:

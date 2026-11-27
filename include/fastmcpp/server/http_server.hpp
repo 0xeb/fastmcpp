@@ -1,4 +1,5 @@
 #pragma once
+#include "fastmcpp/server/auth.hpp"
 #include "fastmcpp/server/host_origin_guard.hpp"
 #include "fastmcpp/server/server.hpp"
 
@@ -55,6 +56,15 @@ class HttpServerWrapper
         host_origin_guard_options_ = std::move(options);
     }
 
+    /// Require a bearer token @p provider accepts on every route (custom
+    /// routes included), serving the provider's own routes unauthenticated.
+    /// @p mcp_path names the protected resource in metadata. Call before start().
+    void set_auth(std::shared_ptr<auth::AuthProvider> provider, std::string mcp_path = "/")
+    {
+        auth_ = std::move(provider);
+        auth_path_ = std::move(mcp_path);
+    }
+
     bool start();
     void stop();
     bool running() const
@@ -94,6 +104,9 @@ class HttpServerWrapper
     std::string auth_token_; // Optional Bearer token for authentication
     std::unordered_map<std::string, std::string> response_headers_;
     std::vector<fastmcpp::CustomRoute> custom_routes_;
+    std::shared_ptr<auth::AuthProvider> auth_;
+    std::string auth_path_{"/"};
+    std::shared_ptr<auth::RequireAuth> auth_gate_;
     std::unique_ptr<httplib::Server> svr_;
     std::thread thread_;
     std::atomic<bool> running_{false};

@@ -3,8 +3,10 @@
 #include <cctype>
 #include <map>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace fastmcpp
 {
@@ -72,6 +74,49 @@ struct ToolTimeoutError : public Error
 struct TransportError : public Error
 {
     using Error::Error;
+};
+
+/// An authorization check denied access to a component.
+struct AuthorizationError : public Error
+{
+    using Error::Error;
+};
+
+/// Authorization failed because the token lacks OAuth scopes. Carries the unmet
+/// scopes so the denial can be surfaced as an `insufficient_scope` step-up
+/// (SEP-2350, RFC 6750 section 3).
+struct InsufficientScopeError : public AuthorizationError
+{
+    explicit InsufficientScopeError(std::vector<std::string> required_scopes,
+                                    std::optional<std::string> message = std::nullopt)
+        : AuthorizationError(message ? *message : default_message(required_scopes)),
+          required_scopes_(std::move(required_scopes))
+    {
+    }
+
+    const std::vector<std::string>& required_scopes() const noexcept
+    {
+        return required_scopes_;
+    }
+
+  private:
+    static std::string default_message(const std::vector<std::string>& scopes)
+    {
+        std::string named;
+        for (const auto& scope : scopes)
+            named += (named.empty() ? "" : ", ") + scope;
+        return "Insufficient scope. Required: " + (named.empty() ? "(unknown)" : named);
+    }
+
+    std::vector<std::string> required_scopes_;
+};
+
+/// Token validity could not be determined because verification was unavailable
+/// (an upstream outage or transport failure). A verifier returning nullopt means
+/// the token was determined to be invalid; this means it could not be checked.
+struct TokenVerificationError : public std::runtime_error
+{
+    using std::runtime_error::runtime_error;
 };
 
 /// A protocol-level failure a server handler raises to answer with a specific

@@ -114,6 +114,35 @@ std::optional<std::string> normalize_ui_mime(const std::string& uri,
     return mime_type;
 }
 
+bool component_allowed(const std::vector<server::AuthCheck>& auth, const char* type,
+                       const std::string& key, const std::vector<std::string>& tags)
+{
+    if (auth.empty())
+        return true;
+    return server::component_auth_allows(
+        auth, server::AuthComponent{type, key, std::set<std::string>(tags.begin(), tags.end())});
+}
+
+bool tool_allowed(const tools::Tool& tool, const std::string& name)
+{
+    return component_allowed(tool.auth(), "tool", name, tool.tags());
+}
+
+bool resource_allowed(const resources::Resource& res)
+{
+    return component_allowed(res.auth, "resource", res.uri, res.tags);
+}
+
+bool template_allowed(const resources::ResourceTemplate& templ)
+{
+    return component_allowed(templ.auth, "resource_template", templ.uri_template, templ.tags);
+}
+
+bool prompt_allowed(const prompts::Prompt& prompt, const std::string& name)
+{
+    return component_allowed(prompt.auth, "prompt", name, prompt.tags);
+}
+
 void validate_resource_app_config(const std::optional<fastmcpp::AppConfig>& app)
 {
     if (!app)
@@ -150,6 +179,8 @@ FastMCP& FastMCP::tool(std::string name, const Json& input_schema_or_simple, too
         t.set_timeout(*options.timeout);
     if (options.sequential)
         t.set_sequential(true);
+    t.set_tags(std::move(options.tags));
+    t.set_auth(std::move(options.auth));
 
     tools_.register_tool(t);
     return *this;
@@ -172,6 +203,8 @@ FastMCP& FastMCP::prompt(std::string name,
     p.arguments = std::move(options.arguments);
     p.generator = std::move(generator);
     p.task_support = options.task_support;
+    p.tags = std::move(options.tags);
+    p.auth = std::move(options.auth);
     prompts_.register_prompt(p);
     return *this;
 }
@@ -186,6 +219,8 @@ FastMCP& FastMCP::prompt_template(std::string name, std::string template_string,
     p.meta = std::move(options.meta);
     p.arguments = std::move(options.arguments);
     p.task_support = options.task_support;
+    p.tags = std::move(options.tags);
+    p.auth = std::move(options.auth);
     prompts_.register_prompt(p);
     return *this;
 }
@@ -207,6 +242,8 @@ FastMCP& FastMCP::resource(std::string uri, std::string name,
     r.app = std::move(options.app);
     r.provider = std::move(provider);
     r.task_support = options.task_support;
+    r.tags = std::move(options.tags);
+    r.auth = std::move(options.auth);
     resources_.register_resource(r);
     return *this;
 }
@@ -229,6 +266,8 @@ FastMCP::resource_template(std::string uri_template, std::string name,
     templ.app = std::move(options.app);
     templ.task_support = options.task_support;
     templ.security = std::move(options.security);
+    templ.tags = std::move(options.tags);
+    templ.auth = std::move(options.auth);
     templ.provider = std::move(provider);
 
     if (parameters_schema_or_simple.is_object() && parameters_schema_or_simple.empty())
@@ -870,6 +909,8 @@ std::vector<std::pair<std::string, const tools::Tool*>> FastMCP::list_all_tools(
 
     auto add_tool = [&](std::string name, const tools::Tool* tool)
     {
+        if (tool && !tool_allowed(*tool, name))
+            return;
         if (seen.insert(name).second)
             result.emplace_back(std::move(name), tool);
     };
@@ -884,7 +925,7 @@ std::vector<std::pair<std::string, const tools::Tool*>> FastMCP::list_all_tools(
         for (const auto& tool : provider->list_tools_transformed())
         {
             const auto& name = tool.name();
-            if (!seen.insert(name).second)
+            if (!tool_allowed(tool, name) || !seen.insert(name).second)
                 continue;
             provider_tools_cache_.push_back(tool);
             result.emplace_back(name, &provider_tools_cache_.back());
@@ -948,7 +989,7 @@ std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
 
     auto append_tool_info = [&](const tools::Tool& tool, const std::string& name)
     {
-        if (!seen.insert(name).second)
+        if (!tool_allowed(tool, name) || !seen.insert(name).second)
             return;
         client::ToolInfo info;
         info.name = name;
@@ -971,6 +1012,14 @@ std::vector<client::ToolInfo> FastMCP::list_all_tools_info() const
         info.icons = tool.icons();
         if (tool.meta() && tool.meta()->is_object())
             info._meta = *tool.meta();
+        if (!tool.tags().empty())
+        {
+            if (!info._meta || !info._meta->is_object())
+                info._meta = Json::object();
+            if (!(*info._meta).contains("fastmcp") || !(*info._meta)["fastmcp"].is_object())
+                (*info._meta)["fastmcp"] = Json::object();
+            (*info._meta)["fastmcp"]["tags"] = tool.tags();
+        }
         if (tool.app() && !tool.app()->empty())
         {
             info.app = *tool.app();
@@ -1035,6 +1084,8 @@ std::vector<resources::Resource> FastMCP::list_all_resources() const
 
     auto add_resource = [&](const resources::Resource& res)
     {
+        if (!resource_allowed(res))
+            return;
         if (seen.insert(res.uri).second)
             result.push_back(res);
     };
@@ -1107,6 +1158,8 @@ std::vector<resources::ResourceTemplate> FastMCP::list_all_templates() const
 
     auto add_template = [&](const resources::ResourceTemplate& templ)
     {
+        if (!template_allowed(templ))
+            return;
         resources::ResourceTemplate normalized = templ;
         if (!normalized.parameters.is_null())
             normalized.parameters = maybe_dereference_schema(normalized.parameters);
@@ -1183,6 +1236,8 @@ std::vector<std::pair<std::string, const prompts::Prompt*>> FastMCP::list_all_pr
 
     auto add_prompt = [&](std::string name, const prompts::Prompt* prompt)
     {
+        if (prompt && !prompt_allowed(*prompt, name))
+            return;
         if (seen.insert(name).second)
             result.emplace_back(std::move(name), prompt);
     };
@@ -1196,7 +1251,7 @@ std::vector<std::pair<std::string, const prompts::Prompt*>> FastMCP::list_all_pr
     {
         for (const auto& prompt : provider->list_prompts_transformed())
         {
-            if (!seen.insert(prompt.name).second)
+            if (!prompt_allowed(prompt, prompt.name) || !seen.insert(prompt.name).second)
                 continue;
             provider_prompts_cache_.push_back(prompt);
             result.emplace_back(prompt.name, &provider_prompts_cache_.back());
@@ -1262,21 +1317,15 @@ void FastMCP::namespace_resource_links(Json& result, const std::string& prefix)
 
 Json FastMCP::invoke_tool(const std::string& name, const Json& args, bool enforce_timeout) const
 {
-    // Try local tools first
-    try
-    {
+    // Try local tools first; one the caller may not use is absent to it
+    if (tools_.has(name) && tool_allowed(tools_.get(name), name))
         return tools_.invoke(name, args, enforce_timeout);
-    }
-    catch (const NotFoundError&)
-    {
-        // Fall through to check mounted apps
-    }
 
     // Check provider tools
     for (const auto& provider : providers_)
     {
         auto tool = provider->get_tool_transformed(name);
-        if (tool)
+        if (tool && tool_allowed(*tool, name))
             return tool->invoke(args, enforce_timeout);
     }
 
@@ -1364,10 +1413,13 @@ Json FastMCP::invoke_tool(const std::string& name, const Json& args, bool enforc
 
 resources::ResourceContent FastMCP::read_resource(const std::string& uri, const Json& params) const
 {
-    // Try local resources first
+    // Try local resources first. A concrete resource the caller may not read
+    // is hidden: not found, and no template serves its URI instead.
+    if (resources_.has(uri) && !resource_allowed(resources_.get(uri)))
+        throw HiddenResourceError("Unknown resource: " + uri);
     try
     {
-        return resources_.read(uri, params);
+        return resources_.read(uri, params, template_allowed);
     }
     catch (const ResourceSecurityError&)
     {
@@ -1384,6 +1436,8 @@ resources::ResourceContent FastMCP::read_resource(const std::string& uri, const 
     {
         if (auto res = provider->get_resource_transformed(uri))
         {
+            if (!resource_allowed(*res))
+                throw HiddenResourceError("Unknown resource: " + uri);
             if (res->provider)
                 return res->provider(params);
             return resources::ResourceContent{uri, res->mime_type, std::string{}};
@@ -1397,7 +1451,7 @@ resources::ResourceContent FastMCP::read_resource(const std::string& uri, const 
         if (auto templ = provider->get_resource_template_transformed(uri))
         {
             auto match_params = templ->match(uri);
-            if (!match_params)
+            if (!match_params || !template_allowed(*templ))
                 continue;
             resources::enforce_resource_security(templ->security, *match_params, uri,
                                                  resource_security());
@@ -1553,8 +1607,8 @@ std::vector<prompts::PromptMessage> FastMCP::get_prompt(const std::string& name,
 
 prompts::PromptResult FastMCP::get_prompt_result(const std::string& name, const Json& args) const
 {
-    // Try local prompts first
-    try
+    // Try local prompts first; one the caller may not use is absent to it
+    if (prompts_.has(name) && prompt_allowed(prompts_.get(name), name))
     {
         const auto& prompt = prompts_.get(name);
         prompts::PromptResult out;
@@ -1563,16 +1617,12 @@ prompts::PromptResult FastMCP::get_prompt_result(const std::string& name, const 
         out.meta = prompt.meta;
         return out;
     }
-    catch (const NotFoundError&)
-    {
-        // Fall through to check mounted apps
-    }
 
     // Check provider prompts
     for (const auto& provider : providers_)
     {
         auto prompt = provider->get_prompt_transformed(name);
-        if (!prompt)
+        if (!prompt || !prompt_allowed(*prompt, name))
             continue;
 
         prompts::PromptResult out;

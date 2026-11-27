@@ -129,6 +129,8 @@ using HttpFunction = std::function<HttpResponse(const HttpRequest&)>;
 
 /// cpp-httplib for http://, and WinHTTP or libcurl for https:// (whichever this build has).
 HttpFunction default_http_function(bool verify_ssl = true);
+/// As above, with @p timeout for connecting and for the whole response.
+HttpFunction default_http_function(bool verify_ssl, std::chrono::seconds timeout);
 
 /// Key-value storage for tokens and client registrations (fastmcp's AsyncKeyValue).
 class KeyValueStore
