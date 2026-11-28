@@ -326,11 +326,46 @@ class RemoteAuthProvider : public AuthProvider
     {
         return authorization_servers_;
     }
+    const std::optional<std::string>& resource_name() const
+    {
+        return options_.resource_name;
+    }
+    const std::optional<std::string>& resource_documentation() const
+    {
+        return options_.resource_documentation;
+    }
+
+    /// Seconds a forwarded metadata document is served from cache.
+    static constexpr double FORWARDED_METADATA_TTL_SECONDS = 300.0;
+    /// Seconds without upstream requests after a failed refresh.
+    static constexpr double FORWARDED_METADATA_ERROR_TTL_SECONDS = 5.0;
+
+    /// Sets the HTTP client for forwarded metadata; for tests.
+    void set_http(HttpFunction http);
+    /// Sets the monotonic clock (seconds) for the metadata cache; for tests.
+    void set_monotonic_clock(std::function<double()> clock);
+
+  protected:
+    /// The authorization server metadata at the first of @p metadata_urls
+    /// that answers 2xx with JSON, cached for FORWARDED_METADATA_TTL_SECONDS.
+    /// After a failed refresh the previous document (if any) is served and
+    /// upstream is left alone for FORWARDED_METADATA_ERROR_TTL_SECONDS;
+    /// without one, 500 `server_error`. Refreshes are serialised.
+    CustomRouteResponse
+    forward_authorization_server_metadata(const std::vector<std::string>& metadata_urls,
+                                          const std::string& provider_name);
+    /// A GET route at `/.well-known/oauth-authorization-server` forwarding
+    /// @p metadata_urls.
+    CustomRoute forwarded_metadata_route(std::vector<std::string> metadata_urls,
+                                         std::string provider_name);
+    void set_token_verifier(std::shared_ptr<AuthProvider> verifier);
 
   private:
     std::shared_ptr<AuthProvider> token_verifier_;
     std::vector<std::string> authorization_servers_;
     RemoteAuthOptions options_;
+    struct ForwardedMetadata;
+    std::shared_ptr<ForwardedMetadata> forwarded_;
 };
 
 /// The RFC 9728 metadata route for @p resource_url, with CORS for browser
@@ -370,6 +405,11 @@ class MultiAuth : public AuthProvider
     /// @throws std::invalid_argument for no sources, a server_source_id
     ///         without a server, or blank or duplicate source IDs.
     explicit MultiAuth(MultiAuthOptions options);
+    /// The provider that owns routes and metadata, if any.
+    const std::shared_ptr<AuthProvider>& server() const
+    {
+        return server_;
+    }
 
     std::optional<AccessToken> verify_token(const std::string& token) override;
     std::vector<std::string> scopes_supported() const override;
@@ -448,10 +488,19 @@ class JWTVerifier : public TokenVerifier
         return algorithm_;
     }
 
+    /// Replace the expected audience (a string or an array; null for none).
+    void set_audience(Json audience);
+    /// Replace the expected issuer (a string or an array; null for none).
+    void set_issuer(Json issuer);
+
   protected:
     /// Whether the token's `iss` claim is acceptable; override for provider
     /// rules such as a family of issuers.
     virtual bool validate_issuer(const Json& issuer) const;
+    /// The token's scopes: `scope` (space-separated or a list), else `scp`.
+    /// Override to read provider claims such as `permissions`. nullopt
+    /// rejects the token.
+    virtual std::optional<std::vector<std::string>> extract_scopes(const Json& claims) const;
 
   private:
     struct Jwks;

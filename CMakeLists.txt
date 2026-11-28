@@ -4,7 +4,7 @@ if(POLICY CMP0169)
   cmake_policy(SET CMP0169 OLD)
 endif()
 # major.minor.patch = upstream fastmcp parity level; optional 4th = local revision.
-project(fastmcpp VERSION 4.2.6.6 LANGUAGES CXX)
+project(fastmcpp VERSION 4.2.6.7 LANGUAGES CXX)
 
 # Empty for a 3-component version, which would expand to FASTMCPP_VERSION_TWEAK=.
 if(NOT DEFINED PROJECT_VERSION_TWEAK OR PROJECT_VERSION_TWEAK STREQUAL "")
@@ -93,6 +93,7 @@ add_library(fastmcpp_core STATIC
     src/server/streamable_http_server.cpp
     src/server/authorization.cpp
     src/server/auth.cpp
+    src/server/auth_detail.cpp
     src/server/oauth_server.cpp
     src/server/redirect_validation.cpp
     src/server/ssrf.cpp
@@ -167,9 +168,9 @@ if(FASTMCPP_ENABLE_SERVER_AUTH)
       src/server/auth_jwt.cpp
       src/server/jwt_issuer.cpp
       src/server/identity_assertion.cpp
-      src/server/auth_detail.cpp
       src/server/oauth_upstream.cpp
-      src/server/oauth_proxy.cpp)
+      src/server/oauth_proxy.cpp
+      src/server/auth_providers.cpp)
   if(WIN32)
     target_sources(fastmcpp_core PRIVATE src/util/crypto_backend_cng.cpp)
   else()

@@ -14,7 +14,7 @@
 fastmcpp is a C++ port of [fastmcp](https://github.com/PrefectHQ/fastmcp): MCP servers and clients
 with tools, resources, prompts, providers and middleware, over STDIO, HTTP/SSE and Streamable HTTP.
 
-**Version:** 4.2.6.6. The first three numbers are the fastmcp release it matches; the fourth is a
+**Version:** 4.2.6.7. The first three numbers are the fastmcp release it matches; the fourth is a
 fastmcpp-only fix on top.
 
 ## Features
@@ -40,6 +40,9 @@ fastmcpp-only fix on top.
 - OAuth proxy: `OAuthProxy` and `OIDCProxy` put any OAuth or OpenID Connect provider (no
   dynamic registration needed) behind MCP's OAuth flow, with a consent page, upstream token
   refresh and revocation, and an encrypted state directory shared with Python fastmcp.
+- Ready-made providers: GitHub, Google, Microsoft Entra ID (with B2C and On-Behalf-Of), Auth0,
+  AWS Cognito, Discord, Hugging Face, Clerk, WorkOS / AuthKit, Keycloak, Supabase, Scalekit,
+  PropelAuth, Descope and OCI.
 - `fastmcpp` command-line tool: discover, list and call servers; install server configs; create
   and validate CIMD documents (`fastmcpp auth cimd`).
 - Windows, Linux, macOS.
@@ -208,7 +211,17 @@ srv.set_auth(app.auth());
 ```
 
 `OIDCProxy` takes the endpoints and the JWT verifier from the provider's
-`/.well-known/openid-configuration`. State lives in an encrypted directory under the fastmcp
+`/.well-known/openid-configuration`. For common services `server/auth_providers.hpp` has them
+configured already:
+
+```cpp
+auth::GitHubProviderOptions gh;
+gh.client_id = "...";
+gh.client_secret = "...";
+gh.base_url = "https://mcp.example.com";
+app.set_auth(std::make_shared<auth::GitHubProvider>(gh));
+```
+ State lives in an encrypted directory under the fastmcp
 home directory (`FASTMCPP_HOME` to move it) unless `client_storage` names another store.
 
 ## Protocol notes

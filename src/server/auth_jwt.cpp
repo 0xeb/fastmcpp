@@ -389,28 +389,10 @@ std::optional<AccessToken> JWTVerifier::load_access_token(const std::string& tok
                 return std::nullopt;
         }
 
-        std::vector<std::string> scopes;
-        for (const char* claim : {"scope", "scp"})
-        {
-            if (!claims.contains(claim))
-                continue;
-            const Json& v = claims[claim];
-            if (v.is_string())
-            {
-                scopes = split_whitespace(v.get<std::string>());
-                break;
-            }
-            if (v.is_array())
-            {
-                for (const auto& s : v)
-                {
-                    if (!s.is_string())
-                        return std::nullopt;
-                    scopes.push_back(s.get<std::string>());
-                }
-                break;
-            }
-        }
+        auto extracted = extract_scopes(claims);
+        if (!extracted)
+            return std::nullopt;
+        std::vector<std::string> scopes = std::move(*extracted);
         if (!required_scopes_.empty() && !subset_of(required_scopes_, scopes))
             return std::nullopt;
 
@@ -432,6 +414,40 @@ std::optional<AccessToken> JWTVerifier::load_access_token(const std::string& tok
     {
         return std::nullopt;
     }
+}
+
+std::optional<std::vector<std::string>> JWTVerifier::extract_scopes(const Json& claims) const
+{
+    std::vector<std::string> scopes;
+    for (const char* claim : {"scope", "scp"})
+    {
+        if (!claims.contains(claim))
+            continue;
+        const Json& v = claims[claim];
+        if (v.is_string())
+            return split_whitespace(v.get<std::string>());
+        if (v.is_array())
+        {
+            for (const auto& s : v)
+            {
+                if (!s.is_string())
+                    return std::nullopt;
+                scopes.push_back(s.get<std::string>());
+            }
+            return scopes;
+        }
+    }
+    return scopes;
+}
+
+void JWTVerifier::set_audience(Json audience)
+{
+    options_.audience = std::move(audience);
+}
+
+void JWTVerifier::set_issuer(Json issuer)
+{
+    options_.issuer = std::move(issuer);
 }
 
 std::optional<AccessToken> JWTVerifier::verify_token(const std::string& token)

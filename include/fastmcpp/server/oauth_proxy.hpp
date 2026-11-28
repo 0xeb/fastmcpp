@@ -269,6 +269,16 @@ class OAuthProxy : public OAuthProvider
     }
     /// The directory of the default store; empty with custom storage.
     std::string default_storage_directory() const;
+    /// The configuration this proxy was built with (after defaults).
+    const OAuthProxyOptions& configuration() const
+    {
+        return options_;
+    }
+    /// Whether tokens are checked through something other than the access token.
+    bool alternate_verification() const
+    {
+        return uses_alternate_verification();
+    }
 
     /// Sets the clock (seconds since the epoch); for tests.
     void set_clock(std::function<double()> clock);
@@ -298,18 +308,22 @@ class OAuthProxy : public OAuthProvider
     /// scopes and expiry instead.
     virtual bool uses_alternate_verification() const;
 
+    /// The upstream authorization URL for a transaction.
+    virtual std::string build_upstream_authorize_url(const std::string& txn_id,
+                                                     const OAuthTransaction& txn) const;
+
     const OAuthProxyOptions& options() const
     {
         return options_;
     }
     double now() const;
+    /// Replace the scopes every token must carry.
+    void set_required_scopes(std::vector<std::string> scopes);
 
   private:
     struct Stores;
     friend class ProxyRevocationAdapter;
 
-    std::string build_upstream_authorize_url(const std::string& txn_id,
-                                             const OAuthTransaction& txn) const;
     void renew_client_registration(const OAuthClientInformation& client);
     void end_grant(const std::string& upstream_token_id);
     bool store_upstream_token_set(const UpstreamTokenSet& tokens, long long ttl);
@@ -427,8 +441,17 @@ struct OIDCProxyOptions
     std::optional<std::string> audience;
     std::optional<int> timeout_seconds = 10;
 
-    /// Default: a JWTVerifier over the discovered jwks_uri and issuer.
+    /// Default: make_token_verifier, else a JWTVerifier over the discovered
+    /// jwks_uri and issuer.
     std::shared_ptr<AuthProvider> token_verifier;
+    /// Builds the default verifier from the discovered document, the
+    /// algorithm, the audience (client_id when verifying id_tokens) and the
+    /// required scopes (none for id_tokens).
+    std::function<std::shared_ptr<AuthProvider>(
+        const OIDCConfiguration& config, const std::optional<std::string>& algorithm,
+        const std::optional<std::string>& audience,
+        const std::optional<std::vector<std::string>>& required_scopes)>
+        make_token_verifier;
     std::optional<std::string> algorithm;
     std::optional<std::vector<std::string>> required_scopes;
     /// Verify the id_token instead of the (possibly opaque) access token.

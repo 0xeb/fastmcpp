@@ -10,6 +10,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <mutex>
 #include <set>
 #include <stdexcept>
 #include <typeinfo>
@@ -914,6 +915,111 @@ std::vector<CustomRoute> RemoteAuthProvider::get_routes(const std::optional<std:
 Json RemoteAuthProvider::source_descriptor() const
 {
     return Json{{"token_verifier", MultiAuth::configured_source_id(*token_verifier_)}};
+}
+
+struct RemoteAuthProvider::ForwardedMetadata
+{
+    std::mutex mutex;
+    std::optional<std::string> document;
+    double expires_at = 0.0;
+    double retry_at = 0.0;
+    HttpFunction http;
+    std::function<double()> clock = []
+    {
+        return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    };
+};
+
+void RemoteAuthProvider::set_http(HttpFunction http)
+{
+    if (!forwarded_)
+        forwarded_ = std::make_shared<ForwardedMetadata>();
+    forwarded_->http = std::move(http);
+}
+
+void RemoteAuthProvider::set_monotonic_clock(std::function<double()> clock)
+{
+    if (!forwarded_)
+        forwarded_ = std::make_shared<ForwardedMetadata>();
+    forwarded_->clock = std::move(clock);
+}
+
+void RemoteAuthProvider::set_token_verifier(std::shared_ptr<AuthProvider> verifier)
+{
+    if (!verifier)
+        throw std::invalid_argument("RemoteAuthProvider requires a token verifier");
+    token_verifier_ = std::move(verifier);
+}
+
+CustomRouteResponse RemoteAuthProvider::forward_authorization_server_metadata(
+    const std::vector<std::string>& metadata_urls, const std::string& provider_name)
+{
+    if (!forwarded_)
+        forwarded_ = std::make_shared<ForwardedMetadata>();
+    auto& f = *forwarded_;
+    const auto json_ok = [](const std::string& body)
+    {
+        CustomRouteResponse res;
+        res.status = 200;
+        res.body = body;
+        res.content_type = "application/json";
+        return res;
+    };
+
+    std::lock_guard<std::mutex> lock(f.mutex);
+    if (f.document && f.clock() < f.expires_at)
+        return json_ok(*f.document);
+
+    std::string error;
+    if (f.clock() < f.retry_at)
+        error = "upstream temporarily unavailable";
+    else
+    {
+        std::string last_error = "None";
+        const HttpFunction http = f.http ? f.http : client::auth::default_http_function();
+        for (const auto& url : metadata_urls)
+        {
+            try
+            {
+                client::auth::HttpRequest req;
+                req.method = "GET";
+                req.url = url;
+                const auto response = http(req);
+                if (const auto err = detail::http_status_error(response, url))
+                    throw std::runtime_error(*err);
+                const OrderedJson document = internal::pyjson::loads(response.body);
+                f.document = document.dump(-1, ' ', false, Json::error_handler_t::replace);
+                f.expires_at = f.clock() + FORWARDED_METADATA_TTL_SECONDS;
+                return json_ok(*f.document);
+            }
+            catch (const std::exception& e)
+            {
+                last_error = e.what();
+            }
+        }
+        f.retry_at = f.clock() + FORWARDED_METADATA_ERROR_TTL_SECONDS;
+        error = last_error;
+    }
+    if (f.document)
+        return json_ok(*f.document);
+    CustomRouteResponse res;
+    res.status = 500;
+    res.content_type = "application/json";
+    OrderedJson body;
+    body["error"] = "server_error";
+    body["error_description"] = "Failed to fetch " + provider_name + " metadata: " + error;
+    res.body = body.dump(-1, ' ', false, Json::error_handler_t::replace);
+    return res;
+}
+
+CustomRoute RemoteAuthProvider::forwarded_metadata_route(std::vector<std::string> metadata_urls,
+                                                         std::string provider_name)
+{
+    return CustomRoute{"GET", "/.well-known/oauth-authorization-server",
+                       [this, urls = std::move(metadata_urls),
+                        name = std::move(provider_name)](const CustomRouteRequest&)
+                       { return forward_authorization_server_metadata(urls, name); }};
 }
 
 // ================================================================== PRM routes

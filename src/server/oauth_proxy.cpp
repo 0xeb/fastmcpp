@@ -967,6 +967,11 @@ void OAuthProxy::update_default_scopes(const std::vector<std::string>& scopes)
     }
 }
 
+void OAuthProxy::set_required_scopes(std::vector<std::string> scopes)
+{
+    required_scopes_ = std::move(scopes);
+}
+
 void OAuthProxy::set_server_info(std::optional<std::string> name,
                                  std::optional<std::string> icon_url,
                                  std::optional<std::string> website_url)
@@ -3074,6 +3079,15 @@ OAuthProxyOptions OIDCProxy::proxy_options(OIDCProxyOptions& options,
                                            const OIDCConfiguration& config)
 {
     auto verifier = options.token_verifier;
+    if (!verifier && options.make_token_verifier)
+    {
+        const auto& audience = options.verify_id_token
+                                   ? std::optional<std::string>(options.client_id)
+                                   : options.audience;
+        verifier = options.make_token_verifier(config, options.algorithm, audience,
+                                               options.verify_id_token ? std::nullopt
+                                                                       : options.required_scopes);
+    }
     if (!verifier)
     {
         JWTVerifierOptions v;
