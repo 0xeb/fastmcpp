@@ -404,6 +404,139 @@ class Aes256
     std::array<std::uint8_t, 240> rk_{};
 };
 
+// ------------------------------------------------------------------ AES-128/256 with decryption
+
+std::uint8_t gmul(std::uint8_t a, std::uint8_t b)
+{
+    std::uint8_t p = 0;
+    while (b)
+    {
+        if (b & 1)
+            p ^= a;
+        a = xtime(a);
+        b >>= 1;
+    }
+    return p;
+}
+
+const std::array<std::uint8_t, 256>& inv_sbox()
+{
+    static const std::array<std::uint8_t, 256> table = []
+    {
+        std::array<std::uint8_t, 256> t{};
+        for (int i = 0; i < 256; ++i)
+            t[kSbox[i]] = static_cast<std::uint8_t>(i);
+        return t;
+    }();
+    return table;
+}
+
+/// FIPS 197 AES with a 16- or 32-byte key, both directions.
+class Aes
+{
+  public:
+    explicit Aes(const std::uint8_t* key, std::size_t key_len)
+    {
+        if (key_len != 16 && key_len != 32)
+            throw std::invalid_argument("AES needs a 16- or 32-byte key");
+        const std::size_t nk = key_len / 4;
+        rounds_ = static_cast<int>(nk + 6);
+        const std::size_t words = 4 * (static_cast<std::size_t>(rounds_) + 1);
+        std::memcpy(rk_.data(), key, key_len);
+        std::uint8_t rcon = 0x01;
+        for (std::size_t w = nk; w < words; ++w)
+        {
+            std::uint8_t t[4] = {rk_[4 * w - 4], rk_[4 * w - 3], rk_[4 * w - 2], rk_[4 * w - 1]};
+            if (w % nk == 0)
+            {
+                const std::uint8_t first = t[0];
+                t[0] = static_cast<std::uint8_t>(kSbox[t[1]] ^ rcon);
+                t[1] = kSbox[t[2]];
+                t[2] = kSbox[t[3]];
+                t[3] = kSbox[first];
+                rcon = xtime(rcon);
+            }
+            else if (nk > 6 && w % nk == 4)
+            {
+                for (auto& b : t)
+                    b = kSbox[b];
+            }
+            for (int j = 0; j < 4; ++j)
+                rk_[4 * w + j] = static_cast<std::uint8_t>(rk_[4 * (w - nk) + j] ^ t[j]);
+        }
+    }
+
+    void encrypt_block(const std::uint8_t in[16], std::uint8_t out[16]) const
+    {
+        std::uint8_t s[16];
+        for (int i = 0; i < 16; ++i)
+            s[i] = static_cast<std::uint8_t>(in[i] ^ rk_[i]);
+        for (int round = 1; round <= rounds_; ++round)
+        {
+            for (auto& b : s)
+                b = kSbox[b];
+            std::uint8_t t[16];
+            for (int c = 0; c < 4; ++c)
+                for (int r = 0; r < 4; ++r)
+                    t[r + 4 * c] = s[r + 4 * ((c + r) % 4)];
+            if (round != rounds_)
+                for (int c = 0; c < 4; ++c)
+                {
+                    std::uint8_t* col = t + 4 * c;
+                    const std::uint8_t a0 = col[0], a1 = col[1], a2 = col[2], a3 = col[3];
+                    const std::uint8_t all = static_cast<std::uint8_t>(a0 ^ a1 ^ a2 ^ a3);
+                    col[0] = static_cast<std::uint8_t>(a0 ^ all ^ xtime(a0 ^ a1));
+                    col[1] = static_cast<std::uint8_t>(a1 ^ all ^ xtime(a1 ^ a2));
+                    col[2] = static_cast<std::uint8_t>(a2 ^ all ^ xtime(a2 ^ a3));
+                    col[3] = static_cast<std::uint8_t>(a3 ^ all ^ xtime(a3 ^ a0));
+                }
+            for (int i = 0; i < 16; ++i)
+                s[i] = static_cast<std::uint8_t>(t[i] ^ rk_[16 * round + i]);
+        }
+        std::memcpy(out, s, 16);
+    }
+
+    void decrypt_block(const std::uint8_t in[16], std::uint8_t out[16]) const
+    {
+        const auto& isb = inv_sbox();
+        std::uint8_t s[16];
+        for (int i = 0; i < 16; ++i)
+            s[i] = static_cast<std::uint8_t>(in[i] ^ rk_[16 * rounds_ + i]);
+        for (int round = rounds_ - 1; round >= 0; --round)
+        {
+            // InvShiftRows, then InvSubBytes.
+            std::uint8_t t[16];
+            for (int c = 0; c < 4; ++c)
+                for (int r = 0; r < 4; ++r)
+                    t[r + 4 * ((c + r) % 4)] = s[r + 4 * c];
+            for (auto& b : t)
+                b = isb[b];
+            for (int i = 0; i < 16; ++i)
+                t[i] = static_cast<std::uint8_t>(t[i] ^ rk_[16 * round + i]);
+            if (round != 0)
+                for (int c = 0; c < 4; ++c)
+                {
+                    std::uint8_t* col = t + 4 * c;
+                    const std::uint8_t a0 = col[0], a1 = col[1], a2 = col[2], a3 = col[3];
+                    col[0] = static_cast<std::uint8_t>(gmul(a0, 14) ^ gmul(a1, 11) ^ gmul(a2, 13) ^
+                                                       gmul(a3, 9));
+                    col[1] = static_cast<std::uint8_t>(gmul(a0, 9) ^ gmul(a1, 14) ^ gmul(a2, 11) ^
+                                                       gmul(a3, 13));
+                    col[2] = static_cast<std::uint8_t>(gmul(a0, 13) ^ gmul(a1, 9) ^ gmul(a2, 14) ^
+                                                       gmul(a3, 11));
+                    col[3] = static_cast<std::uint8_t>(gmul(a0, 11) ^ gmul(a1, 13) ^ gmul(a2, 9) ^
+                                                       gmul(a3, 14));
+                }
+            std::memcpy(s, t, 16);
+        }
+        std::memcpy(out, s, 16);
+    }
+
+  private:
+    int rounds_ = 10;
+    std::array<std::uint8_t, 240> rk_{};
+};
+
 // ------------------------------------------------------------------ GCM (NIST SP 800-38D)
 
 struct Block128
@@ -820,6 +953,55 @@ std::optional<Bytes> aes256_gcm_open(const Bytes& key, const Bytes& nonce, const
     Bytes plaintext(ct_len);
     gctr(aes, icb, sealed.data(), ct_len, plaintext.data());
     return plaintext;
+}
+
+Bytes aes_cbc_encrypt(const Bytes& key, const Bytes& iv, const Bytes& plaintext)
+{
+    if (iv.size() != 16)
+        throw std::invalid_argument("AES-CBC IV must be 16 bytes");
+    const Aes aes(key.data(), key.size());
+    const std::size_t pad = 16 - plaintext.size() % 16;
+    Bytes buf(plaintext);
+    buf.insert(buf.end(), pad, static_cast<std::uint8_t>(pad));
+    Bytes out(buf.size());
+    std::uint8_t chain[16];
+    std::memcpy(chain, iv.data(), 16);
+    for (std::size_t off = 0; off < buf.size(); off += 16)
+    {
+        std::uint8_t block[16];
+        for (int i = 0; i < 16; ++i)
+            block[i] = static_cast<std::uint8_t>(buf[off + i] ^ chain[i]);
+        aes.encrypt_block(block, out.data() + off);
+        std::memcpy(chain, out.data() + off, 16);
+    }
+    return out;
+}
+
+std::optional<Bytes> aes_cbc_decrypt(const Bytes& key, const Bytes& iv, const Bytes& ciphertext)
+{
+    if (iv.size() != 16)
+        throw std::invalid_argument("AES-CBC IV must be 16 bytes");
+    if (ciphertext.empty() || ciphertext.size() % 16 != 0)
+        return std::nullopt;
+    const Aes aes(key.data(), key.size());
+    Bytes out(ciphertext.size());
+    const std::uint8_t* chain = iv.data();
+    for (std::size_t off = 0; off < ciphertext.size(); off += 16)
+    {
+        std::uint8_t block[16];
+        aes.decrypt_block(ciphertext.data() + off, block);
+        for (int i = 0; i < 16; ++i)
+            out[off + i] = static_cast<std::uint8_t>(block[i] ^ chain[i]);
+        chain = ciphertext.data() + off;
+    }
+    const std::uint8_t pad = out.back();
+    if (pad == 0 || pad > 16)
+        return std::nullopt;
+    for (std::size_t i = out.size() - pad; i < out.size(); ++i)
+        if (out[i] != pad)
+            return std::nullopt;
+    out.resize(out.size() - pad);
+    return out;
 }
 
 Bytes random_bytes(std::size_t n)

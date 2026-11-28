@@ -8,6 +8,10 @@
 #include "fastmcpp/resources/template.hpp"
 #include "fastmcpp/server/extension.hpp"
 #include "fastmcpp/server/middleware_pipeline.hpp"
+#ifdef FASTMCPP_HAS_SERVER_AUTH
+#include "fastmcpp/server/oauth_proxy.hpp"
+#endif
+#include "fastmcpp/server/auth.hpp"
 #include "fastmcpp/server/sessions.hpp"
 #include "fastmcpp/settings.hpp"
 #include "fastmcpp/util/http_methods.hpp"
@@ -22,6 +26,22 @@
 
 namespace fastmcpp
 {
+
+FastMCP& FastMCP::set_auth(std::shared_ptr<server::auth::AuthProvider> provider)
+{
+#ifdef FASTMCPP_HAS_SERVER_AUTH
+    if (auto* proxy = dynamic_cast<server::auth::OAuthProxy*>(provider.get()))
+    {
+        const auto& icons = server_.icons();
+        proxy->set_server_info(
+            name(),
+            icons && !icons->empty() ? std::optional<std::string>((*icons)[0].src) : std::nullopt,
+            server_.website_url());
+    }
+#endif
+    auth_ = std::move(provider);
+    return *this;
+}
 
 FastMCP::FastMCP(std::string name, std::string version, std::optional<std::string> website_url,
                  std::optional<std::vector<Icon>> icons, std::optional<std::string> instructions,

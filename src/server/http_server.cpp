@@ -158,6 +158,8 @@ bool HttpServerWrapper::start()
                 res.status = out.status;
                 for (const auto& [k, v] : out.headers)
                     res.set_header(k, v);
+                for (const auto& c : out.set_cookies)
+                    res.set_header("Set-Cookie", c);
                 res.set_content(out.body, out.content_type);
             }
             catch (const std::exception& e)

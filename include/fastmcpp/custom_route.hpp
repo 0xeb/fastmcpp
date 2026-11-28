@@ -6,6 +6,7 @@
 #include <map>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace fastmcpp
 {
@@ -30,6 +31,8 @@ struct CustomRouteResponse
     std::string body;
     std::string content_type{"text/plain"};
     std::unordered_map<std::string, std::string> headers;
+    /// Set-Cookie header values, each sent as its own header.
+    std::vector<std::string> set_cookies;
 };
 
 /// User-registered HTTP endpoint outside the JSON-RPC core.

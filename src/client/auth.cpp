@@ -719,6 +719,8 @@ HttpFunction make_http_function(bool verify_ssl, std::optional<std::chrono::seco
         cli.set_connection_timeout(timeout ? timeout->count() : 30, 0);
         cli.set_read_timeout(timeout ? timeout->count() : 60, 0);
         cli.set_follow_location(false);
+        // The URL is already encoded; re-encoding would turn a query's '+' into "%2B".
+        cli.set_url_encode(false);
         httplib::Headers headers;
         std::string content_type = "application/octet-stream";
         for (const auto& [k, v] : req.headers)
@@ -795,6 +797,24 @@ void MemoryStore::remove(const std::string& collection, const std::string& key)
 {
     std::lock_guard<std::mutex> lock(impl_->mu);
     impl_->entries.erase({collection, key});
+}
+
+bool MemoryStore::erase(const std::string& collection, const std::string& key)
+{
+    std::lock_guard<std::mutex> lock(impl_->mu);
+    auto it = impl_->entries.find({collection, key});
+    if (it == impl_->entries.end())
+        return false;
+    const bool live = !it->second.expires_at || now_seconds() < *it->second.expires_at;
+    impl_->entries.erase(it);
+    return live;
+}
+
+bool KeyValueStore::erase(const std::string& collection, const std::string& key)
+{
+    const bool had = get(collection, key).has_value();
+    remove(collection, key);
+    return had;
 }
 
 struct FileStore::Impl
@@ -882,6 +902,20 @@ void FileStore::remove(const std::string& collection, const std::string& key)
         j[collection].erase(key);
         impl_->save(j);
     }
+}
+
+bool FileStore::erase(const std::string& collection, const std::string& key)
+{
+    std::lock_guard<std::mutex> lock(impl_->mu);
+    Json j = impl_->load();
+    if (!j.contains(collection) || !j[collection].is_object() || !j[collection].contains(key))
+        return false;
+    const Json& e = j[collection][key];
+    const bool live = !(e.contains("expires_at") && e["expires_at"].is_number() &&
+                        now_seconds() >= e["expires_at"].get<double>());
+    j[collection].erase(key);
+    impl_->save(j);
+    return live;
 }
 
 // ================================================================== OAuthToken

@@ -74,6 +74,8 @@ bool is_int(const OrderedJson& value);
 /// json.dumps with ensure_ascii. With @p indent, members go on their own
 /// lines and separators are "," and ": "; without, ", " and ": ".
 std::string dumps(const OrderedJson& value, std::optional<int> indent = std::nullopt);
+/// json.dumps(value, separators=(",", ":")) with ensure_ascii.
+std::string dumps_compact(const OrderedJson& value);
 
 /// base64.urlsafe_b64decode of a str: '-' and '_' stand for '+' and '/',
 /// other characters outside the alphabet are skipped, and decoding stops at
@@ -111,6 +113,8 @@ struct LineError
     std::string type;
     std::string msg;
     OrderedJson input;
+    /// Whether the message ends with the errors.pydantic.dev link.
+    bool url = true;
 };
 
 /// str() of a ValidationError for @p title (the model name), e.g.

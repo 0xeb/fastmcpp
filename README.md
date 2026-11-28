@@ -14,7 +14,7 @@
 fastmcpp is a C++ port of [fastmcp](https://github.com/PrefectHQ/fastmcp): MCP servers and clients
 with tools, resources, prompts, providers and middleware, over STDIO, HTTP/SSE and Streamable HTTP.
 
-**Version:** 4.2.6.5. The first three numbers are the fastmcp release it matches; the fourth is a
+**Version:** 4.2.6.6. The first three numbers are the fastmcp release it matches; the fourth is a
 fastmcpp-only fix on top.
 
 ## Features
@@ -37,6 +37,9 @@ fastmcpp-only fix on top.
 - OAuth authorization server: `/authorize`, `/token`, `/register`, `/revoke`, RFC 8414 metadata,
   Client ID Metadata Documents (CIMD) with `private_key_jwt`, `JWTIssuer`, identity assertion
   grants (ID-JAG), SSRF-safe fetching and redirect URI validation.
+- OAuth proxy: `OAuthProxy` and `OIDCProxy` put any OAuth or OpenID Connect provider (no
+  dynamic registration needed) behind MCP's OAuth flow, with a consent page, upstream token
+  refresh and revocation, and an encrypted state directory shared with Python fastmcp.
 - `fastmcpp` command-line tool: discover, list and call servers; install server configs; create
   and validate CIMD documents (`fastmcpp auth cimd`).
 - Windows, Linux, macOS.
@@ -63,7 +66,7 @@ cmake --build build --config Release -j
 | `FASTMCPP_FETCH_CURL` | ON | Fetch and build libcurl when it is not found |
 | `FASTMCPP_ENABLE_OPENSSL` | OFF | HTTPS for the cpp-httplib transports |
 | `FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS` | OFF | Built-in OpenAI/Anthropic sampling handlers |
-| `FASTMCPP_ENABLE_SERVER_AUTH` | OFF | JOSE: `JWTVerifier`, `JWTIssuer`, CIMD and ID-JAG assertions, `private_key_jwt` signing (CNG on Windows, OpenSSL 3 elsewhere) |
+| `FASTMCPP_ENABLE_SERVER_AUTH` | OFF | JOSE: `JWTVerifier`, `JWTIssuer`, CIMD and ID-JAG assertions, `private_key_jwt` signing, `OAuthProxy`/`OIDCProxy` (CNG on Windows, OpenSSL 3 elsewhere) |
 
 ### HTTPS
 
@@ -187,6 +190,26 @@ srv.set_auth(std::make_shared<auth::InMemoryOAuthProvider>(o));
 `CIMDClientManager`, `PrivateKeyJWTClientAuthenticator`, `JWTIssuer` and
 `IdentityAssertionValidator` are the parts for custom providers that accept CIMD clients, sign
 their own tokens or take identity assertion grants.
+
+To sign users in with an existing provider (GitHub, Google, Azure, Auth0, ...), put an
+`OAuthProxy` in front of it. MCP clients register with the proxy; the proxy is the only client
+the provider sees:
+
+```cpp
+auth::OAuthProxyOptions o;
+o.upstream_authorization_endpoint = "https://idp.example.com/authorize";
+o.upstream_token_endpoint = "https://idp.example.com/token";
+o.upstream_client_id = "my-app";
+o.upstream_client_secret = "...";
+o.token_verifier = std::make_shared<auth::JWTVerifier>(jwt);  // checks the provider's tokens
+o.base_url = "https://mcp.example.com";
+app.set_auth(std::make_shared<auth::OAuthProxy>(o));  // consent page shows the app's name and icon
+srv.set_auth(app.auth());
+```
+
+`OIDCProxy` takes the endpoints and the JWT verifier from the provider's
+`/.well-known/openid-configuration`. State lives in an encrypted directory under the fastmcp
+home directory (`FASTMCPP_HOME` to move it) unless `client_storage` names another store.
 
 ## Protocol notes
 

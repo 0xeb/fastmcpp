@@ -31,6 +31,8 @@ inline void apply_custom_route_response(const CustomRouteResponse& out, httplib:
     res.status = out.status;
     for (const auto& [k, v] : out.headers)
         res.set_header(k, v);
+    for (const auto& c : out.set_cookies)
+        res.set_header("Set-Cookie", c);
     if (out.content_type.empty() && out.body.empty())
         res.set_header("Content-Length", "0");
     else

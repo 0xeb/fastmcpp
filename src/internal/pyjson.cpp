@@ -740,6 +740,7 @@ struct Style
 {
     bool repr = false;
     std::optional<int> indent;
+    bool compact = false;
 };
 
 void write_scalar(const OrderedJson& v, const Style& st, std::string& out)
@@ -791,7 +792,7 @@ std::string write_value(const OrderedJson& root, const Style& st)
         out.push_back('\n');
         out.append(static_cast<std::size_t>(*st.indent) * lvl, ' ');
     };
-    const char* item_sep = st.indent ? "," : ", ";
+    const char* item_sep = st.indent || st.compact ? "," : ", ";
     std::vector<Level> stack;
     const OrderedJson* next = &root;
     while (true)
@@ -836,7 +837,7 @@ std::string write_value(const OrderedJson& root, const Style& st)
                 out += pyurl::py_repr(top.it.key());
             else
                 dumps_string(top.it.key(), out);
-            out += ": ";
+            out += st.compact ? ":" : ": ";
         }
         next = &*top.it;
         ++top.it;
@@ -882,6 +883,11 @@ bool is_int(const OrderedJson& value)
 std::string dumps(const OrderedJson& value, std::optional<int> indent)
 {
     return write_value(value, Style{false, indent});
+}
+
+std::string dumps_compact(const OrderedJson& value)
+{
+    return write_value(value, Style{false, std::nullopt, true});
 }
 
 std::string urlsafe_b64decode(const std::string& text)
@@ -1075,8 +1081,9 @@ std::string validation_error_str(const std::string& title, const std::vector<Lin
             out += e.loc + "\n";
         out += "  " + e.msg + " [type=" + e.type +
                ", input_value=" + truncate_middle(repr(e.input)) +
-               ", input_type=" + type_name(e.input) + "]\n    For further information visit " +
-               kErrorsUrl + e.type;
+               ", input_type=" + type_name(e.input) + "]";
+        if (e.url)
+            out += std::string("\n    For further information visit ") + kErrorsUrl + e.type;
     }
     return out;
 }

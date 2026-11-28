@@ -141,6 +141,10 @@ class KeyValueStore
     virtual void put(const std::string& collection, const std::string& key, const Json& value,
                      std::optional<std::chrono::seconds> ttl = std::nullopt) = 0;
     virtual void remove(const std::string& collection, const std::string& key) = 0;
+    /// Remove the entry and report whether this call removed a live one. Of
+    /// two concurrent erases of one key at most one returns true. The default
+    /// reads, then removes; stores override it to make that atomic.
+    virtual bool erase(const std::string& collection, const std::string& key);
 };
 
 /// In-process storage: tokens are lost when the process exits (fastmcp's default MemoryStore).
@@ -153,6 +157,7 @@ class MemoryStore : public KeyValueStore
     void put(const std::string& collection, const std::string& key, const Json& value,
              std::optional<std::chrono::seconds> ttl = std::nullopt) override;
     void remove(const std::string& collection, const std::string& key) override;
+    bool erase(const std::string& collection, const std::string& key) override;
 
   private:
     struct Impl;
@@ -170,6 +175,7 @@ class FileStore : public KeyValueStore
     void put(const std::string& collection, const std::string& key, const Json& value,
              std::optional<std::chrono::seconds> ttl = std::nullopt) override;
     void remove(const std::string& collection, const std::string& key) override;
+    bool erase(const std::string& collection, const std::string& key) override;
 
   private:
     struct Impl;

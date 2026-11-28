@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 
 namespace fastmcpp
 {
@@ -13,9 +14,38 @@ static std::string getenv_str(const char* key, const std::string& defv)
     return fastmcpp::internal::getenv_string(key).value_or(defv);
 }
 
+std::string Settings::default_home()
+{
+    namespace fs = std::filesystem;
+    const auto env = [](const char* k) -> std::string
+    {
+        auto v = fastmcpp::internal::getenv_string(k).value_or("");
+        while (!v.empty() && (v.back() == ' ' || v.back() == '\t'))
+            v.pop_back();
+        return v;
+    };
+#ifdef _WIN32
+    std::string base = env("LOCALAPPDATA");
+    if (base.empty())
+        base = (fs::path(env("USERPROFILE")) / "AppData" / "Local").string();
+    return (fs::path(base) / "fastmcp").string();
+#else
+    if (auto xdg = env("XDG_DATA_HOME"); !xdg.empty())
+        return (fs::path(xdg) / "fastmcp").string();
+    const fs::path home = env("HOME");
+#ifdef __APPLE__
+    return (home / "Library" / "Application Support" / "fastmcp").string();
+#else
+    return (home / ".local" / "share" / "fastmcp").string();
+#endif
+#endif
+}
+
 Settings Settings::from_env()
 {
     Settings s;
+    if (auto home = getenv_str("FASTMCPP_HOME", ""); !home.empty())
+        s.home = home;
     auto lvl = getenv_str("FASTMCPP_LOG_LEVEL", s.log_level);
     std::transform(lvl.begin(), lvl.end(), lvl.begin(), ::toupper);
     s.log_level = lvl;
@@ -114,6 +144,8 @@ Settings Settings::from_json(const Json& j)
         s.ssrf_trust_proxy = j.at("ssrf_trust_proxy").get<bool>();
     if (j.contains("test_mode"))
         s.test_mode = j.at("test_mode").get<bool>();
+    if (j.contains("home"))
+        s.home = j.at("home").get<std::string>();
     return s;
 }
 

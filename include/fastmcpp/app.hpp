@@ -332,12 +332,9 @@ class FastMCP
 
     /// The server's auth provider. HTTP transports take it with
     /// `set_auth(app.auth())`; component and AuthMiddleware checks read the
-    /// token it accepted.
-    FastMCP& set_auth(std::shared_ptr<server::auth::AuthProvider> provider)
-    {
-        auth_ = std::move(provider);
-        return *this;
-    }
+    /// token it accepted. An OAuth proxy also takes the server's name, first
+    /// icon and website for its consent page.
+    FastMCP& set_auth(std::shared_ptr<server::auth::AuthProvider> provider);
     const std::shared_ptr<server::auth::AuthProvider>& auth() const
     {
         return auth_;

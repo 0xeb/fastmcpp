@@ -7,11 +7,24 @@
 #include <cctype>
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
+namespace fastmcpp::client
+{
+struct HttpResponse;
+}
+
 namespace fastmcpp::server::auth::detail
 {
+
+/// The reason phrase of an HTTP status, or "".
+std::string reason_phrase(int status);
+
+/// The message of the reference HTTP client's status error for @p r, or
+/// nullopt for a 2xx response.
+std::optional<std::string> http_status_error(const client::HttpResponse& r, const std::string& url);
 
 inline bool is_space(char c)
 {

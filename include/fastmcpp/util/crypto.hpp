@@ -1,7 +1,7 @@
 #pragma once
 /// @file crypto.hpp
 /// @brief Self-contained primitives: SHA-2, SHAKE256, HMAC, HKDF, AES-256-GCM,
-///        a CSPRNG and unpadded base64url.
+///        AES-CBC, a CSPRNG and unpadded base64url.
 /// @details No crypto backend is required (OpenSSL is optional for this
 ///          library), so these are portable reference implementations. They
 ///          process small inputs (tokens of a few hundred bytes); they are not
@@ -54,6 +54,11 @@ Bytes aes256_gcm_seal(const Bytes& key, const Bytes& nonce, const Bytes& plainte
 /// Inverse of aes256_gcm_seal; nullopt when the tag does not verify.
 std::optional<Bytes> aes256_gcm_open(const Bytes& key, const Bytes& nonce, const Bytes& sealed,
                                      const Bytes& aad);
+
+/// AES-CBC (128- or 256-bit key) with PKCS#7 padding.
+Bytes aes_cbc_encrypt(const Bytes& key, const Bytes& iv, const Bytes& plaintext);
+/// Inverse of aes_cbc_encrypt; nullopt for a malformed length or bad padding.
+std::optional<Bytes> aes_cbc_decrypt(const Bytes& key, const Bytes& iv, const Bytes& ciphertext);
 
 /// Bytes from the operating system CSPRNG. Throws std::runtime_error on failure.
 Bytes random_bytes(std::size_t n);

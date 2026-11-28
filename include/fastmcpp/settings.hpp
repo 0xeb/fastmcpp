@@ -46,6 +46,14 @@ struct Settings
     /// Env: FASTMCPP_TEST_MODE.
     bool test_mode{false};
 
+    /// Directory for persistent state, e.g. the OAuth proxy's default store.
+    /// Defaults to the per-user data directory: %LOCALAPPDATA%\\fastmcp on
+    /// Windows, ~/Library/Application Support/fastmcp on macOS, and
+    /// $XDG_DATA_HOME/fastmcp or ~/.local/share/fastmcp elsewhere.
+    /// Env: FASTMCPP_HOME.
+    std::string home{default_home()};
+
+    static std::string default_home();
     static Settings from_env();
     static Settings from_json(const Json& j);
 };
