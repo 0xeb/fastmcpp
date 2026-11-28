@@ -1,8 +1,10 @@
+#include "../internal/pyjson.hpp"
 #include "fastmcpp/app.hpp"
 #include "fastmcpp/client/client.hpp"
 #include "fastmcpp/client/transports.hpp"
 #include "fastmcpp/mcp/handler.hpp"
 #include "fastmcpp/protocol.hpp"
+#include "fastmcpp/server/cimd.hpp"
 #include "fastmcpp/server/server.hpp"
 #include "fastmcpp/version.hpp"
 
@@ -25,6 +27,16 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+// clang-format off
+#include <windows.h>
+#include <shellapi.h>
+// clang-format on
+#endif
 
 namespace
 {
@@ -78,6 +90,7 @@ static int usage(int exit_code = 1)
         << "  fastmcpp install <stdio|mcp-json|goose|cursor|claude-desktop|claude-code|gemini-cli> "
            "[server_spec]\n";
     std::cout << "  fastmcpp tasks --help\n";
+    std::cout << "  fastmcpp auth cimd <create|validate> --help\n";
     std::cout << "\n";
     print_connection_options();
     return exit_code;
@@ -1473,6 +1486,286 @@ static InstallLaunchSpec build_launch_from_server_spec(
     return spec;
 }
 
+static int auth_usage(int exit_code = 1)
+{
+    std::cout << "Usage: fastmcpp auth COMMAND\n\n";
+    std::cout << "Authentication-related utilities and configuration.\n\n";
+    std::cout << "Commands:\n";
+    std::cout << "  cimd  CIMD (Client ID Metadata Document) utilities for OAuth authentication.\n";
+    return exit_code;
+}
+
+static int cimd_usage(int exit_code = 1)
+{
+    std::cout << "Usage: fastmcpp auth cimd COMMAND\n\n";
+    std::cout << "CIMD (Client ID Metadata Document) utilities for OAuth authentication.\n\n";
+    std::cout << "Commands:\n";
+    std::cout << "  create    Generate a CIMD document for hosting.\n";
+    std::cout << "  validate  Validate a hosted CIMD document.\n";
+    return exit_code;
+}
+
+static int cimd_create_usage(int exit_code = 1)
+{
+    std::cout << "Usage: fastmcpp auth cimd create --name STR --redirect-uri STR... [OPTIONS]\n\n";
+    std::cout << "Generate a CIMD document for hosting.\n\n";
+    std::cout << "Create a Client ID Metadata Document that you can host at an HTTPS URL. The URL "
+                 "where you host this document becomes your client_id.\n\n";
+    std::cout << "Parameters:\n";
+    std::cout << "  --name STR                Human-readable name of the client application "
+                 "[required]\n";
+    std::cout << "  --redirect-uri, -r STR    Allowed redirect URIs (repeatable) [required]\n";
+    std::cout << "  --client-id STR           The URL where this document will be hosted (sets "
+                 "client_id directly)\n";
+    std::cout << "  --client-uri STR          URL of the client's home page\n";
+    std::cout << "  --logo-uri STR            URL of the client's logo image\n";
+    std::cout << "  --scope STR               Space-separated list of scopes the client may "
+                 "request\n";
+    std::cout << "  --output, -o STR          Output file path (default: stdout)\n";
+    std::cout << "  --pretty[=true|false]     Pretty-print JSON output [default: true]\n";
+    return exit_code;
+}
+
+static int cimd_validate_usage(int exit_code = 1)
+{
+    std::cout << "Usage: fastmcpp auth cimd validate [OPTIONS] URL\n\n";
+    std::cout << "Validate a hosted CIMD document.\n\n";
+    std::cout << "Fetches the document from the given URL and validates:\n";
+    std::cout << "  - URL is valid CIMD URL (HTTPS, non-root path)\n";
+    std::cout << "  - Document is valid JSON\n";
+    std::cout << "  - Document conforms to CIMD schema\n";
+    std::cout << "  - client_id in document matches the URL\n\n";
+    std::cout << "Parameters:\n";
+    std::cout << "  URL, --url URL            URL of the CIMD document to validate [required]\n";
+    std::cout << "  --timeout, -t FLOAT       HTTP request timeout in seconds [default: 10.0]\n";
+    return exit_code;
+}
+
+static const char* const kCimdPlaceholderNote =
+    "\nImportant: client_id is a placeholder. Update it to the URL where you will host this "
+    "document, or re-run with --client-id.\n";
+
+static int run_cimd_create(std::vector<std::string> args)
+{
+    if (consume_flag(args, "--help") || consume_flag(args, "-h"))
+        return cimd_create_usage(0);
+
+    std::optional<std::string> name, client_id, client_uri, logo_uri, scope, output;
+    std::vector<std::string> redirect_uris;
+    bool pretty = true;
+    for (std::size_t i = 0; i < args.size(); ++i)
+    {
+        const std::string& a = args[i];
+        const auto value = [&](const std::string& flag) -> std::string
+        {
+            if (i + 1 >= args.size())
+                throw std::invalid_argument("parameter " + flag + " requires an argument.");
+            return args[++i];
+        };
+        if (a == "--name")
+            name = value(a);
+        else if (a == "--redirect-uri" || a == "-r")
+            redirect_uris.push_back(value("--redirect-uri"));
+        else if (a == "--client-id")
+            client_id = value(a);
+        else if (a == "--client-uri")
+            client_uri = value(a);
+        else if (a == "--logo-uri")
+            logo_uri = value(a);
+        else if (a == "--scope")
+            scope = value(a);
+        else if (a == "--output" || a == "-o")
+            output = value("--output");
+        else if (a == "--pretty" || a == "--pretty=true" || a == "--pretty=True")
+            pretty = true;
+        else if (a == "--pretty=false" || a == "--pretty=False")
+            pretty = false;
+        else
+            throw std::invalid_argument("Unused Tokens: ['" + a + "'].");
+    }
+    if (!name)
+        throw std::invalid_argument("parameter --name requires an argument.");
+    if (redirect_uris.empty())
+        throw std::invalid_argument("parameter --redirect-uri requires an argument.");
+
+    nlohmann::ordered_json doc = {
+        {"client_id", client_id && !client_id->empty()
+                          ? *client_id
+                          : "https://YOUR-DOMAIN.com/path/to/client.json"},
+        {"client_name", *name},
+        {"redirect_uris", redirect_uris},
+        {"token_endpoint_auth_method", "none"},
+        {"grant_types", {"authorization_code"}},
+        {"response_types", {"code"}}};
+    if (client_uri && !client_uri->empty())
+        doc["client_uri"] = *client_uri;
+    if (logo_uri && !logo_uri->empty())
+        doc["logo_uri"] = *logo_uri;
+    if (scope && !scope->empty())
+        doc["scope"] = *scope;
+
+    const std::string json =
+        pretty ? fastmcpp::internal::pyjson::dumps(doc, 2) : fastmcpp::internal::pyjson::dumps(doc);
+    const bool placeholder = !client_id || client_id->empty();
+    if (output)
+    {
+        std::string raw_path = *output;
+        if (!raw_path.empty() && raw_path[0] == '~' &&
+            (raw_path.size() == 1 || raw_path[1] == '/' || raw_path[1] == '\\'))
+        {
+#ifdef _WIN32
+            const char* home = std::getenv("USERPROFILE");
+#else
+            const char* home = std::getenv("HOME");
+#endif
+            if (home)
+                raw_path = std::string(home) + raw_path.substr(1);
+        }
+        std::filesystem::path path(raw_path);
+        path = std::filesystem::absolute(path);
+        if (path.has_parent_path())
+            std::filesystem::create_directories(path.parent_path());
+        std::ofstream out(path);
+        if (!out)
+            throw std::runtime_error("cannot write " + path.string());
+        out << json << "\n";
+        std::cout << "\xE2\x9C\x93 CIMD document written to " << *output << "\n";
+        if (placeholder)
+            std::cout << kCimdPlaceholderNote;
+    }
+    else
+    {
+        std::cout << json << "\n";
+        if (placeholder)
+            std::cerr << kCimdPlaceholderNote;
+    }
+    return 0;
+}
+
+static int run_cimd_validate(std::vector<std::string> args)
+{
+    if (consume_flag(args, "--help") || consume_flag(args, "-h"))
+        return cimd_validate_usage(0);
+    double timeout = 10.0;
+    std::optional<std::string> url;
+    for (std::size_t i = 0; i < args.size(); ++i)
+    {
+        const std::string& a = args[i];
+        if (a == "--timeout" || a == "-t")
+        {
+            if (i + 1 >= args.size())
+                throw std::invalid_argument("parameter --timeout requires an argument.");
+            const std::string v = args[++i];
+            std::size_t used = 0;
+            try
+            {
+                timeout = std::stod(v, &used);
+            }
+            catch (const std::exception&)
+            {
+                used = 0;
+            }
+            if (used != v.size() || v.empty())
+                throw std::invalid_argument("Invalid value for --timeout: could not convert \"" +
+                                            v + "\" to float.");
+        }
+        else if (a == "--url")
+        {
+            if (i + 1 >= args.size())
+                throw std::invalid_argument("parameter --url requires an argument.");
+            url = args[++i];
+        }
+        else if (!url && (a.empty() || a[0] != '-'))
+            url = a;
+        else
+            throw std::invalid_argument("Unused Tokens: ['" + a + "'].");
+    }
+    if (!url)
+        throw std::invalid_argument("parameter URL requires an argument.");
+
+    fastmcpp::server::auth::CIMDFetcher fetcher(timeout);
+    if (!fetcher.is_cimd_client_id(*url))
+    {
+        std::cout << "\xE2\x9C\x97 Invalid CIMD URL: " << *url << "\n\n";
+        std::cout << "CIMD URLs must:\n";
+        std::cout << "  \xE2\x80\xA2 Use HTTPS (not HTTP)\n";
+        std::cout << "  \xE2\x80\xA2 Have a non-root path (e.g., /client.json, not just /)\n";
+        return 1;
+    }
+    std::cout << "\xE2\x86\x92 Fetching " << *url << "...\n" << std::flush;
+    fastmcpp::server::auth::CIMDDocument doc;
+    try
+    {
+        doc = fetcher.fetch(*url);
+    }
+    catch (const fastmcpp::server::auth::CIMDFetchError& e)
+    {
+        std::cout << "\xE2\x9C\x97 Failed to fetch document: " << e.what() << "\n";
+        return 1;
+    }
+    catch (const fastmcpp::server::auth::CIMDValidationError& e)
+    {
+        std::cout << "\xE2\x9C\x97 Validation error: " << e.what() << "\n";
+        return 1;
+    }
+    std::cout << "\xE2\x9C\x93 Valid CIMD document\n\n";
+    std::cout << "Document details:\n";
+    std::cout << "  client_id: " << doc.client_id << "\n";
+    std::cout << "  client_name: "
+              << (doc.client_name && !doc.client_name->empty() ? *doc.client_name : "(not set)")
+              << "\n";
+    std::cout << "  token_endpoint_auth_method: " << doc.token_endpoint_auth_method << "\n";
+    if (!doc.redirect_uris.empty())
+    {
+        std::cout << "  redirect_uris:\n";
+        for (const auto& uri : doc.redirect_uris)
+            std::cout << "    \xE2\x80\xA2 " << uri << "\n";
+    }
+    else
+        std::cout << "  redirect_uris: (none)\n";
+    if (doc.scope && !doc.scope->empty())
+        std::cout << "  scope: " << *doc.scope << "\n";
+    if (doc.client_uri && !doc.client_uri->empty())
+        std::cout << "  client_uri: " << *doc.client_uri << "\n";
+    return 0;
+}
+
+static int run_auth_command(int argc, char** argv)
+{
+    std::vector<std::string> args(argv + 2, argv + argc);
+    if (args.empty() || args[0] == "--help" || args[0] == "-h")
+        return auth_usage(args.empty() ? 1 : 0);
+    if (args[0] != "cimd")
+    {
+        std::cerr << "Unknown auth command: " << args[0] << "\n";
+        return 2;
+    }
+    args.erase(args.begin());
+    if (args.empty() || args[0] == "--help" || args[0] == "-h")
+        return cimd_usage(args.empty() ? 1 : 0);
+    const std::string sub = args[0];
+    args.erase(args.begin());
+    try
+    {
+        if (sub == "create")
+            return run_cimd_create(std::move(args));
+        if (sub == "validate")
+            return run_cimd_validate(std::move(args));
+    }
+    catch (const std::invalid_argument& e)
+    {
+        std::cerr << "Error: " << e.what() << "\n";
+        return 2;
+    }
+    catch (const std::exception& e)
+    {
+        std::cerr << "Error: " << e.what() << "\n";
+        return 1;
+    }
+    std::cerr << "Unknown cimd command: " << sub << "\n";
+    return 2;
+}
+
 static int run_install_command(int argc, char** argv)
 {
     std::vector<std::string> args = collect_args(argc, argv, 2);
@@ -1666,6 +1959,33 @@ static int run_install_command(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
+#ifdef _WIN32
+    // argv arrives in the ANSI code page; rebuild it as UTF-8 from the wide command line.
+    std::vector<std::string> utf8_args;
+    std::vector<char*> utf8_argv;
+    {
+        int wargc = 0;
+        if (LPWSTR* wargv = CommandLineToArgvW(GetCommandLineW(), &wargc))
+        {
+            for (int i = 0; i < wargc; ++i)
+            {
+                const int n =
+                    WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, nullptr, 0, nullptr, nullptr);
+                std::string s(n > 0 ? static_cast<std::size_t>(n - 1) : 0, '\0');
+                if (n > 1)
+                    WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, s.data(), n, nullptr, nullptr);
+                utf8_args.push_back(std::move(s));
+            }
+            LocalFree(wargv);
+            for (auto& s : utf8_args)
+                utf8_argv.push_back(s.data());
+            utf8_argv.push_back(nullptr);
+            argc = wargc;
+            argv = utf8_argv.data();
+        }
+    }
+    SetConsoleOutputCP(CP_UTF8);
+#endif
     if (argc < 2)
         return usage();
 
@@ -1702,6 +2022,8 @@ int main(int argc, char** argv)
         return run_install_command(argc, argv);
     if (cmd == "tasks")
         return run_tasks_command(argc, argv);
+    if (cmd == "auth")
+        return run_auth_command(argc, argv);
 
     return usage();
 }

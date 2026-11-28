@@ -69,6 +69,19 @@ Settings Settings::from_env()
         s.enable_subscriptions_listen = false;
     else if (listen == "1" || listen == "true" || listen == "on" || listen == "yes")
         s.enable_subscriptions_listen = true;
+
+    const auto env_bool = [&](const char* key, bool current)
+    {
+        auto v = getenv_str(key, "");
+        std::transform(v.begin(), v.end(), v.begin(), ::tolower);
+        if (v == "1" || v == "true" || v == "on" || v == "yes")
+            return true;
+        if (v == "0" || v == "false" || v == "off" || v == "no")
+            return false;
+        return current;
+    };
+    s.ssrf_trust_proxy = env_bool("FASTMCPP_SSRF_TRUST_PROXY", s.ssrf_trust_proxy);
+    s.test_mode = env_bool("FASTMCPP_TEST_MODE", s.test_mode);
     return s;
 }
 
@@ -97,6 +110,10 @@ Settings Settings::from_json(const Json& j)
         s.http_allowed_origins = j.at("http_allowed_origins").get<std::vector<std::string>>();
     if (j.contains("enable_subscriptions_listen"))
         s.enable_subscriptions_listen = j.at("enable_subscriptions_listen").get<bool>();
+    if (j.contains("ssrf_trust_proxy"))
+        s.ssrf_trust_proxy = j.at("ssrf_trust_proxy").get<bool>();
+    if (j.contains("test_mode"))
+        s.test_mode = j.at("test_mode").get<bool>();
     return s;
 }
 

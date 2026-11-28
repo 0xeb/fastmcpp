@@ -2,8 +2,10 @@
 
 #include "fastmcpp/client/auth.hpp"
 
+#include "../internal/pyurl.hpp"
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/util/json.hpp"
+#include "fastmcpp/util/ui.hpp"
 #include "http_detail.hpp"
 
 #ifdef FASTMCPP_HAS_CURL_TRANSPORT
@@ -469,6 +471,11 @@ std::optional<Json> parse_authorization_server_metadata(const std::string& body)
             if (!v || !is_http_url(*v))
                 return std::nullopt;
         }
+        // The issuer is compared in its normalized URL form (lowercase scheme and host,
+        // default port dropped), as the reference model renders it.
+        if (const auto normalized =
+                internal::pyurl::validate_url(j["issuer"].get<std::string>(), true, true).url)
+            j["issuer"] = *normalized;
         return j;
     }
     catch (...)
@@ -948,6 +955,8 @@ struct OAuth::State
     bool m2m = false;
     std::optional<std::string> m2m_issuer;
     std::optional<std::string> m2m_scopes;
+    /// private_key_jwt: mints the client assertion (RFC 7523 section 2.2).
+    AssertionProvider m2m_assertion_provider;
     std::string cache_namespace;
 
     // ---- storage (fastmcp TokenStorageAdapter) ----
@@ -1482,7 +1491,19 @@ struct OAuth::State
             {"grant_type", "client_credentials"}};
         std::unordered_map<std::string, std::string> headers = {
             {"Content-Type", "application/x-www-form-urlencoded"}};
-        prepare_token_auth(data, headers);
+        if (m2m_assertion_provider)
+        {
+            if (!oauth_metadata)
+                throw OAuthFlowError("Missing OAuth metadata for private_key_jwt flow");
+            // The audience is the authorization server's issuer identifier (RFC 7523bis).
+            data.emplace_back(
+                "client_assertion",
+                m2m_assertion_provider(str_field(*oauth_metadata, "issuer").value_or("")));
+            data.emplace_back("client_assertion_type",
+                              "urn:ietf:params:oauth:client-assertion-type:jwt-bearer");
+        }
+        else
+            prepare_token_auth(data, headers);
         if (include_resource_param())
             data.emplace_back("resource", resource_url());
         if (auto s = str_field(client_metadata, "scope"); s && !s->empty())
@@ -1546,58 +1567,8 @@ struct OAuth::State
 
     std::pair<std::string, std::optional<std::string>> default_callback() const
     {
-        httplib::Server server;
-        std::mutex m;
-        std::condition_variable cv;
-        bool done = false;
-        std::string code, error;
-        std::optional<std::string> got_state;
-
-        server.Get("/callback",
-                   [&](const httplib::Request& req, httplib::Response& res)
-                   {
-                       std::lock_guard<std::mutex> lock(m);
-                       if (req.has_param("error"))
-                       {
-                           error = req.get_param_value("error");
-                           if (req.has_param("error_description"))
-                               error += ": " + req.get_param_value("error_description");
-                           res.status = 400;
-                           res.set_content("<html><body><h1>Authorization failed</h1><p>" +
-                                               std::string("You can close this window.") +
-                                               "</p></body></html>",
-                                           "text/html");
-                       }
-                       else
-                       {
-                           code = req.get_param_value("code");
-                           if (req.has_param("state"))
-                               got_state = req.get_param_value("state");
-                           res.set_content("<html><body><h1>Authorization successful</h1>"
-                                           "<p>You can close this window and return to the "
-                                           "application.</p></body></html>",
-                                           "text/html");
-                       }
-                       done = true;
-                       cv.notify_all();
-                   });
-        if (!server.bind_to_port(bind_host, redirect_port))
-            throw OAuthFlowError("OAuth callback server could not listen on " + bind_host + ":" +
-                                 std::to_string(redirect_port));
-        std::thread listener([&]() { server.listen_after_bind(); });
-        bool timed_out = false;
-        {
-            std::unique_lock<std::mutex> lock(m);
-            timed_out = !cv.wait_for(lock, options.callback_timeout, [&] { return done; });
-        }
-        server.stop();
-        listener.join();
-        if (timed_out)
-            throw OAuthFlowError("OAuth callback timed out after " +
-                                 std::to_string(options.callback_timeout.count()) + " seconds");
-        if (!error.empty())
-            throw OAuthFlowError("OAuth error: " + error);
-        return {code, got_state};
+        return detail::run_callback_server(bind_host, redirect_port, options.callback_timeout,
+                                           server_url);
     }
 };
 
@@ -1823,6 +1794,209 @@ bool ClientCredentialsOAuth::handle_challenge(const AuthChallenge& challenge)
 std::optional<OAuthToken> ClientCredentialsOAuth::current_token() const
 {
     return impl_->current_token();
+}
+
+// ============================================================ PrivateKeyJWTOAuth
+
+AssertionProvider static_assertion_provider(std::string token)
+{
+    return [token = std::move(token)](const std::string&) { return token; };
+}
+
+PrivateKeyJWTOAuth::PrivateKeyJWTOAuth(PrivateKeyJWTOptions options)
+{
+    if (options.client_id.empty())
+        throw std::invalid_argument("private_key_jwt requires a client_id");
+    if (!options.assertion_provider)
+        throw std::invalid_argument("private_key_jwt requires an assertion_provider");
+    if (options.issuer)
+    {
+        const Url u = parse(*options.issuer);
+        if (u.scheme != "http" && u.scheme != "https")
+            throw std::invalid_argument(
+                "issuer must be the authorization server's http(s) issuer URL, got '" +
+                *options.issuer + "'");
+    }
+
+    OAuthOptions o;
+    o.scopes = options.scopes;
+    o.token_storage = options.token_storage;
+    o.http = options.http;
+    o.client_id = options.client_id;
+    o.additional_client_metadata = {{"grant_types", Json::array({"client_credentials"})},
+                                    {"token_endpoint_auth_method", "private_key_jwt"}};
+    o.callback_port = 0;
+    o.redirect_handler = [](const std::string&)
+    { throw OAuthFlowError("client_credentials has no authorization redirect"); };
+    o.callback_handler = []() -> std::pair<std::string, std::optional<std::string>>
+    { throw OAuthFlowError("client_credentials has no authorization callback"); };
+    impl_ = std::make_unique<OAuth>(std::move(o));
+
+    OAuth::State& s = *impl_->state_;
+    s.m2m = true;
+    s.m2m_issuer = options.issuer;
+    s.m2m_assertion_provider = std::move(options.assertion_provider);
+    const std::string joined = join(options.scopes, " ");
+    if (!joined.empty())
+        s.m2m_scopes = joined;
+    Json identity = Json::array({options.client_id, s.m2m_scopes ? Json(*s.m2m_scopes) : Json()});
+    if (options.issuer)
+        identity.push_back(*options.issuer);
+    s.cache_namespace = detail::sha256_hex(identity.dump());
+    if (!options.mcp_url.empty())
+        bind(options.mcp_url);
+}
+
+PrivateKeyJWTOAuth::~PrivateKeyJWTOAuth() = default;
+
+void PrivateKeyJWTOAuth::bind(const std::string& mcp_url)
+{
+    impl_->bind(mcp_url);
+    std::lock_guard<std::mutex> lock(impl_->state_->mu);
+    OAuth::State& s = *impl_->state_;
+    s.client_metadata.erase("redirect_uris");
+    s.client_metadata.erase("response_types");
+    if (s.static_client_info)
+    {
+        s.static_client_info->erase("redirect_uris");
+        s.static_client_info->erase("response_types");
+    }
+}
+
+std::unordered_map<std::string, std::string> PrivateKeyJWTOAuth::headers(const HeaderRequest&)
+{
+    std::lock_guard<std::mutex> lock(impl_->state_->mu);
+    return impl_->state_->auth_headers("PrivateKeyJWTOAuth");
+}
+
+bool PrivateKeyJWTOAuth::handle_challenge(const AuthChallenge& challenge)
+{
+    return impl_->handle_challenge(challenge);
+}
+
+std::optional<OAuthToken> PrivateKeyJWTOAuth::current_token() const
+{
+    return impl_->current_token();
+}
+
+namespace detail
+{
+
+std::pair<std::string, std::optional<std::string>>
+run_callback_server(const std::string& bind_host, int port, std::chrono::seconds timeout,
+                    const std::optional<std::string>& server_url,
+                    std::function<void(int)> on_listening)
+{
+    httplib::Server server;
+    std::mutex m;
+    std::condition_variable cv;
+    bool done = false;
+    std::string code, error;
+    std::optional<std::string> got_state;
+
+    // The last value of a repeated parameter wins, as in a dict of the query.
+    const auto has = [](const httplib::Request& req, const char* key)
+    { return req.has_param(key); };
+    const auto last = [](const httplib::Request& req, const char* key)
+    { return req.get_param_value(key, req.get_param_value_count(key) - 1); };
+    const auto page = [](httplib::Response& res, int status, const std::string& html)
+    {
+        res.status = status;
+        for (const auto& [k, v] : util::ui::secure_html_headers())
+            res.set_header(k, v);
+        res.set_content(html, "text/html; charset=utf-8");
+    };
+    server.Get("/callback",
+               [&](const httplib::Request& req, httplib::Response& res)
+               {
+                   std::lock_guard<std::mutex> lock(m);
+                   // Only the first redirect counts; later ones still get a page.
+                   const bool first = !done;
+                   std::string failure;
+                   if (has(req, "error") && !last(req, "error").empty())
+                   {
+                       const std::string description =
+                           has(req, "error_description") && !last(req, "error_description").empty()
+                               ? last(req, "error_description")
+                               : "Unknown error";
+                       failure = last(req, "error") == "access_denied"
+                                     ? "Access was denied by the authorization server."
+                                     : "Authorization failed: " + description;
+                   }
+                   else if (!has(req, "code") || last(req, "code").empty())
+                       failure = "No authorization code was received from the server.";
+                   else if (!has(req, "state"))
+                       failure = "The OAuth server did not return the expected state parameter.";
+
+                   if (!failure.empty())
+                   {
+                       if (first)
+                           error = failure;
+                       page(res, 400, create_callback_html(failure, false));
+                   }
+                   else
+                   {
+                       if (first)
+                       {
+                           code = last(req, "code");
+                           got_state = last(req, "state");
+                       }
+                       page(res, 200, create_callback_html("", true, "FastMCP OAuth", server_url));
+                   }
+                   done = true;
+                   cv.notify_all();
+               });
+    const int requested_port = port;
+    if (port == 0)
+        port = server.bind_to_any_port(bind_host);
+    else if (!server.bind_to_port(bind_host, port))
+        port = -1;
+    if (port <= 0)
+        throw OAuthFlowError("OAuth callback server could not listen on " + bind_host + ":" +
+                             std::to_string(requested_port));
+    std::thread listener([&]() { server.listen_after_bind(); });
+    if (on_listening)
+    {
+        server.wait_until_ready();
+        on_listening(port);
+    }
+    bool timed_out = false;
+    {
+        std::unique_lock<std::mutex> lock(m);
+        timed_out = !cv.wait_for(lock, timeout, [&] { return done; });
+    }
+    server.stop();
+    listener.join();
+    if (timed_out)
+        throw OAuthFlowError("OAuth callback timed out after " + std::to_string(timeout.count()) +
+                             " seconds");
+    if (!error.empty())
+        throw OAuthFlowError(error);
+    return {code, got_state};
+}
+
+} // namespace detail
+
+std::string create_callback_html(const std::string& message, bool is_success,
+                                 const std::string& title,
+                                 const std::optional<std::string>& server_url)
+{
+    namespace ui = util::ui;
+    std::string detail_info;
+    if (is_success && server_url)
+        detail_info = ui::create_info_box("Connected to: " + *server_url, false, true, true);
+    else if (!is_success)
+        detail_info = ui::create_info_box(message, true, true, true);
+    const std::string content =
+        "\n        <div class=\"container\">\n            " + ui::create_logo() + "\n            " +
+        ui::create_status_message(
+            is_success ? "Authentication successful" : "Authentication failed", is_success) +
+        "\n            " + detail_info +
+        "\n            <div class=\"close-instruction\">\n                You can safely close "
+        "this tab now.\n            </div>\n        </div>\n    ";
+    return ui::create_page(content, title,
+                           std::string(ui::STATUS_MESSAGE_STYLES) + ui::INFO_BOX_STYLES +
+                               ui::HELPER_TEXT_STYLES);
 }
 
 bool check_if_auth_required(const std::string& mcp_url, const HttpFunction& http_in)

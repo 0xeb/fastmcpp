@@ -323,9 +323,8 @@ bool SseServerWrapper::start()
     {
         auto prepared = auth::prepare_http_auth(auth_, sse_path_);
         auth_gate_ = prepared.gate;
-        for (const auto& route : prepared.routes)
-            detail::register_custom_route(
-                *svr_, route, [this](const httplib::Request& req, httplib::Response& res)
+        detail::register_auth_routes(
+                *svr_, prepared.routes, [this](const httplib::Request& req, httplib::Response& res)
                 { return host_origin_reject_ && host_origin_reject_(req, res); },
                 [this](httplib::Response& res) { apply_additional_response_headers(res); });
     }

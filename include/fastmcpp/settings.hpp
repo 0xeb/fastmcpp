@@ -32,6 +32,20 @@ struct Settings
     /// constructed. Env: FASTMCPP_ENABLE_SUBSCRIPTIONS_LISTEN.
     bool enable_subscriptions_listen{true};
 
+    /// Trust an outbound proxy for SSRF-protected fetches (client metadata
+    /// documents and JWKS). When false, the target hostname is resolved here
+    /// and private, loopback, link-local and reserved addresses are refused.
+    /// When true, those fetches go through HTTPS_PROXY / ALL_PROXY, NO_PROXY
+    /// is ignored, and a fetch with no proxy configured is refused. Enable it
+    /// only when the proxy enforces its own destination restrictions.
+    /// Env: FASTMCPP_SSRF_TRUST_PROXY.
+    bool ssrf_trust_proxy{false};
+
+    /// Trade security margins for speed in test suites, e.g. a low PBKDF2
+    /// iteration count when deriving token keys. Never enable in production.
+    /// Env: FASTMCPP_TEST_MODE.
+    bool test_mode{false};
+
     static Settings from_env();
     static Settings from_json(const Json& j);
 };

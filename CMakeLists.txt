@@ -4,7 +4,7 @@ if(POLICY CMP0169)
   cmake_policy(SET CMP0169 OLD)
 endif()
 # major.minor.patch = upstream fastmcp parity level; optional 4th = local revision.
-project(fastmcpp VERSION 4.2.6.4 LANGUAGES CXX)
+project(fastmcpp VERSION 4.2.6.5 LANGUAGES CXX)
 
 # Empty for a 3-component version, which would expand to FASTMCPP_VERSION_TWEAK=.
 if(NOT DEFINED PROJECT_VERSION_TWEAK OR PROJECT_VERSION_TWEAK STREQUAL "")
@@ -37,6 +37,10 @@ option(FASTMCPP_ENABLE_SERVER_AUTH "Build server-side OAuth (JWT verification, a
 
 add_library(fastmcpp_core STATIC
     src/types.cpp
+    src/util/ui.cpp
+    src/internal/pyurl.cpp
+    src/internal/pyjson.cpp
+    src/internal/pydate.cpp
     src/util/schema_build.cpp
     src/app.cpp
     src/providers/transforms/namespace.cpp
@@ -87,6 +91,10 @@ add_library(fastmcpp_core STATIC
     src/server/streamable_http_server.cpp
     src/server/authorization.cpp
     src/server/auth.cpp
+    src/server/oauth_server.cpp
+    src/server/redirect_validation.cpp
+    src/server/ssrf.cpp
+    src/server/cimd.cpp
     src/server/auth_middleware.cpp
     src/client/client.cpp
     src/client/sampling_handlers.cpp
@@ -95,6 +103,7 @@ add_library(fastmcpp_core STATIC
     src/client/sse_stream.cpp
     src/client/http_rpc_transport.cpp
     src/client/auth.cpp
+    src/client/signed_jwt.cpp
     src/client/response_cache.cpp
     src/telemetry.cpp
     src/util/json_schema.cpp
@@ -152,7 +161,9 @@ if(FASTMCPP_ENABLE_SERVER_AUTH)
       src/util/der.cpp
       src/util/eddsa.cpp
       src/util/jose.cpp
-      src/server/auth_jwt.cpp)
+      src/server/auth_jwt.cpp
+      src/server/jwt_issuer.cpp
+      src/server/identity_assertion.cpp)
   if(WIN32)
     target_sources(fastmcpp_core PRIVATE src/util/crypto_backend_cng.cpp)
   else()

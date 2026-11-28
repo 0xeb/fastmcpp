@@ -1,5 +1,6 @@
 #include "fastmcpp/util/crypto.hpp"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <stdexcept>
@@ -29,30 +30,43 @@ class Sha256
   public:
     void update(const std::uint8_t* data, std::size_t len)
     {
-        for (std::size_t i = 0; i < len; ++i)
-        {
-            buffer_[buffered_++] = data[i];
-            if (buffered_ == 64)
-            {
-                block(buffer_.data());
-                buffered_ = 0;
-            }
-        }
         bits_ += static_cast<std::uint64_t>(len) * 8;
+        if (buffered_ > 0)
+        {
+            const std::size_t take = std::min<std::size_t>(64 - buffered_, len);
+            std::memcpy(buffer_.data() + buffered_, data, take);
+            buffered_ += take;
+            data += take;
+            len -= take;
+            if (buffered_ < 64)
+                return;
+            block(buffer_.data());
+            buffered_ = 0;
+        }
+        for (; len >= 64; data += 64, len -= 64)
+            block(data);
+        if (len > 0)
+        {
+            std::memcpy(buffer_.data(), data, len);
+            buffered_ = len;
+        }
     }
 
     std::array<std::uint8_t, 32> finish()
     {
         const std::uint64_t bits = bits_;
-        const std::uint8_t one = 0x80;
-        update(&one, 1);
-        const std::uint8_t zero = 0;
-        while (buffered_ != 56)
-            update(&zero, 1);
-        std::uint8_t len[8];
+        buffer_[buffered_++] = 0x80;
+        if (buffered_ > 56)
+        {
+            std::memset(buffer_.data() + buffered_, 0, 64 - buffered_);
+            block(buffer_.data());
+            buffered_ = 0;
+        }
+        std::memset(buffer_.data() + buffered_, 0, 56 - buffered_);
         for (int i = 0; i < 8; ++i)
-            len[i] = static_cast<std::uint8_t>(bits >> (56 - 8 * i));
-        update(len, 8);
+            buffer_[56 + i] = static_cast<std::uint8_t>(bits >> (56 - 8 * i));
+        block(buffer_.data());
+        buffered_ = 0;
         std::array<std::uint8_t, 32> out{};
         for (int i = 0; i < 8; ++i)
             for (int b = 0; b < 4; ++b)
@@ -692,6 +706,82 @@ Bytes hkdf_sha256(const Bytes& ikm, const Bytes& salt, std::string_view info, st
     }
     okm.resize(length);
     return okm;
+}
+
+Bytes pbkdf2_hmac_sha256(const Bytes& password, const Bytes& salt, std::uint32_t iterations,
+                         std::size_t length)
+{
+    if (iterations == 0)
+        throw std::invalid_argument("PBKDF2 needs at least one iteration");
+    std::array<std::uint8_t, 64> k{};
+    if (password.size() > 64)
+    {
+        const auto digest = sha256(password.data(), password.size());
+        std::memcpy(k.data(), digest.data(), digest.size());
+    }
+    else if (!password.empty())
+        std::memcpy(k.data(), password.data(), password.size());
+    std::array<std::uint8_t, 64> ipad{};
+    std::array<std::uint8_t, 64> opad{};
+    for (std::size_t i = 0; i < 64; ++i)
+    {
+        ipad[i] = static_cast<std::uint8_t>(k[i] ^ 0x36);
+        opad[i] = static_cast<std::uint8_t>(k[i] ^ 0x5c);
+    }
+    // The keyed inner and outer states are computed once and copied for each
+    // HMAC, which halves the work of a million-iteration derivation.
+    Sha256 inner_base;
+    inner_base.update(ipad.data(), ipad.size());
+    Sha256 outer_base;
+    outer_base.update(opad.data(), opad.size());
+    const auto prf = [&](const std::uint8_t* data, std::size_t len)
+    {
+        Sha256 inner = inner_base;
+        inner.update(data, len);
+        const auto inner_digest = inner.finish();
+        Sha256 outer = outer_base;
+        outer.update(inner_digest.data(), inner_digest.size());
+        return outer.finish();
+    };
+
+    Bytes out;
+    out.reserve(length);
+    for (std::uint32_t block = 1; out.size() < length; ++block)
+    {
+        Bytes first(salt);
+        for (int shift = 24; shift >= 0; shift -= 8)
+            first.push_back(static_cast<std::uint8_t>(block >> shift));
+        auto u = prf(first.data(), first.size());
+        auto t = u;
+        for (std::uint32_t i = 1; i < iterations; ++i)
+        {
+            u = prf(u.data(), u.size());
+            for (std::size_t j = 0; j < t.size(); ++j)
+                t[j] ^= u[j];
+        }
+        out.insert(out.end(), t.begin(), t.begin() + std::min(t.size(), length - out.size()));
+    }
+    return out;
+}
+
+std::string base64_encode(const std::uint8_t* data, std::size_t len, bool urlsafe)
+{
+    const char* alphabet = urlsafe
+                               ? "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+                               : "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve((len + 2) / 3 * 4);
+    for (std::size_t i = 0; i < len; i += 3)
+    {
+        const std::uint32_t n = (std::uint32_t(data[i]) << 16) |
+                                (i + 1 < len ? std::uint32_t(data[i + 1]) << 8 : 0) |
+                                (i + 2 < len ? std::uint32_t(data[i + 2]) : 0);
+        out.push_back(alphabet[(n >> 18) & 63]);
+        out.push_back(alphabet[(n >> 12) & 63]);
+        out.push_back(i + 1 < len ? alphabet[(n >> 6) & 63] : '=');
+        out.push_back(i + 2 < len ? alphabet[n & 63] : '=');
+    }
+    return out;
 }
 
 Bytes aes256_gcm_seal(const Bytes& key, const Bytes& nonce, const Bytes& plaintext,

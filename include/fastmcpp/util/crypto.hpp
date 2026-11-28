@@ -38,6 +38,15 @@ std::array<std::uint8_t, 64> hmac_sha512(const Bytes& key, const std::uint8_t* d
 /// RFC 5869 HKDF-SHA256. An empty @p salt means "not provided" (HashLen zeros).
 Bytes hkdf_sha256(const Bytes& ikm, const Bytes& salt, std::string_view info, std::size_t length);
 
+/// RFC 8018 PBKDF2 with HMAC-SHA256. @throws std::invalid_argument when
+/// @p iterations is zero.
+Bytes pbkdf2_hmac_sha256(const Bytes& password, const Bytes& salt, std::uint32_t iterations,
+                         std::size_t length);
+
+/// Standard base64 with "=" padding; with @p urlsafe, "-" and "_" replace
+/// "+" and "/".
+std::string base64_encode(const std::uint8_t* data, std::size_t len, bool urlsafe = false);
+
 /// AES-256-GCM with a 96-bit nonce and a 128-bit tag. Returns ciphertext || tag.
 Bytes aes256_gcm_seal(const Bytes& key, const Bytes& nonce, const Bytes& plaintext,
                       const Bytes& aad);

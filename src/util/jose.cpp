@@ -1366,9 +1366,18 @@ Token decode(std::string_view value, const Key& key, const JwsRegistry& registry
     const CompactSignature obj = deserialize_compact(value, &key, registry);
     Token token;
     token.header = obj.protected_header;
+    // Claims are bounded in depth: a signer can be the party being checked
+    // (a client's own key), and decoded values are copied recursively.
+    static constexpr int kMaxClaimsDepth = 256;
     try
     {
-        token.claims = Json::parse(obj.payload);
+        token.claims = Json::parse(obj.payload,
+                                   [](int depth, Json::parse_event_t, Json&)
+                                   {
+                                       if (depth > kMaxClaimsDepth)
+                                           throw JoseError("invalid_payload");
+                                       return true;
+                                   });
     }
     catch (const Json::exception&)
     {

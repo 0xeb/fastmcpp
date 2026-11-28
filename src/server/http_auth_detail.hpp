@@ -5,6 +5,7 @@
 #include "fastmcpp/custom_route.hpp"
 #include "fastmcpp/server/auth.hpp"
 
+#include <algorithm>
 #include <functional>
 #include <httplib.h>
 #include <string>
@@ -30,7 +31,10 @@ inline void apply_custom_route_response(const CustomRouteResponse& out, httplib:
     res.status = out.status;
     for (const auto& [k, v] : out.headers)
         res.set_header(k, v);
-    res.set_content(out.body, out.content_type);
+    if (out.content_type.empty() && out.body.empty())
+        res.set_header("Content-Length", "0");
+    else
+        res.set_content(out.body, out.content_type);
 }
 
 /// Serve @p route on @p svr. @p before runs first and may answer the request
@@ -69,6 +73,52 @@ register_custom_route(httplib::Server& svr, const CustomRoute& route,
         svr.Patch(route.path, handler);
     else if (route.method == "OPTIONS")
         svr.Options(route.path, handler);
+}
+
+/// Serve an auth provider's @p routes on @p svr. A request for one of their
+/// paths with another method gets 405 with an `Allow` header.
+inline void
+register_auth_routes(httplib::Server& svr, const std::vector<CustomRoute>& routes,
+                     std::function<bool(const httplib::Request&, httplib::Response&)> before,
+                     std::function<void(httplib::Response&)> decorate)
+{
+    std::vector<std::pair<std::string, std::vector<std::string>>> paths;
+    for (const auto& route : routes)
+    {
+        register_custom_route(svr, route, before, decorate);
+        auto it = std::find_if(paths.begin(), paths.end(),
+                               [&route](const auto& p) { return p.first == route.path; });
+        if (it == paths.end())
+            paths.push_back({route.path, {route.method}});
+        else
+            it->second.push_back(route.method);
+    }
+    static const std::vector<std::string> kMethods{"GET",    "POST",  "PUT",
+                                                   "DELETE", "PATCH", "OPTIONS"};
+    for (const auto& [path, methods] : paths)
+    {
+        std::vector<std::string> allowed = methods;
+        if (std::find(allowed.begin(), allowed.end(), "GET") != allowed.end())
+            allowed.push_back("HEAD");
+        std::string allow;
+        for (const auto& m : allowed)
+            allow += (allow.empty() ? "" : ", ") + m;
+        for (const auto& m : kMethods)
+        {
+            if (std::find(methods.begin(), methods.end(), m) != methods.end())
+                continue;
+            CustomRoute r{m, path, [allow](const CustomRouteRequest&)
+                          {
+                              CustomRouteResponse res;
+                              res.status = 405;
+                              res.body = "Method Not Allowed";
+                              res.content_type = "text/plain; charset=utf-8";
+                              res.headers["allow"] = allow;
+                              return res;
+                          }};
+            register_custom_route(svr, r, before, decorate);
+        }
+    }
 }
 
 inline void apply_auth_rejection(const auth::AuthRejection& rejection, httplib::Response& res)

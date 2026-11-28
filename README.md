@@ -14,7 +14,7 @@
 fastmcpp is a C++ port of [fastmcp](https://github.com/PrefectHQ/fastmcp): MCP servers and clients
 with tools, resources, prompts, providers and middleware, over STDIO, HTTP/SSE and Streamable HTTP.
 
-**Version:** 4.2.6.4. The first three numbers are the fastmcp release it matches; the fourth is a
+**Version:** 4.2.6.5. The first three numbers are the fastmcp release it matches; the fourth is a
 fastmcpp-only fix on top.
 
 ## Features
@@ -29,11 +29,16 @@ fastmcpp-only fix on top.
 - Middleware: logging, timing, caching, rate limiting, error handling, ping, response limiting.
 - Elicitation, sampling, progress, completions, `subscriptions/listen`, background tasks,
   extensions and skills.
-- Client auth: bearer token and OAuth (discovery, dynamic registration, PKCE, refresh).
+- Client auth: bearer token, OAuth (discovery, dynamic registration, PKCE, refresh), client
+  credentials and `private_key_jwt` (RFC 7523).
 - Server auth: JWT, introspection and static-token verifiers, protected resource metadata,
   `MultiAuth`, and per-component authorization (`require_scopes`, `restrict_tag`,
   `require_roles`, `AuthMiddleware`).
-- `fastmcpp` command-line tool: discover, list and call servers; install server configs.
+- OAuth authorization server: `/authorize`, `/token`, `/register`, `/revoke`, RFC 8414 metadata,
+  Client ID Metadata Documents (CIMD) with `private_key_jwt`, `JWTIssuer`, identity assertion
+  grants (ID-JAG), SSRF-safe fetching and redirect URI validation.
+- `fastmcpp` command-line tool: discover, list and call servers; install server configs; create
+  and validate CIMD documents (`fastmcpp auth cimd`).
 - Windows, Linux, macOS.
 
 ## Building
@@ -58,7 +63,7 @@ cmake --build build --config Release -j
 | `FASTMCPP_FETCH_CURL` | ON | Fetch and build libcurl when it is not found |
 | `FASTMCPP_ENABLE_OPENSSL` | OFF | HTTPS for the cpp-httplib transports |
 | `FASTMCPP_ENABLE_SAMPLING_HTTP_HANDLERS` | OFF | Built-in OpenAI/Anthropic sampling handlers |
-| `FASTMCPP_ENABLE_SERVER_AUTH` | OFF | `JWTVerifier` and JOSE (CNG on Windows, OpenSSL 3 elsewhere) |
+| `FASTMCPP_ENABLE_SERVER_AUTH` | OFF | JOSE: `JWTVerifier`, `JWTIssuer`, CIMD and ID-JAG assertions, `private_key_jwt` signing (CNG on Windows, OpenSSL 3 elsewhere) |
 
 ### HTTPS
 
@@ -130,6 +135,20 @@ transport->set_auth(std::make_shared<client::auth::OAuth>()); // full OAuth flow
 `OAuthOptions::redirect_handler`/`callback_handler` for headless use and
 `OAuthOptions::token_storage` to keep tokens across runs.
 
+For machine-to-machine access, `PrivateKeyJWTOAuth` runs the `client_credentials` grant with a
+signed client assertion (needs `FASTMCPP_ENABLE_SERVER_AUTH=ON` to sign):
+
+```cpp
+client::auth::SignedJWTParameters jwt;
+jwt.issuer = jwt.subject = "https://app.example.com/client.json";
+jwt.signing_key = private_key_pem;                  // RS/PS/ES 256/384/512
+client::auth::PrivateKeyJWTOptions o;
+o.client_id = jwt.issuer;
+o.assertion_provider = jwt.create_assertion_provider();
+o.issuer = "https://auth.example.com";              // only send assertions to this AS
+transport->set_auth(std::make_shared<client::auth::PrivateKeyJWTOAuth>(o));
+```
+
 ### Server auth
 
 ```cpp
@@ -153,6 +172,21 @@ srv.set_auth(app.auth());                           // also SseServerWrapper, Ht
 Requests without a valid bearer token get `401` with a `WWW-Authenticate` challenge pointing at
 `/.well-known/oauth-protected-resource/mcp`; a token missing a required scope gets `403`.
 Component checks are skipped on STDIO.
+
+To be the authorization server as well, give the HTTP server an `OAuthProvider`. Subclass it to
+store clients and tokens your way, or start with `InMemoryOAuthProvider`:
+
+```cpp
+auth::OAuthProviderOptions o;
+o.base_url = "http://127.0.0.1:8000";
+o.client_registration_options = auth::ClientRegistrationOptions{true};
+StreamableHttpServerWrapper srv(mcp::make_mcp_handler(app), "127.0.0.1", 8000);
+srv.set_auth(std::make_shared<auth::InMemoryOAuthProvider>(o));
+```
+
+`CIMDClientManager`, `PrivateKeyJWTClientAuthenticator`, `JWTIssuer` and
+`IdentityAssertionValidator` are the parts for custom providers that accept CIMD clients, sign
+their own tokens or take identity assertion grants.
 
 ## Protocol notes
 

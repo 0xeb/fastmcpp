@@ -1,5 +1,6 @@
 #include "auth_detail.hpp"
 #include "fastmcpp/server/auth.hpp"
+#include "fastmcpp/server/ssrf.hpp"
 #include "fastmcpp/util/jose.hpp"
 
 #include <cmath>
@@ -117,6 +118,9 @@ JWTVerifier::JWTVerifier(JWTVerifierOptions options)
         throw std::invalid_argument("Either public_key or jwks_uri must be provided");
     if (has_key && has_jwks)
         throw std::invalid_argument("Provide either public_key or jwks_uri, not both");
+    if (has_jwks && options_.ssrf_safe && options_.http)
+        throw std::invalid_argument("http_client cannot be used with ssrf_safe=True; SSRF-safe "
+                                    "mode requires its own hardened transport");
     algorithm_ = options_.algorithm && !options_.algorithm->empty() ? *options_.algorithm : "RS256";
     if (!supported_algorithms().count(algorithm_))
         throw std::invalid_argument("Unsupported algorithm: " + algorithm_ + ".");
@@ -132,7 +136,7 @@ JWTVerifier::JWTVerifier(JWTVerifierOptions options)
     }
     if (!std::isfinite(options_.jwks_refresh_interval) || options_.jwks_refresh_interval < 0)
         throw std::invalid_argument("jwks_refresh_interval must be finite and non-negative");
-    if (!options_.http)
+    if (!options_.http && !options_.ssrf_safe)
         options_.http = client::auth::default_http_function(true, std::chrono::seconds(10));
 }
 
@@ -183,6 +187,35 @@ std::string JWTVerifier::jwks_key(const std::optional<std::string>& kid)
 std::string JWTVerifier::refresh_jwks_key(const std::optional<std::string>& kid)
 {
     Json jwks_data;
+    if (options_.ssrf_safe)
+    {
+        std::string content;
+        try
+        {
+            ssrf::FetchOptions fetch;
+            fetch.max_size = 65536;
+            fetch.timeout = 10.0;
+            fetch.overall_timeout = 30.0;
+            content = ssrf::ssrf_safe_fetch(*options_.jwks_uri, fetch);
+        }
+        catch (const ssrf::SSRFError& e)
+        {
+            throw std::invalid_argument(std::string("Failed to fetch JWKS: ") + e.what());
+        }
+        catch (const ssrf::SSRFFetchError& e)
+        {
+            throw std::invalid_argument(std::string("Failed to fetch JWKS: ") + e.what());
+        }
+        try
+        {
+            jwks_data = Json::parse(content);
+        }
+        catch (const std::exception& e)
+        {
+            throw std::invalid_argument(std::string("Invalid JWKS JSON: ") + e.what());
+        }
+    }
+    else
     {
         client::auth::HttpRequest req;
         req.method = "GET";

@@ -414,6 +414,12 @@ struct JWTVerifierOptions
     std::optional<std::string> algorithm;
     std::optional<std::vector<std::string>> required_scopes;
     std::optional<std::string> base_url;
+    /// Fetch the JWKS with SSRF protection (HTTPS only, public addresses,
+    /// DNS pinning, 64 KiB cap; see server/ssrf.hpp). Enable when jwks_uri
+    /// comes from untrusted input such as a client metadata document. Off by
+    /// default so operator-configured URIs, localhost included, work as-is.
+    /// Cannot be combined with a custom `http`.
+    bool ssrf_safe = false;
     /// HTTP client for JWKS fetches. Default: default_http_function() with a
     /// 10 s timeout.
     HttpFunction http;

@@ -245,6 +245,7 @@ class OAuth : public ClientAuth
 
     struct State;
     friend class ClientCredentialsOAuth;
+    friend class PrivateKeyJWTOAuth;
 
   private:
     std::unique_ptr<State> state_;
@@ -294,12 +295,99 @@ class ClientCredentialsOAuth : public ClientAuth
     std::unique_ptr<OAuth> impl_;
 };
 
+/// Returns an RFC 7523 client assertion for the authorization server whose issuer
+/// identifier (the required `aud`) is passed in.
+using AssertionProvider = std::function<std::string(const std::string& audience)>;
+
+/// An AssertionProvider that always returns @p token, e.g. a JWT obtained from workload
+/// identity federation that does not depend on the audience.
+AssertionProvider static_assertion_provider(std::string token);
+
+/// Signs client assertions locally: {iss, sub, aud, exp, iat, jti} plus additional_claims,
+/// with a fresh random jti each time.
+struct SignedJWTParameters
+{
+    /// `iss` claim, typically the client_id.
+    std::string issuer;
+    /// `sub` claim, typically the client_id.
+    std::string subject;
+    /// PEM private key (or shared secret for HS*).
+    std::string signing_key;
+    /// RS/PS/ES 256/384/512, EdDSA or HS256/384/512.
+    std::string signing_algorithm{"RS256"};
+    std::int64_t lifetime_seconds = 300;
+    /// Merged over the standard claims, in order.
+    nlohmann::ordered_json additional_claims;
+
+    /// An AssertionProvider signing with these parameters. Requires
+    /// FASTMCPP_ENABLE_SERVER_AUTH (JOSE support).
+    /// @throws std::logic_error in a build without it.
+    AssertionProvider create_assertion_provider() const;
+};
+
+/// Options for PrivateKeyJWTOAuth.
+struct PrivateKeyJWTOptions
+{
+    /// MCP endpoint URL. Optional: HttpRpcTransport::set_auth() binds the transport's URL.
+    std::string mcp_url;
+    std::string client_id;
+    /// Mints the client assertion for each token request.
+    AssertionProvider assertion_provider;
+    /// Scopes to request; they take precedence over server-advertised scopes.
+    std::vector<std::string> scopes;
+    /// The authorization server the client is registered with. An assertion is only minted,
+    /// and token requests only built, from metadata with this issuer; otherwise the flow stops
+    /// with OAuthFlowError. Without it the MCP server decides where assertions go, so always
+    /// set it.
+    std::optional<std::string> issuer;
+    /// Token storage, namespaced by (client_id, scopes, issuer). Defaults to a MemoryStore.
+    std::shared_ptr<KeyValueStore> token_storage;
+    /// HTTP client for the flow's own requests. Default: default_http_function().
+    HttpFunction http;
+};
+
+/// Machine-to-machine OAuth: the `client_credentials` grant authenticated with an RFC 7523
+/// `private_key_jwt` client assertion instead of a shared secret. The assertion's audience is
+/// the discovered authorization server's issuer. Otherwise as ClientCredentialsOAuth.
+class PrivateKeyJWTOAuth : public ClientAuth
+{
+  public:
+    /// @throws std::invalid_argument for an empty client_id, a missing assertion_provider,
+    ///         or an issuer that is not an http(s) URL.
+    explicit PrivateKeyJWTOAuth(PrivateKeyJWTOptions options);
+    ~PrivateKeyJWTOAuth() override;
+    PrivateKeyJWTOAuth(const PrivateKeyJWTOAuth&) = delete;
+    PrivateKeyJWTOAuth& operator=(const PrivateKeyJWTOAuth&) = delete;
+
+    void bind(const std::string& mcp_url) override;
+    std::unordered_map<std::string, std::string> headers(const HeaderRequest& request) override;
+    bool handle_challenge(const AuthChallenge& challenge) override;
+    std::optional<OAuthToken> current_token() const;
+
+  private:
+    std::unique_ptr<OAuth> impl_;
+};
+
 /// Whether an MCP endpoint appears to require authentication: a GET answered 401/403 or with
 /// WWW-Authenticate, or no connection at all (fastmcp check_if_auth_required).
 bool check_if_auth_required(const std::string& mcp_url, const HttpFunction& http = {});
 
+/// The page the loopback OAuth callback shows: a success page naming @p server_url, or
+/// @p message in an error box.
+std::string create_callback_html(const std::string& message, bool is_success = true,
+                                 const std::string& title = "FastMCP OAuth",
+                                 const std::optional<std::string>& server_url = std::nullopt);
+
 namespace detail
 {
+/// The loopback callback server behind OAuth's default callback_handler: serves
+/// create_callback_html pages on /callback at @p bind_host:@p port until the first redirect
+/// (or @p timeout) and returns its {code, state}. @p on_listening, when set, is called once the
+/// server accepts connections. @throws OAuthFlowError for an error redirect or a timeout.
+std::pair<std::string, std::optional<std::string>>
+run_callback_server(const std::string& bind_host, int port, std::chrono::seconds timeout,
+                    const std::optional<std::string>& server_url = std::nullopt,
+                    std::function<void(int)> on_listening = {});
 /// RFC 7636 S256: base64url(SHA-256(verifier)) without padding.
 std::string pkce_challenge(std::string_view verifier);
 /// Lowercase hex SHA-256 (exposed for tests).

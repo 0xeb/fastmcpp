@@ -1,5 +1,6 @@
 #include "fastmcpp/server/auth.hpp"
 
+#include "../internal/pyjson.hpp"
 #include "auth_detail.hpp"
 #include "fastmcpp/exceptions.hpp"
 #include "fastmcpp/util/crypto.hpp"
@@ -409,19 +410,9 @@ Json decode_jwt_part(const std::string& token, int index)
     if (parts.size() != 3)
         throw std::invalid_argument("Invalid JWT format (expected 3 parts)");
     std::string segment = parts[static_cast<std::size_t>(index)];
-    while (!segment.empty() && segment.back() == '=')
-        segment.pop_back();
-    auto bytes = util::crypto::base64url_decode(segment);
-    if (!bytes)
-        throw std::invalid_argument("Invalid base64-encoded JWT segment");
-    try
-    {
-        return Json::parse(std::string(bytes->begin(), bytes->end()));
-    }
-    catch (const std::exception& e)
-    {
-        throw std::invalid_argument(std::string("Invalid JSON in JWT segment: ") + e.what());
-    }
+    segment.append((4 - segment.size() % 4) % 4, '=');
+    const auto decoded = internal::pyjson::loads(internal::pyjson::urlsafe_b64decode(segment));
+    return Json(decoded);
 }
 } // namespace
 
